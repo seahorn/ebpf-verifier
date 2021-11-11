@@ -48,8 +48,8 @@ enum type_encoding_t {
     T_MAP = -5,
     T_NUM = -4,
     T_CTX = -3,
-    T_STACK = -2,
-    T_PACKET = -1,
+    T_PACKET = -2,
+    T_STACK = -1,
     T_SHARED = 0
 };
 
@@ -384,6 +384,12 @@ class SplitDBM final {
     }
 
     void operator+=(const linear_constraint_t& cst);
+
+    SplitDBM when(const linear_constraint_t& cst) const {
+        SplitDBM res(*this);
+        res += cst;
+        return res;
+    }
 
     interval_t eval_interval(const linear_expression_t& e) const {
         interval_t r{e.constant_term()};
