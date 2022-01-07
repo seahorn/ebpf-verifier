@@ -40,11 +40,11 @@ FAIL_UNMARSHAL("invalid", "invalid-lddw.o", ".text")
         std::variant<InstructionSeq, std::string> prog_or_error = unmarshal(raw_prog); \
         REQUIRE(std::holds_alternative<InstructionSeq>(prog_or_error)); \
         auto& prog = std::get<InstructionSeq>(prog_or_error); \
-        bool res = ebpf_verify_program(std::cout, prog, raw_prog.info, options, nullptr); \
+        crab_results res = ebpf_verify_program(std::cout, prog, raw_prog.info, options, nullptr); \
         if (pass)                                            \
-            REQUIRE(res);                                    \
+	  REQUIRE(res.pass_verify());			     \
         else                                                 \
-            REQUIRE(!res);                                   \
+	  REQUIRE(!res.pass_verify());			     \
     } while (0)
 
 #define TEST_SECTION(project, filename, section) \
