@@ -186,7 +186,10 @@ static checks_db get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info,
         // Convert verifier runtime_error exceptions to failure.
         checks_db db;
         db.add_warning(label_t::exit, e.what());
-        return db;
+	crab::invariant_table_t pre_invariants, post_invariants;
+        return crab_results(std::move(cfg),
+			    std::move(pre_invariants), std::move(post_invariants),
+			    std::move(db));
     }
 }
 
@@ -195,7 +198,7 @@ bool run_ebpf_analysis(std::ostream& s, cfg_t& cfg, const program_info& info, co
                        ebpf_verifier_stats_t* stats) {
     if (options == nullptr)
         options = &ebpf_verifier_default_options;
-    checks_db report = get_ebpf_report(s, cfg, info, options);
+    checks_db report = get_ebpf_report(s, cfg, info, options).db;
     if (stats) {
         stats->total_unreachable = report.total_unreachable;
         stats->total_warnings = report.total_warnings;
@@ -235,8 +238,8 @@ ebpf_analyze_program_for_test(std::ostream& os, const InstructionSeq& prog, cons
 }
 
 /// Returned value is true if the program passes verification.
-bool ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const program_info& info,
-                         const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
+crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const program_info& info,
+				 const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
     if (options == nullptr)
         options = &ebpf_verifier_default_options;
 
@@ -244,7 +247,8 @@ bool ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const pro
     // in a "passive", non-deterministic form.
     cfg_t cfg = prepare_cfg(prog, info, !options->no_simplify);
 
-    checks_db report = get_ebpf_report(os, cfg, info, options);
+    crab_results results = get_ebpf_report(os, cfg, info, options);
+    checks_db &report = results.db;
     if (options->print_failures) {
         print_report(os, report, prog, options->print_line_info);
     }
@@ -253,7 +257,8 @@ bool ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const pro
         stats->total_warnings = report.total_warnings;
         stats->max_instruction_count = report.get_max_instruction_count();
     }
-    return (report.total_warnings == 0);
+    //return (report.total_warnings == 0);
+    return results;
 }
 
 void ebpf_verifier_clear_thread_local_state() {
