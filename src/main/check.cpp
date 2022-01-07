@@ -8,6 +8,7 @@
 #include "CLI11.hpp"
 
 #include "ebpf_verifier.hpp"
+#include "ebpf_proof.hpp"
 #ifdef _WIN32
 #include "memsize_windows.hpp"
 #else
@@ -58,6 +59,9 @@ int main(int argc, char** argv) {
     app.add_flag("-v", verbose, "Print both invariants and failures");
     app.add_flag("--no-simplify", ebpf_verifier_options.no_simplify, "Do not simplify");
 
+    bool gen_proof = false;
+    app.add_flag("--gen-proof", gen_proof, "Generate a proof if program is proven correct");
+    
     std::string asmfile;
     app.add_option("--asm", asmfile, "Print disassembly to FILE")->type_name("FILE");
     std::string dotfile;
@@ -143,14 +147,19 @@ int main(int argc, char** argv) {
 
     if (domain == "zoneCrab") {
         ebpf_verifier_stats_t verifier_stats;
-        const auto [res, seconds] = timed_execution([&] {
+        auto [res, seconds] = timed_execution([&] {
             return ebpf_verify_program(std::cout, prog, raw_prog.info, &ebpf_verifier_options, &verifier_stats);
         });
         if (ebpf_verifier_options.check_termination && (ebpf_verifier_options.print_failures || ebpf_verifier_options.print_invariants)) {
             std::cout << "Program terminates within " << verifier_stats.max_instruction_count << " instructions\n";
         }
-        std::cout << res << "," << seconds << "," << resident_set_size_kb() << "\n";
-        return !res;
+        std::cout << res.pass_verify() << "," << seconds << "," << resident_set_size_kb() << "\n";
+
+	if (gen_proof) {
+	  ebpf_generate_proof(std::cout, prog, raw_prog.info, &ebpf_verifier_options, res);
+	}
+	
+        return !res.pass_verify();
     } else if (domain == "linux") {
         // Pass the instruction sequence to the Linux kernel verifier.
         const auto [res, seconds] = bpf_verify_program(raw_prog.info.type, raw_prog.prog, &ebpf_verifier_options);
