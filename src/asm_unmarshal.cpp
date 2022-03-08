@@ -296,6 +296,9 @@ struct Unmarshaller {
 
     auto makeCall(int32_t imm) const {
         EbpfHelperPrototype proto = info.platform->get_helper_prototype(imm);
+        if (proto.return_type == EBPF_RETURN_TYPE_UNSUPPORTED) {
+            throw std::runtime_error(std::string("Unsupported function: ") + proto.name);
+        }
         Call res;
         res.func = imm;
         res.name = proto.name;
@@ -311,6 +314,9 @@ struct Unmarshaller {
             EBPF_ARGUMENT_TYPE_DONTCARE}};
         for (size_t i = 1; i < args.size() - 1; i++) {
             switch (args[i]) {
+            case EBPF_ARGUMENT_TYPE_UNSUPPORTED: {
+                throw std::runtime_error(std::string("Unsupported function: ") + proto.name);
+            }
             case EBPF_ARGUMENT_TYPE_DONTCARE: return res;
             case EBPF_ARGUMENT_TYPE_ANYTHING:
             case EBPF_ARGUMENT_TYPE_PTR_TO_MAP:
@@ -363,7 +369,7 @@ struct Unmarshaller {
         }
     }
 
-    vector<LabeledInstruction> unmarshal(vector<ebpf_inst> const& insts) {
+    vector<LabeledInstruction> unmarshal(vector<ebpf_inst> const& insts, vector<btf_line_info_t> const& line_info) {
         vector<LabeledInstruction> prog;
         int exit_count = 0;
         if (insts.empty()) {
@@ -419,7 +425,14 @@ struct Unmarshaller {
             */
             if (pc == insts.size() - 1 && fallthrough)
                 note("fallthrough in last instruction");
-            prog.emplace_back(label_t(static_cast<int>(pc)), new_ins);
+
+            std::optional<btf_line_info_t> current_line_info = {};
+
+            if (pc < line_info.size())
+                current_line_info = line_info[pc];
+
+            prog.emplace_back(label_t(static_cast<int>(pc)), new_ins, current_line_info);
+
             pc++;
             note_next_pc();
             if (lddw) {
@@ -436,7 +449,7 @@ struct Unmarshaller {
 std::variant<InstructionSeq, std::string> unmarshal(const raw_program& raw_prog, vector<vector<string>>& notes) {
     global_program_info = raw_prog.info;
     try {
-        return Unmarshaller{notes, raw_prog.info}.unmarshal(raw_prog.prog);
+        return Unmarshaller{notes, raw_prog.info}.unmarshal(raw_prog.prog, raw_prog.line_info);
     } catch (InvalidInstruction& arg) {
         std::ostringstream ss;
         ss << arg.pc << ": " << arg.what() << "\n";

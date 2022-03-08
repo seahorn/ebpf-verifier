@@ -9,13 +9,14 @@
 #include <vector>
 
 #include "crab/variable.hpp"
+#include "spec_type_descriptors.hpp"
 
 namespace crab {
 struct label_t {
     int from; ///< Jump source, or simply index of instruction
     int to; ///< Jump target or -1
 
-    constexpr explicit label_t(int index, int to=-1) noexcept : from(index), to(to) { }
+    constexpr explicit label_t(int index, int to = -1) noexcept : from(index), to(to) {}
 
     static constexpr label_t make_jump(const label_t& src_label, const label_t& target_label) {
         return label_t{src_label.from, target_label.from};
@@ -51,7 +52,7 @@ struct label_t {
 inline const label_t label_t::entry{-1};
 inline const label_t label_t::exit{-2};
 
-}
+} // namespace crab
 using crab::label_t;
 
 // Assembly syntax.
@@ -305,7 +306,7 @@ struct Assert {
 
 using Instruction = std::variant<Undefined, Bin, Un, LoadMapFd, Call, Exit, Jmp, Mem, Packet, LockAdd, Assume, Assert>;
 
-using LabeledInstruction = std::tuple<label_t, Instruction>;
+using LabeledInstruction = std::tuple<label_t, Instruction, std::optional<btf_line_info_t>>;
 using InstructionSeq = std::vector<LabeledInstruction>;
 
 using pc_t = uint16_t;

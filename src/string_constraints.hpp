@@ -8,6 +8,7 @@
 #include <string>
 #include <vector>
 
+#include "crab/interval.hpp"
 #include "crab/linear_constraint.hpp"
 
 struct string_invariant {
@@ -32,6 +33,7 @@ struct string_invariant {
     }
 
     string_invariant operator-(const string_invariant& b) const;
+    string_invariant operator+(const string_invariant& b) const;
 
     bool operator==(const string_invariant& other) const { return maybe_inv == other.maybe_inv; }
 
@@ -42,4 +44,4 @@ struct string_invariant {
     friend std::ostream& operator<<(std::ostream&, const string_invariant& inv);
 };
 
-std::vector<linear_constraint_t> parse_linear_constraints(const std::set<std::string>& constraints);
+std::vector<linear_constraint_t> parse_linear_constraints(const std::set<std::string>& constraints, std::vector<crab::interval_t>& numeric_ranges);
