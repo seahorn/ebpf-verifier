@@ -60,7 +60,7 @@ ebpf_platform_t g_platform_test = {
     .get_map_type = ebpf_get_map_type
 };
 
-static EbpfProgramType make_progran_type(const string& name, ebpf_context_descriptor_t* context_descriptor) {
+static EbpfProgramType make_program_type(const string& name, ebpf_context_descriptor_t* context_descriptor) {
     return EbpfProgramType{
         .name=name,
         .context_descriptor=context_descriptor,
@@ -145,11 +145,11 @@ static InstructionSeq raw_cfg_to_instruction_seq(const vector<std::tuple<string,
     InstructionSeq res;
     label_index = 0;
     for (const auto& [label_name, raw_block] : raw_blocks) {
-        for (const string& line: raw_block) {
+        for (const string& line : raw_block) {
             const Instruction& ins = parse_instruction(line, label_name_to_label);
             if (std::holds_alternative<Undefined>(ins))
                 std::cout << "text:" << line << "; ins: " << ins << "\n";
-            res.emplace_back(label_index, ins);
+            res.emplace_back(label_index, ins, std::optional<btf_line_info_t>());
             label_index++;
         }
     }
@@ -198,7 +198,7 @@ static Diff<T> make_diff(const T& actual, const T& expected) {
 
 std::optional<Failure> run_yaml_test_case(const TestCase& test_case) {
     ebpf_context_descriptor_t context_descriptor{0, -1, -1, -1};
-    EbpfProgramType program_type = make_progran_type(test_case.name, &context_descriptor);
+    EbpfProgramType program_type = make_program_type(test_case.name, &context_descriptor);
 
     program_info info{&g_platform_test, {}, program_type};
 

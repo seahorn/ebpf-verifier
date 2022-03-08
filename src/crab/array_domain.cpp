@@ -628,6 +628,8 @@ bool array_domain_t::is_bottom() const { return num_bytes.is_bottom(); }
 
 bool array_domain_t::is_top() const { return num_bytes.is_top(); }
 
+string_invariant array_domain_t::to_set() const { return num_bytes.to_set(); }
+
 bool array_domain_t::operator<=(const array_domain_t& other) const { return num_bytes <= other.num_bytes; }
 
 bool array_domain_t::operator==(const array_domain_t& other) const {

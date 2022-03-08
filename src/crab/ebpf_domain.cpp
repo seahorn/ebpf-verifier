@@ -1239,10 +1239,16 @@ void ebpf_domain_t::operator()(const Bin& bin) {
             } else {
                 // Here we're not sure that lhs and rhs are the same type; they might be, meaning lhs may be a number.
                 // But previous assertions should fail unless we know that rhs is a number.
-                assert(type_inv.get_type(m_inv, std::get<Reg>(bin.v)) == T_NUM);
-                sub_overflow(dst.value, src.value);
-                // No harm comes from subtracting the value from an offset of a number, which is TOP.
-                sub(dst.offset, src.value);
+                if (type_inv.get_type(m_inv, std::get<Reg>(bin.v)) != T_NUM) {
+                    type_inv.havoc_type(m_inv, bin.dst);
+                    havoc(dst.value);
+                    havoc(dst.offset);
+                    havoc(dst.region_size);
+                } else {
+                    sub_overflow(dst.value, src.value);
+                    // No harm comes from subtracting the value from an offset of a number, which is TOP.
+                    sub(dst.offset, src.value);
+                }
             }
             break;
         }
@@ -1298,7 +1304,7 @@ void ebpf_domain_t::operator()(const Bin& bin) {
 }
 
 string_invariant ebpf_domain_t::to_set() {
-    return this->m_inv.to_set();
+    return this->m_inv.to_set() + this->stack.to_set();
 }
 
 std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom) {
@@ -1327,12 +1333,18 @@ void ebpf_domain_t::initialize_packet(ebpf_domain_t& inv) {
     }
 }
 
-ebpf_domain_t ebpf_domain_t::from_constraints(const std::vector<linear_constraint_t>& csts) {
-    // TODO: handle type constraints separately
+ebpf_domain_t ebpf_domain_t::from_constraints(const std::set<std::string>& constraints) {
     ebpf_domain_t inv;
-    for (const auto& cst: csts) {
+    auto numeric_ranges = std::vector<crab::interval_t>();
+    for (const auto& cst : parse_linear_constraints(constraints, numeric_ranges)) {
         inv += cst;
     }
+    for (const crab::interval_t& range : numeric_ranges) {
+        int start = (int)range.lb().number().value();
+        int width = 1 + (int)(range.ub() - range.lb()).number().value();
+        inv.stack.initialize_numbers(start, width);
+    }
+    // TODO: handle other stack type constraints
     return inv;
 }
 
