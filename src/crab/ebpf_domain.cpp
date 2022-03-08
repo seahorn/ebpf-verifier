@@ -170,9 +170,9 @@ bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) {
     return m_inv <= other.m_inv && stack <= other.stack;
 }
 
-bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
-    return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
-}
+// bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
+//     return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
+// }
 
 void ebpf_domain_t::operator|=(ebpf_domain_t&& other) {
     if (is_bottom()) {

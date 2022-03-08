@@ -28,7 +28,7 @@ class ebpf_domain_t final {
     bool is_bottom() const;
     bool is_top() const;
     bool operator<=(const ebpf_domain_t& other);
-    bool operator==(const ebpf_domain_t& other) const;
+    //bool operator==(const ebpf_domain_t& other) const;
     void operator|=(ebpf_domain_t&& other);
     void operator|=(const ebpf_domain_t& other);
     ebpf_domain_t operator|(ebpf_domain_t&& other) const;
