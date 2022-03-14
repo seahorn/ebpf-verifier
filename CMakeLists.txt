@@ -66,6 +66,7 @@ file(GLOB ALL_TEST
         "./src/test/test_verify.cpp"
         "./src/test/test_wto.cpp"
         "./src/test/test_yaml.cpp"
+        "./src/test/test_types.cpp"
         )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR

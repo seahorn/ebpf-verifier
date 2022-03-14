@@ -16,17 +16,12 @@ enum class region {
 	T_SHARED,
 };
 
-
-struct ptr_with_off_t;
-
 struct ptr_no_off_t {
     region r;
 
     ptr_no_off_t(region _r) : r(_r) {}
     ptr_no_off_t(const ptr_no_off_t& p) : r(p.r) {}
-    bool operator!=(const ptr_with_off_t& p) {
-        return false;
-    }
+
     bool operator!=(const ptr_no_off_t& p) {
         return r != p.r;
     }
@@ -38,9 +33,7 @@ struct ptr_with_off_t {
 
     ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
     ptr_with_off_t(const ptr_with_off_t& p) : r(p.r), offset(p.offset) {}
-    bool operator!=(const ptr_no_off_t& p) {
-        return false;
-    }
+
     bool operator!=(const ptr_with_off_t& p) {
         return r != p.r;
     }
@@ -53,22 +46,34 @@ struct reg_with_loc_t {
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 
-using stack_t = std::unordered_map<int, ptr_t>;
+using stack_t = std::unordered_map<uint64_t, ptr_t>;
 using types_t = std::unordered_map<uint8_t, ptr_t>;
-using ctx_t = std::unordered_map<int, ptr_no_off_t>;
+
+
+using offset_to_ptr_t = std::unordered_map<int, crab::ptr_no_off_t>;
+
+struct ctx_t {
+    offset_to_ptr_t packet_ptrs;
+
+    ctx_t(const ebpf_context_descriptor_t* desc)
+    {
+        packet_ptrs.insert(std::make_pair(desc->data, crab::ptr_no_off_t(crab::region::T_PACKET)));
+        packet_ptrs.insert(std::make_pair(desc->end, crab::ptr_no_off_t(crab::region::T_PACKET)));
+    }
+};
 }
 
 class type_domain_t final {
 
     crab::stack_t stack;
     crab::types_t types;
-    crab::ctx_t ctx;
+    crab::offset_to_ptr_t ctx;
 
   public:
 
   type_domain_t() {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-  static type_domain_t setup_entry(const crab::ctx_t&);
+  static type_domain_t setup_entry(const crab::offset_to_ptr_t&);
   // bottom/top
   void set_to_top();
   void set_to_bottom();
@@ -113,3 +118,5 @@ class type_domain_t final {
   void do_mem_store(const Mem&, const Reg&);
 
 }; // end type_domain_t
+
+using types_table_t = std::map<label_t, type_domain_t>;
