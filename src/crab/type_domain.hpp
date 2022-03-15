@@ -40,14 +40,23 @@ struct ptr_with_off_t {
 };
 
 struct reg_with_loc_t {
-    uint8_t r;
-    int loc;
+    int r;
+    std::pair<label_t, int> loc;
+
+    reg_with_loc_t() : r(-1), loc(std::make_pair(label_t::entry, -1)) {}
+    reg_with_loc_t(int _r, const label_t& l, int loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
+
+    bool operator==(const reg_with_loc_t& other) const {
+        return (r == other.r && loc.first == other.loc.first && loc.second == other.loc.second);
+    }
 };
+
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 
 using stack_t = std::unordered_map<uint64_t, ptr_t>;
-using types_t = std::unordered_map<uint8_t, ptr_t>;
+using types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
+using live_vars_t = std::array<reg_with_loc_t, 11>;
 
 
 using offset_to_ptr_t = std::unordered_map<int, crab::ptr_no_off_t>;
@@ -66,14 +75,16 @@ struct ctx_t {
 class type_domain_t final {
 
     crab::stack_t stack;
-    crab::types_t types;
-    crab::offset_to_ptr_t ctx;
+    std::shared_ptr<crab::types_t> types;
+    crab::live_vars_t live_vars;
+    std::shared_ptr<crab::ctx_t> ctx;
+    label_t label;
 
   public:
 
-  type_domain_t() {}
+  type_domain_t(const label_t& _l) : label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-  static type_domain_t setup_entry(const crab::offset_to_ptr_t&);
+  static type_domain_t setup_entry(std::shared_ptr<crab::ctx_t>, std::shared_ptr<crab::types_t>);
   // bottom/top
   void set_to_top();
   void set_to_bottom();
@@ -107,6 +118,7 @@ class type_domain_t final {
   void operator()(const Assume &);
   void operator()(const Assert &);
   void operator()(const basic_block_t& bb) {
+      label = bb.label();
       for (const Instruction& statement : bb) {
         std::visit(*this, statement);
     }
@@ -119,4 +131,24 @@ class type_domain_t final {
 
 }; // end type_domain_t
 
-using types_table_t = std::map<label_t, type_domain_t>;
+// adapted from top answer in
+// https://stackoverflow.com/questions/17016175/c-unordered-map-using-a-custom-class-type-as-the-key
+// works for now but needs to be checked again
+template <>
+struct std::hash<crab::reg_with_loc_t>
+{
+    std::size_t operator()(const crab::reg_with_loc_t& reg) const
+    {
+        using std::size_t;
+        using std::hash;
+        using std::string;
+
+        // Compute individual hash values for first,
+        // second and third and combine them using XOR
+        // and bit shifting:
+
+        return ((hash<int>()(reg.r)
+               ^ (hash<int>()(reg.loc.first.from) << 1)) >> 1)
+               ^ (hash<int>()(reg.loc.second) << 1);
+    }
+};
