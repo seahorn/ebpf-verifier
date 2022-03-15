@@ -20,7 +20,7 @@ type_domain_t get_post(const label_t& node, types_table_t& t)
 
 type_domain_t get_prev(const label_t& node, types_table_t& t, const cfg_t& cfg) {
     auto rng = cfg.prev_nodes(node);
-    return get_post(*(rng.begin()), t);
+    return get_post(*(rng.begin()), t); // currently supported for basic blocks with no branches
 }
 
 
@@ -41,6 +41,7 @@ TEST_CASE("check-types", "[types]") {
     block1.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=0}, .value = Reg{2}, .is_load = true});
     block1.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=4}, .value = Reg{3}, .is_load = true});
     block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = false});
+    block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-8}, .value = Reg{3}, .is_load = true});
 
     entry >> block1;
     block1 >> block2;
