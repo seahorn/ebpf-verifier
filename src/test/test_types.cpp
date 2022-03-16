@@ -60,8 +60,8 @@ TEST_CASE("check-types", "[types]") {
     std::cout << cfg << "\n";
 
     std::shared_ptr<all_types_t> all_types = std::make_shared<all_types_t>();
-    update(all_types, reg_with_loc_t(R1_ARG, label_t::entry, -1), ptr_with_off_t(crab::region::T_CTX, 0));
-    update(all_types, reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1), ptr_with_off_t(crab::region::T_STACK, 512));
+    update(all_types, reg_with_loc_t(R1_ARG, label_t::entry, 0), ptr_with_off_t(crab::region::T_CTX, 0));
+    update(all_types, reg_with_loc_t(R10_STACK_POINTER, label_t::entry, 0), ptr_with_off_t(crab::region::T_STACK, 512));
 
     ebpf_context_descriptor_t context_descriptor{0, 0, 4, -1};
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(&context_descriptor);

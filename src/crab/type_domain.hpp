@@ -52,10 +52,10 @@ using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 
 struct reg_with_loc_t {
     int r;
-    std::pair<label_t, int> loc;
+    std::pair<label_t, uint32_t> loc;
 
-    reg_with_loc_t() : r(-1), loc(std::make_pair(label_t::entry, -1)) {}
-    reg_with_loc_t(int _r, const label_t& l, int loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
+    reg_with_loc_t() : r(-1), loc(std::make_pair(label_t::entry, 0)) {}
+    reg_with_loc_t(int _r, const label_t& l, uint32_t loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
 
     bool operator==(const reg_with_loc_t& other) const {
         return (r != -1 && r == other.r);
@@ -175,6 +175,7 @@ class type_domain_t final {
     crab::types_t types;
     std::shared_ptr<crab::ctx_t> ctx;
     label_t label;
+    uint32_t m_curr_pos = 0;
 
   public:
 
@@ -217,8 +218,10 @@ class type_domain_t final {
   void operator()(const Assume &);
   void operator()(const Assert &);
   void operator()(const basic_block_t& bb) {
+      m_curr_pos = 0;
       label = bb.label();
       for (const Instruction& statement : bb) {
+        m_curr_pos++;
         std::visit(*this, statement);
     }
   }
