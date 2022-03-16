@@ -19,7 +19,7 @@ type_domain_t get_post(const label_t& node, types_table_t& t)
 
 
 type_domain_t join_all_prevs(const label_t& node, types_table_t& t, const cfg_t& cfg) {
-    type_domain_t res(node);
+    type_domain_t res = type_domain_t::bottom();
     for (const label_t& prev : cfg.prev_nodes(node)) {
         res = res | get_post(prev, t);
     }
@@ -31,7 +31,7 @@ TEST_CASE("check-types", "[types]") {
     cfg_t cfg;
     types_table_t types_table;
 
-    for (int i = 1; i <= 3; i++) {
+    for (int i = 1; i <= 4; i++) {
         cfg.insert(label_t(i));
     }
 
@@ -39,29 +39,34 @@ TEST_CASE("check-types", "[types]") {
     basic_block_t& block1 = cfg.get_node(label_t(1));
     basic_block_t& block2 = cfg.get_node(label_t(2));
     basic_block_t& block3 = cfg.get_node(label_t(3));
+    basic_block_t& block4 = cfg.get_node(label_t(4));
     basic_block_t& exit = cfg.get_node(label_t::exit);
 
     block1.insert(Bin{.op = Bin::Op::MOV, .dst = Reg{6}, .v = Reg{1}, .is64 = true});
     block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=0}, .value = Reg{2}, .is_load = true});
     block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=4}, .value = Reg{3}, .is_load = true});
-    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = false});
-    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-8}, .value = Reg{3}, .is_load = true});
+    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=0}, .value = Reg{2}, .is_load = true});
+    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=4}, .value = Reg{3}, .is_load = true});
+    block4.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = false});
+    block4.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = true});
 
     entry >> block1;
     block1 >> block2;
-    block2 >> block3;
-    block3 >> exit;
+    block1 >> block3;
+    block2 >> block4;
+    block3 >> block4;
+    block4 >> exit;
 
     std::cout << cfg << "\n";
 
-    std::shared_ptr<types_t> types = std::make_shared<types_t>();
-    update(types, reg_with_loc_t(R1_ARG, label_t::entry, -1), ptr_with_off_t(crab::region::T_CTX, 0));
-    update(types, reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1), ptr_with_off_t(crab::region::T_STACK, 512));
+    std::shared_ptr<all_types_t> all_types = std::make_shared<all_types_t>();
+    update(all_types, reg_with_loc_t(R1_ARG, label_t::entry, -1), ptr_with_off_t(crab::region::T_CTX, 0));
+    update(all_types, reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1), ptr_with_off_t(crab::region::T_STACK, 512));
 
     ebpf_context_descriptor_t context_descriptor{0, 0, 4, -1};
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(&context_descriptor);
 
-    type_domain_t type = type_domain_t::setup_entry(ctx, types);
+    type_domain_t type = type_domain_t::setup_entry(ctx, all_types);
 
     auto labels = cfg.labels();
     for (auto& label : labels)
