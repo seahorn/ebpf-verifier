@@ -201,18 +201,8 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
     }
     else {
         auto type_in_stack = it3->second;
-        if (type_stored.index() != type_in_stack.index()) {
+        if (type_stored != type_in_stack) {
             CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
-        }
-        if (std::holds_alternative<ptr_with_off_t>(type_stored)) {
-            if (std::get<ptr_with_off_t>(type_stored) != std::get<ptr_with_off_t>(type_in_stack)) {
-                CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
-            }
-        }
-        else {
-            if (std::get<ptr_no_off_t>(type_stored) != std::get<ptr_no_off_t>(type_in_stack)) {
-                CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
-            }
         }
     }
 }
