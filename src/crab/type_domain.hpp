@@ -92,17 +92,30 @@ using offset_to_ptr_no_off_t = std::unordered_map<uint64_t, ptr_no_off_t>;
 using offset_to_ptr_t = std::unordered_map<uint64_t, ptr_t>;
 
 struct ctx_t {
+  private:
     offset_to_ptr_no_off_t packet_ptrs;
 
+  public:
     ctx_t(const ebpf_context_descriptor_t* desc)
     {
         packet_ptrs.insert(std::make_pair(desc->data, crab::ptr_no_off_t(crab::region::T_PACKET)));
         packet_ptrs.insert(std::make_pair(desc->end, crab::ptr_no_off_t(crab::region::T_PACKET)));
     }
+
+    std::optional<ptr_no_off_t> find(int key) const {
+        auto it = packet_ptrs.find(key);
+        if (it == packet_ptrs.end()) return {};
+        return it->second;
+    }
 };
 
 struct stack_t {
+  private:
     offset_to_ptr_t ptrs;
+    bool _is_bottom;
+
+  public:
+    explicit stack_t(bool is_bottom = false) : _is_bottom(is_bottom) {}
 
     stack_t operator|(const stack_t& other) const {
         stack_t st{};
@@ -123,11 +136,35 @@ struct stack_t {
     }
 
     void set_to_bottom() {
-        ptrs.clear();
+        this->~stack_t();
+        new (this) stack_t(true);
     }
 
-    bool is_bottom() const {
+    void set_to_top() {
+        this->~stack_t();
+        new (this) stack_t(false);
+    }
+
+    static stack_t bottom() { return stack_t(true); }
+
+    static stack_t top() { return stack_t(false); }
+
+    bool is_bottom() const { return _is_bottom; }
+
+    bool is_top() const {
+        if (_is_bottom)
+            return false;
         return ptrs.empty();
+    }
+
+    offset_to_ptr_t get_ptrs() const { return ptrs; }
+
+    void insert(int key, ptr_t value) { ptrs.insert(std::make_pair(key, value)); }
+
+    std::optional<ptr_t> find(int key) {
+        auto it = ptrs.find(key);
+        if (it == ptrs.end()) return {};
+        return it->second;
     }
 };
 
@@ -135,7 +172,7 @@ using all_types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
 struct types_t {
     std::array<reg_with_loc_t, 11> vars;
-    std::shared_ptr<crab::all_types_t> all_types;
+    std::shared_ptr<all_types_t> all_types;
 
     types_t() {}
     types_t(const types_t& other) : vars(other.vars), all_types(other.all_types) {}
