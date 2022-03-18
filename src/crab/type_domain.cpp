@@ -112,12 +112,12 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
     switch (type_with_off.r) {
         case crab::region::T_STACK: {
 
-            auto it = stack.ptrs.find(load_at);
+            auto it = stack.find(load_at);
 
-            if (it == stack.ptrs.end()) {
+            if (!it) {
                 CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in stack");
             }
-            ptr_t type_loaded = it->second;
+            ptr_t type_loaded = it.value();
 
             if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
@@ -136,13 +136,12 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
         }
         case crab::region::T_CTX: {
 
-            auto ptrs = ctx->packet_ptrs;
-            auto it = ptrs.find(load_at);
+            auto it = ctx->find(load_at);
 
-            if (it == ptrs.end()) {
+            if (!it) {
                 CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in context");
             }
-            ptr_no_off_t type_loaded = it->second;
+            ptr_no_off_t type_loaded = it.value();
 
             auto reg = reg_with_loc_t(target_reg.v, label, m_curr_pos);
             update(types.all_types, reg, type_loaded);
@@ -195,15 +194,15 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
 
     uint64_t store_at = offset+type_basereg_with_off.offset;
 
-    auto it3 = stack.ptrs.find(store_at);
-    if (it3 == stack.ptrs.end()) {
-        stack.ptrs.insert(std::make_pair(store_at, type_stored));
-    }
-    else {
-        auto type_in_stack = it3->second;
+    auto it3 = stack.find(store_at);
+    if (it3) {
+        auto type_in_stack = it3.value();
         if (type_stored != type_in_stack) {
             CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
         }
+    }
+    else {
+        stack.insert(store_at, type_stored);
     }
 }
 
