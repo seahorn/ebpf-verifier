@@ -13,8 +13,28 @@ enum class region {
 	T_CTX,
 	T_STACK,
 	T_PACKET,
-	T_SHARED,
+	T_SHARED
 };
+
+std::string get_region(const region& r) {
+    switch (r) {
+        case region::T_CTX:
+            return "ctx";
+        case region::T_STACK:
+            return "stack";
+        case region::T_PACKET:
+            return "packet";
+        case region::T_SHARED:
+            return "shared";
+        default:
+            return "undefined";
+    }
+}
+
+std::ostream& operator<<(std::ostream& o, const region& t) {
+    o << static_cast<std::underlying_type<region>::type>(t);
+    return o;
+}
 
 struct ptr_no_off_t {
     region r;
@@ -28,6 +48,10 @@ struct ptr_no_off_t {
 
     friend bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
         return !(p2 == p1);
+    }
+
+    friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
+        return o << "{" << get_region(p.r) << "}";
     }
 };
 
@@ -44,6 +68,10 @@ struct ptr_with_off_t {
 
     friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
         return !(p1 == p2);
+    }
+
+    friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
+        return o << "{" << get_region(p.r) << ", " << p.offset << "}";
     }
 };
 
@@ -166,6 +194,22 @@ struct stack_t {
         if (it == ptrs.end()) return {};
         return it->second;
     }
+
+    friend std::ostream& operator<<(std::ostream& o, const stack_t& st) {
+        o << "Stack: {";
+        for (auto s : st.get_ptrs()) {
+            o << s.first << ": ";
+            if (std::holds_alternative<ptr_with_off_t>(s.second)) {
+                auto t = std::get<ptr_with_off_t>(s.second);
+                o << t << ", ";
+            }
+            else {
+                auto t = std::get<ptr_no_off_t>(s.second);
+                o << t << ", ";
+            }
+        }
+        return o << "}";
+    }
 };
 
 using all_types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
@@ -205,23 +249,41 @@ struct types_t {
 
     bool is_bottom() const { return _is_bottom; }
 
-    bool is_top() const {
-        if (_is_bottom)
-            return false;
-        return true;
-    }
-
     void insert(uint32_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
         auto it = all_types->insert(std::make_pair(reg_with_loc, type));
         if (not it.second) it.first->second = type;
         vars[reg] = reg_with_loc;
     }
 
-    std::optional<ptr_t> find(uint32_t key) {
-        auto reg = vars[key];
+    std::optional<ptr_t> find(const reg_with_loc_t& reg) const {
         auto it = all_types->find(reg);
         if (it == all_types->end()) return {};
         return it->second;
+    }
+
+    std::optional<ptr_t> find(uint32_t key) const {
+        auto reg = vars[key];
+        return find(reg);
+    }
+
+    reg_live_vars_t get_vars() const { return vars; }
+
+    friend std::ostream& operator<<(std::ostream& o, const types_t& typ) {
+        for (const auto& v : typ.get_vars()) {
+            auto it = typ.find(v);
+            if (it) {
+                o << "\ttype of r" << v.r << ": ";
+                if (std::holds_alternative<ptr_with_off_t>(it.value())) {
+                    auto t = std::get<ptr_with_off_t>(it.value());
+                    o << t << "\n";
+                }
+                else {
+                    auto t = std::get<ptr_no_off_t>(it.value());
+                    o << t << "\n";
+                }
+            }
+        }
+        return o;
     }
 };
 
@@ -253,6 +315,7 @@ class type_domain_t final {
   // join
   void operator|=(type_domain_t& other) const;
   void operator|=(const type_domain_t& other) const;
+  friend std::ostream& operator<<(std::ostream&, const type_domain_t&);
   type_domain_t operator|(type_domain_t& other) const;
   type_domain_t operator|(const type_domain_t& other) const&;
   // meet
@@ -278,9 +341,11 @@ class type_domain_t final {
   void operator()(const basic_block_t& bb) {
       m_curr_pos = 0;
       label = bb.label();
+      std::cout << label << ": \n";
       for (const Instruction& statement : bb) {
         m_curr_pos++;
         std::visit(*this, statement);
+        std::cout << *this << "\n";
     }
   }
 

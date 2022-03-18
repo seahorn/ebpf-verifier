@@ -45,10 +45,12 @@ TEST_CASE("check-types", "[types]") {
     block1.insert(Bin{.op = Bin::Op::MOV, .dst = Reg{6}, .v = Reg{1}, .is64 = true});
     block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=0}, .value = Reg{2}, .is_load = true});
     block2.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=4}, .value = Reg{3}, .is_load = true});
+    block2.insert(Bin{.op = Bin::Op::MOV, .dst = Reg{4}, .v = Reg{2}, .is64 = true});
     block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=0}, .value = Reg{2}, .is_load = true});
     block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{1}, .offset=4}, .value = Reg{3}, .is_load = true});
-    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = false});
-    block4.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{3}, .is_load = true});
+    block3.insert(Bin{.op = Bin::Op::MOV, .dst = Reg{4}, .v = Reg{2}, .is64 = true});
+    block3.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{6}, .is_load = false});
+    block4.insert(Mem{.access = Deref{.width=4, .basereg=Reg{10}, .offset=-4}, .value = Reg{4}, .is_load = true});
 
     entry >> block1;
     block1 >> block2;
