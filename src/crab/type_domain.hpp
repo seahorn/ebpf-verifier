@@ -63,7 +63,7 @@ struct ptr_with_off_t {
     ptr_with_off_t(const ptr_with_off_t& p) : r(p.r), offset(p.offset) {}
 
     friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-        return (p1.r == p2.r);
+        return (p1.r == p2.r && p1.offset == p2.offset);
     }
 
     friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
