@@ -16,7 +16,7 @@ enum class region {
 	T_SHARED
 };
 
-std::string get_region(const region& r) {
+inline std::string get_region(const region& r) {
     switch (r) {
         case region::T_CTX:
             return "ctx";
@@ -31,7 +31,7 @@ std::string get_region(const region& r) {
     }
 }
 
-std::ostream& operator<<(std::ostream& o, const region& t) {
+inline std::ostream& operator<<(std::ostream& o, const region& t) {
     o << static_cast<std::underlying_type<region>::type>(t);
     return o;
 }
