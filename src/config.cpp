@@ -9,6 +9,7 @@ const ebpf_verifier_options_t ebpf_verifier_default_options = {
     .print_invariants = false,
     .print_failures = false,
     .no_simplify = false,
+    .abstract_domain = abstract_domain_kind::EBPF_DOMAIN,
     .mock_map_fds = true,
     .strict = false,
     .print_line_info = false,
