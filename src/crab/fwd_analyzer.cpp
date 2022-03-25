@@ -6,7 +6,6 @@
 #include "crab/cfg.hpp"
 #include "crab/wto.hpp"
 
-#include "crab/ebpf_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 
 namespace crab {
@@ -45,6 +44,7 @@ class interleaved_fwd_fixpoint_iterator_t final {
     using iterator = typename invariant_table_t::iterator;
 
     cfg_t& _cfg;
+    abstract_domain_t _bottom_inv;
     wto_t _wto;
     invariant_table_t _pre, _post;
 
@@ -66,17 +66,28 @@ class interleaved_fwd_fixpoint_iterator_t final {
     const bool check_termination;
 
   private:
-    inline void set_pre(const label_t& label, const ebpf_domain_t& v) { _pre[label] = v; }
-
-    inline void transform_to_post(const label_t& label, ebpf_domain_t pre) {
-        basic_block_t& bb = _cfg.get_node(label);
-        pre(bb, check_termination);
-        _post[label] = std::move(pre);
+    inline void set_pre(const label_t& label, const abstract_domain_t& v) {
+        auto res = _pre.insert({label, v});
+        if (!res.second) {
+            // if the insertion failed then we just update value
+            res.first->second = v;
+        }
     }
 
-    [[nodiscard]]
-    ebpf_domain_t extrapolate(const label_t& node, unsigned int iteration, ebpf_domain_t before,
-                              const ebpf_domain_t& after) const {
+    inline void transform_to_post(const label_t& label, abstract_domain_t pre) {
+        basic_block_t& bb = _cfg.get_node(label);
+        pre(bb, check_termination);
+
+        auto it = _post.find(label);
+        if (it == _post.end()) {
+            _post.insert({label, std::move(pre)});
+        } else {
+            it->second = std::move(pre);
+        }
+    }
+
+    [[nodiscard]] abstract_domain_t extrapolate(const label_t& node, unsigned int iteration, abstract_domain_t before,
+                                                const abstract_domain_t& after) const {
         if (iteration <= _widening_delay) {
             return before | after;
         } else {
@@ -84,8 +95,8 @@ class interleaved_fwd_fixpoint_iterator_t final {
         }
     }
 
-    static ebpf_domain_t refine(const label_t& node, unsigned int iteration, ebpf_domain_t before,
-                                const ebpf_domain_t& after) {
+    static abstract_domain_t refine(const label_t& node, unsigned int iteration, abstract_domain_t before,
+                                    const abstract_domain_t& after) {
         if (iteration == 1) {
             return before & after;
         } else {
@@ -93,8 +104,8 @@ class interleaved_fwd_fixpoint_iterator_t final {
         }
     }
 
-    ebpf_domain_t join_all_prevs(const label_t& node) {
-        ebpf_domain_t res = ebpf_domain_t::bottom();
+    abstract_domain_t join_all_prevs(const label_t& node) {
+        abstract_domain_t res(_bottom_inv);
         for (const label_t& prev : _cfg.prev_nodes(node)) {
             res |= get_post(prev);
         }
@@ -102,30 +113,37 @@ class interleaved_fwd_fixpoint_iterator_t final {
     }
 
   public:
-    explicit interleaved_fwd_fixpoint_iterator_t(cfg_t& cfg, unsigned int descending_iterations, bool check_termination)
-        : _cfg(cfg), _wto(cfg), _descending_iterations(descending_iterations), check_termination(check_termination) {
+    explicit interleaved_fwd_fixpoint_iterator_t(cfg_t& cfg, const abstract_domain_t& entry,
+                                                 unsigned int descending_iterations, bool check_termination)
+        : _cfg(cfg), _bottom_inv(entry), _wto(cfg), _descending_iterations(descending_iterations),
+          check_termination(check_termination) {
+
+        _bottom_inv.set_to_bottom();
+
         for (const auto& label : _cfg.labels()) {
-            _pre.emplace(label, ebpf_domain_t::bottom());
-            _post.emplace(label, ebpf_domain_t::bottom());
+            _pre.emplace(label, _bottom_inv);
+            _post.emplace(label, _bottom_inv);
         }
+        set_pre(_cfg.entry_label(), entry);
     }
 
-    ebpf_domain_t get_pre(const label_t& node) { return _pre.at(node); }
+    abstract_domain_t get_pre(const label_t& node) { return _pre.at(node); }
 
-    ebpf_domain_t get_post(const label_t& node) { return _post.at(node); }
+    abstract_domain_t get_post(const label_t& node) { return _post.at(node); }
 
     void operator()(const label_t& vertex);
 
     void operator()(std::shared_ptr<wto_cycle_t>& cycle);
 
-    friend std::pair<invariant_table_t, invariant_table_t> run_forward_analyzer(cfg_t& cfg, const ebpf_domain_t& entry_inv, bool check_termination);
+    friend std::pair<invariant_table_t, invariant_table_t>
+    run_forward_analyzer(cfg_t& cfg, const abstract_domain_t& entry_inv, bool check_termination);
 };
 
-std::pair<invariant_table_t, invariant_table_t> run_forward_analyzer(cfg_t& cfg, const ebpf_domain_t& entry_inv, bool check_termination) {
+std::pair<invariant_table_t, invariant_table_t> run_forward_analyzer(cfg_t& cfg, const abstract_domain_t& entry_inv,
+                                                                     bool check_termination) {
     // Go over the CFG in weak topological order (accounting for loops).
     constexpr unsigned int descending_iterations = 2000000;
-    interleaved_fwd_fixpoint_iterator_t analyzer(cfg, descending_iterations, check_termination);
-    analyzer.set_pre(cfg.entry_label(), entry_inv);
+    interleaved_fwd_fixpoint_iterator_t analyzer(cfg, entry_inv, descending_iterations, check_termination);
     for (auto& component : analyzer._wto) {
         std::visit(analyzer, *component);
     }
@@ -141,7 +159,7 @@ void interleaved_fwd_fixpoint_iterator_t::operator()(const label_t& node) {
         return;
     }
 
-    ebpf_domain_t pre = node == _cfg.entry_label() ? get_pre(node) : join_all_prevs(node);
+    abstract_domain_t pre = node == _cfg.entry_label() ? get_pre(node) : join_all_prevs(node);
 
     set_pre(node, pre);
     transform_to_post(node, pre);
@@ -164,7 +182,7 @@ void interleaved_fwd_fixpoint_iterator_t::operator()(std::shared_ptr<wto_cycle_t
         }
     }
 
-    ebpf_domain_t pre = ebpf_domain_t::bottom();
+    abstract_domain_t pre(_bottom_inv);
     if (entry_in_this_cycle) {
         pre = get_pre(_cfg.entry_label());
     } else {
@@ -185,7 +203,7 @@ void interleaved_fwd_fixpoint_iterator_t::operator()(std::shared_ptr<wto_cycle_t
             if (!std::holds_alternative<label_t>(c) || (std::get<label_t>(c) != head))
                 std::visit(*this, *component);
         }
-        ebpf_domain_t new_pre = join_all_prevs(head);
+        abstract_domain_t new_pre = join_all_prevs(head);
         if (new_pre <= pre) {
             // Post-fixpoint reached
             set_pre(head, new_pre);
@@ -210,7 +228,7 @@ void interleaved_fwd_fixpoint_iterator_t::operator()(std::shared_ptr<wto_cycle_t
             if (!std::holds_alternative<label_t>(c) || (std::get<label_t>(c) != head))
                 std::visit(*this, *component);
         }
-        ebpf_domain_t new_pre = join_all_prevs(head);
+        abstract_domain_t new_pre = join_all_prevs(head);
         if (pre <= new_pre) {
             // No more refinement possible(pre == new_pre)
             break;

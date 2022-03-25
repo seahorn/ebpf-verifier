@@ -8,6 +8,7 @@
 #include <optional>
 #include <vector>
 
+#include "crab/abstract_domain.hpp"
 #include "crab/array_domain.hpp"
 #include "crab/split_dbm.hpp"
 #include "crab/variable.hpp"
@@ -24,7 +25,9 @@ class ebpf_domain_t final {
 
   public:
     ebpf_domain_t();
-    ebpf_domain_t(crab::domains::NumAbsDomain inv, crab::domains::array_domain_t stack);
+    // Create an instance ebpf domain that resembles the initial state
+    // of eBPF (r1 points to context, r10 points to stack, etc).
+    static ebpf_domain_t setup_entry(bool check_termination);
 
     // Generic abstract domain operations
     static ebpf_domain_t top();
@@ -33,17 +36,15 @@ class ebpf_domain_t final {
     void set_to_bottom();
     bool is_bottom() const;
     bool is_top() const;
-    bool operator<=(const ebpf_domain_t& other);
-    //bool operator==(const ebpf_domain_t& other) const;
+    bool operator<=(const ebpf_domain_t& other) const;
     void operator|=(ebpf_domain_t&& other);
     void operator|=(const ebpf_domain_t& other);
     ebpf_domain_t operator|(ebpf_domain_t&& other) const;
-    ebpf_domain_t operator|(const ebpf_domain_t& other) const&;
-    ebpf_domain_t operator|(const ebpf_domain_t& other) &&;
+    ebpf_domain_t operator|(const ebpf_domain_t& other) const;
     ebpf_domain_t operator&(const ebpf_domain_t& other) const;
-    ebpf_domain_t widen(const ebpf_domain_t& other);
+    ebpf_domain_t widen(const ebpf_domain_t& other) const;
+    ebpf_domain_t narrow(const ebpf_domain_t& other) const;
     ebpf_domain_t widening_thresholds(const ebpf_domain_t& other, const crab::iterators::thresholds_t& ts);
-    ebpf_domain_t narrow(const ebpf_domain_t& other);
 
     typedef bool check_require_func_t(NumAbsDomain&, const linear_constraint_t&, std::string);
     void set_require_check(std::function<check_require_func_t> f);
@@ -55,7 +56,6 @@ class ebpf_domain_t final {
 
     // abstract transformers
     void operator()(const basic_block_t& bb, bool check_termination);
-
     void operator()(const Addable&);
     void operator()(const Assert&);
     void operator()(const Assume&);
@@ -78,7 +78,12 @@ class ebpf_domain_t final {
     void operator()(const ValidStore&);
     void operator()(const ZeroCtxOffset&);
 
+    void write(std::ostream& o) const;
+    std::string domain_name() const;
+
   private:
+    ebpf_domain_t(crab::domains::NumAbsDomain inv, crab::domains::array_domain_t stack);
+
     // private generic domain functions
     void operator+=(const linear_constraint_t& cst);
     void operator-=(variable_t var);
@@ -194,7 +199,6 @@ class ebpf_domain_t final {
     friend std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom);
 
     static void initialize_packet(ebpf_domain_t& inv);
-
 
   private:
     /// Mapping from variables (including registers, types, offsets,

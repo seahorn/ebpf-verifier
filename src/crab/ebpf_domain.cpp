@@ -25,6 +25,8 @@
 
 using crab::domains::NumAbsDomain;
 namespace crab {
+using crab::data_kind_t;
+
 struct reg_pack_t {
     variable_t svalue; // int64_t value.
     variable_t uvalue; // uint64_t value.
@@ -816,7 +818,9 @@ bool ebpf_domain_t::is_bottom() const { return m_inv.is_bottom(); }
 
 bool ebpf_domain_t::is_top() const { return m_inv.is_top() && stack.is_top(); }
 
-bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) { return m_inv <= other.m_inv && stack <= other.stack; }
+bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) const {
+    return m_inv <= other.m_inv && stack <= other.stack;
+}
 
 // bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
 //     return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
@@ -909,23 +913,24 @@ ebpf_domain_t ebpf_domain_t::operator|(ebpf_domain_t&& other) const {
     return ebpf_domain_t(m_inv | std::move(other.m_inv), stack | other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const& {
+ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv | other.m_inv, stack | other.stack);
-}
-
-ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) && {
-    return ebpf_domain_t(other.m_inv | std::move(m_inv), other.stack | stack);
 }
 
 ebpf_domain_t ebpf_domain_t::operator&(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv & other.m_inv, stack & other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) {
+ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv.widen(other.m_inv), stack | other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::narrow(const ebpf_domain_t& other) {
+// ebpf_domain_t ebpf_domain_t::widening_thresholds(const ebpf_domain_t& other, const crab::iterators::thresholds_t& ts)
+// {
+//     return ebpf_domain_t(m_inv.widening_thresholds(other.m_inv, ts), stack | other.stack);
+// }
+
+ebpf_domain_t ebpf_domain_t::narrow(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv.narrow(other.m_inv), stack & other.stack);
 }
 
@@ -2666,12 +2671,16 @@ void ebpf_domain_t::operator()(const Bin& bin) {
 
 string_invariant ebpf_domain_t::to_set() { return this->m_inv.to_set() + this->stack.to_set(); }
 
-std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom) {
-    if (dom.is_bottom()) {
+void ebpf_domain_t::write(std::ostream& o) const {
+    if (is_bottom()) {
         o << "_|_";
     } else {
-        o << dom.m_inv << "\nStack: " << dom.stack;
+        o << m_inv << "\nStack: " << stack;
     }
+}
+
+std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom) {
+    dom.write(o);
     return o;
 }
 
@@ -2739,4 +2748,5 @@ ebpf_domain_t ebpf_domain_t::setup_entry(bool check_termination, bool init_r1) {
     return inv;
 }
 
+std::string ebpf_domain_t::domain_name() const { return "Prevail eBPF domain"; }
 } // namespace crab

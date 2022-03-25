@@ -2,12 +2,15 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
+enum class abstract_domain_kind { EBPF_DOMAIN, TYPE_DOMAIN };
+
 struct ebpf_verifier_options_t {
     bool check_termination;
     bool assume_assertions;
     bool print_invariants;
     bool print_failures;
     bool no_simplify;
+    abstract_domain_kind abstract_domain;
 
     // False to use actual map fd's, true to use mock fd's.
     bool mock_map_fds;
