@@ -15,6 +15,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 
@@ -27,14 +28,13 @@ using std::string;
 thread_local program_info global_program_info;
 thread_local ebpf_verifier_options_t thread_local_options;
 
-
-static checks_db generate_report(cfg_t& cfg,
-                                 crab::invariant_table_t& pre_invariants,
+static checks_db generate_report(cfg_t& cfg, crab::invariant_table_t& pre_invariants,
                                  crab::invariant_table_t& post_invariants) {
     checks_db m_db;
     for (const label_t& label : cfg.sorted_labels()) {
         basic_block_t& bb = cfg.get_node(label);
-        ebpf_domain_t from_inv(pre_invariants.at(label));
+        abstract_domain_t from_inv(pre_invariants.at(label));
+
         from_inv.set_require_check([&m_db, label](auto& inv, const linear_constraint_t& cst, const std::string& s) {
             if (inv.is_bottom())
                 return true;
@@ -117,6 +117,43 @@ static void print_report(std::ostream& os, const checks_db& db, const Instructio
     }
 }
 
+/* EXTEND FOR NEW DOMAINS */
+static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
+    switch (options->abstract_domain) {
+    case abstract_domain_kind::EBPF_DOMAIN: {
+        ebpf_domain_t entry_inv = ebpf_domain_t::setup_entry(options->check_termination);
+        return abstract_domain_t(entry_inv);
+    }
+    case abstract_domain_kind::TYPE_DOMAIN: {
+        // TODO
+    }
+    default:
+        // FIXME: supported abstract domains should be checked in check.cpp
+        std::cerr << "error: unsupported abstract domain\n";
+        std::exit(1);
+    }
+}
+
+/* EXTEND FOR NEW DOMAINS */
+static abstract_domain_t make_initial(abstract_domain_kind abstract_domain, const string_invariant& entry_invariant) {
+
+    switch (abstract_domain) {
+    case abstract_domain_kind::EBPF_DOMAIN: {
+        ebpf_domain_t entry_inv = entry_invariant.is_bottom()
+                                      ? ebpf_domain_t::from_constraints({"false"})
+                                      : ebpf_domain_t::from_constraints(entry_invariant.value());
+        return abstract_domain_t(entry_inv);
+    }
+    case abstract_domain_kind::TYPE_DOMAIN: {
+        // TODO
+    }
+    default:
+        // FIXME: supported abstract domains should be checked in check.cpp
+        std::cerr << "error: unsupported abstract domain\n";
+        std::exit(1);
+    }
+}
+
 crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, const ebpf_verifier_options_t* options) {
     global_program_info = std::move(info);
     crab::domains::clear_global_state();
@@ -124,8 +161,9 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
     thread_local_options = *options;
 
     try {
+
+        abstract_domain_t entry_dom = make_initial(options);
         // Get dictionaries of pre-invariants and post-invariants for each basic block.
-        ebpf_domain_t entry_dom = ebpf_domain_t::setup_entry(options->check_termination);
         auto [pre_invariants, post_invariants] =
             crab::run_forward_analyzer(cfg, std::move(entry_dom), options->check_termination);
 
@@ -138,17 +176,13 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
                 s << "\nPost-invariant: " << post_invariants.at(label) << "\n";
             }
         }
-        return crab_results(std::move(cfg),
-			    std::move(pre_invariants), std::move(post_invariants),
-			    std::move(db));
+        return crab_results(std::move(cfg), std::move(pre_invariants), std::move(post_invariants), std::move(db));
     } catch (std::runtime_error& e) {
         // Convert verifier runtime_error exceptions to failure.
         checks_db db;
         db.add_warning(label_t::exit, e.what());
-	crab::invariant_table_t pre_invariants, post_invariants;
-        return crab_results(std::move(cfg),
-			    std::move(pre_invariants), std::move(post_invariants),
-			    std::move(db));
+        crab::invariant_table_t pre_invariants, post_invariants;
+        return crab_results(std::move(cfg), std::move(pre_invariants), std::move(post_invariants), std::move(db));
     }
 }
 
@@ -168,7 +202,7 @@ bool run_ebpf_analysis(std::ostream& s, cfg_t& cfg, const program_info& info, co
 
 static string_invariant_map to_string_invariant_map(crab::invariant_table_t& inv_table) {
     string_invariant_map res;
-    for (auto& [label, inv]: inv_table) {
+    for (auto& [label, inv] : inv_table) {
         res.insert_or_assign(label, inv.to_set());
     }
     return res;
@@ -176,26 +210,21 @@ static string_invariant_map to_string_invariant_map(crab::invariant_table_t& inv
 
 std::tuple<string_invariant_map, string_invariant_map>
 ebpf_analyze_program_for_test(std::ostream& os, const InstructionSeq& prog, const string_invariant& entry_invariant,
-                              const program_info& info,
-                              bool no_simplify, bool check_termination) {
-    ebpf_domain_t entry_inv = entry_invariant.is_bottom()
-        ? ebpf_domain_t::bottom()
-        : ebpf_domain_t::from_constraints(entry_invariant.value());
+                              const program_info& info, bool no_simplify, bool check_termination) {
+
+    abstract_domain_t entry_inv = make_initial(abstract_domain_kind::EBPF_DOMAIN, entry_invariant);
     global_program_info = info;
     cfg_t cfg = prepare_cfg(prog, info, !no_simplify, false);
     auto [pre_invariants, post_invariants] = crab::run_forward_analyzer(cfg, entry_inv, check_termination);
     checks_db report = generate_report(cfg, pre_invariants, post_invariants);
     print_report(os, report, prog);
 
-    return {
-        to_string_invariant_map(pre_invariants),
-        to_string_invariant_map(post_invariants)
-    };
+    return {to_string_invariant_map(pre_invariants), to_string_invariant_map(post_invariants)};
 }
 
 /// Returned value is true if the program passes verification.
 crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const program_info& info,
-				 const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
+                                 const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
     if (options == nullptr)
         options = &ebpf_verifier_default_options;
 
@@ -204,7 +233,7 @@ crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, c
     cfg_t cfg = prepare_cfg(prog, info, !options->no_simplify);
 
     crab_results results = get_ebpf_report(os, cfg, info, options);
-    checks_db &report = results.db;
+    checks_db& report = results.db;
     if (options->print_failures) {
         print_report(os, report, prog);
     }
@@ -213,6 +242,6 @@ crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, c
         stats->total_warnings = report.total_warnings;
         stats->max_instruction_count = report.max_instruction_count;
     }
-    //return (report.total_warnings == 0);
+    // return (report.total_warnings == 0);
     return results;
 }
