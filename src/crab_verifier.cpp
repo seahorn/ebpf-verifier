@@ -15,6 +15,7 @@
 
 #include <boost/algorithm/string.hpp>
 
+#include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 #include "crab_utils/lazy_allocator.hpp"
@@ -177,6 +178,8 @@ static checks_db get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info,
     thread_local_options = *options;
 
     try {
+
+        abstract_domain_t entry_dom = make_initial(options);
         // Get dictionaries of pre-invariants and post-invariants for each basic block.
         ebpf_domain_t entry_dom = ebpf_domain_t::setup_entry(options->check_termination, true);
         auto [pre_invariants, post_invariants] =
@@ -186,10 +189,8 @@ static checks_db get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info,
         // Convert verifier runtime_error exceptions to failure.
         checks_db db;
         db.add_warning(label_t::exit, e.what());
-	crab::invariant_table_t pre_invariants, post_invariants;
-        return crab_results(std::move(cfg),
-			    std::move(pre_invariants), std::move(post_invariants),
-			    std::move(db));
+        crab::invariant_table_t pre_invariants, post_invariants;
+        return crab_results(std::move(cfg), std::move(pre_invariants), std::move(post_invariants), std::move(db));
     }
 }
 
@@ -209,7 +210,7 @@ bool run_ebpf_analysis(std::ostream& s, cfg_t& cfg, const program_info& info, co
 
 static string_invariant_map to_string_invariant_map(crab::invariant_table_t& inv_table) {
     string_invariant_map res;
-    for (auto& [label, inv]: inv_table) {
+    for (auto& [label, inv] : inv_table) {
         res.insert_or_assign(label, inv.to_set());
     }
     return res;
@@ -239,7 +240,7 @@ ebpf_analyze_program_for_test(std::ostream& os, const InstructionSeq& prog, cons
 
 /// Returned value is true if the program passes verification.
 crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, const program_info& info,
-				 const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
+                                 const ebpf_verifier_options_t* options, ebpf_verifier_stats_t* stats) {
     if (options == nullptr)
         options = &ebpf_verifier_default_options;
 
@@ -248,7 +249,7 @@ crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, c
     cfg_t cfg = prepare_cfg(prog, info, !options->no_simplify);
 
     crab_results results = get_ebpf_report(os, cfg, info, options);
-    checks_db &report = results.db;
+    checks_db& report = results.db;
     if (options->print_failures) {
         print_report(os, report, prog, options->print_line_info);
     }
@@ -257,7 +258,7 @@ crab_results ebpf_verify_program(std::ostream& os, const InstructionSeq& prog, c
         stats->total_warnings = report.total_warnings;
         stats->max_instruction_count = report.get_max_instruction_count();
     }
-    //return (report.total_warnings == 0);
+    // return (report.total_warnings == 0);
     return results;
 }
 

@@ -786,19 +786,7 @@ std::optional<variable_t> ebpf_domain_t::get_type_offset_variable(const Reg& reg
     return get_type_offset_variable(reg, m_inv);
 }
 
-void ebpf_domain_t::set_require_check(std::function<check_require_func_t> f) { check_require = std::move(f); }
-
-ebpf_domain_t ebpf_domain_t::top() {
-    ebpf_domain_t abs;
-    abs.set_to_top();
-    return abs;
-}
-
-ebpf_domain_t ebpf_domain_t::bottom() {
-    ebpf_domain_t abs;
-    abs.set_to_bottom();
-    return abs;
-}
+void ebpf_domain_t::set_require_check(check_require_func_t f) { check_require = std::move(f); }
 
 ebpf_domain_t::ebpf_domain_t() : m_inv(NumAbsDomain::top()) {}
 
@@ -909,7 +897,7 @@ ebpf_domain_t ebpf_domain_t::operator|(ebpf_domain_t&& other) const {
     return ebpf_domain_t(m_inv | std::move(other.m_inv), stack | other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const& {
+ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv | other.m_inv, stack | other.stack);
 }
 
@@ -921,7 +909,7 @@ ebpf_domain_t ebpf_domain_t::operator&(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv & other.m_inv, stack & other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) {
+ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv.widen(other.m_inv), stack | other.stack);
 }
 
@@ -2667,11 +2655,7 @@ void ebpf_domain_t::operator()(const Bin& bin) {
 string_invariant ebpf_domain_t::to_set() { return this->m_inv.to_set() + this->stack.to_set(); }
 
 std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom) {
-    if (dom.is_bottom()) {
-        o << "_|_";
-    } else {
-        o << dom.m_inv << "\nStack: " << dom.stack;
-    }
+    dom.write(o);
     return o;
 }
 
