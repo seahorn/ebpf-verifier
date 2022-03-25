@@ -611,11 +611,7 @@ TEST_CASE("check-types", "[types]") {
 
     std::cout << cfg << "\n";
 
-    ebpf_context_descriptor_t context_descriptor{0, 0, 4, -1};
-    std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(&context_descriptor);
-    std::shared_ptr<all_types_t> all_types = std::make_shared<all_types_t>();
-
-    type_domain_t type = type_domain_t::setup_entry(ctx, all_types);
+    type_domain_t type = type_domain_t::setup_entry();
 
     auto labels = cfg.labels();
     for (auto& label : labels)

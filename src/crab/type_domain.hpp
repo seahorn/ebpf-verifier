@@ -24,10 +24,8 @@ inline std::string get_region(const region& r) {
             return "stack";
         case region::T_PACKET:
             return "packet";
-        case region::T_SHARED:
-            return "shared";
         default:
-            return "undefined";
+            return "shared";
     }
 }
 
@@ -39,8 +37,13 @@ inline std::ostream& operator<<(std::ostream& o, const region& t) {
 struct ptr_no_off_t {
     region r;
 
+    ptr_no_off_t() = default;
+    ptr_no_off_t(const ptr_no_off_t &) = default;
+    ptr_no_off_t(ptr_no_off_t &&) = default;
+    ptr_no_off_t &operator=(const ptr_no_off_t &) = default;
+    ptr_no_off_t &operator=(ptr_no_off_t &&) = default;
+
     ptr_no_off_t(region _r) : r(_r) {}
-    ptr_no_off_t(const ptr_no_off_t& p) : r(p.r) {}
 
     friend bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
         return (p1.r == p2.r);
@@ -59,8 +62,13 @@ struct ptr_with_off_t {
     region r;
     int offset;
 
+    ptr_with_off_t() = default;
+    ptr_with_off_t(const ptr_with_off_t &) = default;
+    ptr_with_off_t(ptr_with_off_t &&) = default;
+    ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
+    ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
+
     ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
-    ptr_with_off_t(const ptr_with_off_t& p) : r(p.r), offset(p.offset) {}
 
     friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
         return (p1.r == p2.r && p1.offset == p2.offset);
@@ -76,128 +84,121 @@ struct ptr_with_off_t {
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
-
+using register_t = uint8_t;
 
 struct reg_with_loc_t {
-    int r;
+    register_t r;
     std::pair<label_t, uint32_t> loc;
 
-    reg_with_loc_t() : r(-1), loc(std::make_pair(label_t::entry, 0)) {}
-    reg_with_loc_t(int _r, const label_t& l, uint32_t loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
+    reg_with_loc_t() : r(11), loc(std::make_pair(label_t::entry, 0)) {}
+    reg_with_loc_t(register_t _r, const label_t& l, uint32_t loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
 
     bool operator==(const reg_with_loc_t& other) const {
-        return (r != -1 && r == other.r);
+        return (r < 11 && r == other.r);
+    }
+
+    std::size_t hash() const {
+        // Similar to boost::hash_combine
+        using std::hash;
+
+        std::size_t seed = hash<register_t>()(r);
+        seed ^= hash<int>()(loc.first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+        seed ^= hash<int>()(loc.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+
+        return seed;
     }
 };
 }
 
-// adapted from top answer in
-// https://stackoverflow.com/questions/17016175/c-unordered-map-using-a-custom-class-type-as-the-key
-// works for now but needs to be checked again
-template <>
-struct std::hash<crab::reg_with_loc_t>
-{
-    std::size_t operator()(const crab::reg_with_loc_t& reg) const
-    {
-        using std::size_t;
-        using std::hash;
-        using std::string;
-
-        // Compute individual hash values for first,
-        // second and third and combine them using XOR
-        // and bit shifting:
-
-        return ((hash<int>()(reg.r)
-               ^ (hash<int>()(reg.loc.first.from) << 1)) >> 1)
-               ^ (hash<int>()(reg.loc.second) << 1);
-    }
-};
+namespace std {
+    template <>
+    struct std::hash<crab::reg_with_loc_t> {
+        std::size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
+    };
+}
 
 namespace crab {
 
+class ctx_t {
+    using offset_to_ptr_no_off_t = std::unordered_map<int, ptr_no_off_t>;
 
-using offset_to_ptr_no_off_t = std::unordered_map<uint64_t, ptr_no_off_t>;
-using offset_to_ptr_t = std::unordered_map<uint64_t, ptr_t>;
-
-struct ctx_t {
-  private:
-    offset_to_ptr_no_off_t packet_ptrs;
+    offset_to_ptr_no_off_t m_packet_ptrs;
 
   public:
     ctx_t(const ebpf_context_descriptor_t* desc)
     {
-        packet_ptrs.insert(std::make_pair(desc->data, crab::ptr_no_off_t(crab::region::T_PACKET)));
-        packet_ptrs.insert(std::make_pair(desc->end, crab::ptr_no_off_t(crab::region::T_PACKET)));
+        m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
+        m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
     }
 
     std::optional<ptr_no_off_t> find(int key) const {
-        auto it = packet_ptrs.find(key);
-        if (it == packet_ptrs.end()) return {};
+        auto it = m_packet_ptrs.find(key);
+        if (it == m_packet_ptrs.end()) return {};
         return it->second;
     }
 };
 
-struct stack_t {
-  private:
-    offset_to_ptr_t ptrs;
-    bool _is_bottom;
+class stack_t {
+    using offset_to_ptr_t = std::unordered_map<int, ptr_t>;
+
+    offset_to_ptr_t m_ptrs;
+    bool m_is_bottom;
 
   public:
-    explicit stack_t(bool is_bottom = false) : _is_bottom(is_bottom) {}
+    stack_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
+    stack_t(offset_to_ptr_t && ptrs, bool is_bottom)
+    : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
 
     stack_t operator|(const stack_t& other) const {
-        stack_t st{};
-        for (auto& e : ptrs) {
-            auto it = other.ptrs.find(e.first);
-            if (it == other.ptrs.end() || it->second == e.second) {
-                st.ptrs.insert(e);
-            }
+        if (is_bottom() || other.is_top()) {
+            return other;
+        } else if (other.is_bottom() || is_top()) {
+            return *this;
         }
-
-        for (auto& e : other.ptrs) {
-            auto it = ptrs.find(e.first);
-            if (it == ptrs.end()) {
-                st.ptrs.insert(e);
-            }
+        offset_to_ptr_t out_ptrs;
+        for (auto const&kv: m_ptrs) {
+            auto it = other.find(kv.first);
+            if (it && kv.second == it.value())
+                out_ptrs.insert(kv);
         }
-        return st;
+        return stack_t(std::move(out_ptrs), false);
     }
 
     void set_to_bottom() {
-        this->~stack_t();
-        new (this) stack_t(true);
+        m_ptrs.clear();
+        m_is_bottom = true;
     }
 
     void set_to_top() {
-        this->~stack_t();
-        new (this) stack_t(false);
+        m_ptrs.clear();
+        m_is_bottom = false;
     }
 
     static stack_t bottom() { return stack_t(true); }
 
     static stack_t top() { return stack_t(false); }
 
-    bool is_bottom() const { return _is_bottom; }
+    bool is_bottom() const { return m_is_bottom; }
 
     bool is_top() const {
-        if (_is_bottom)
+        if (m_is_bottom)
             return false;
-        return ptrs.empty();
+        return m_ptrs.empty();
     }
 
-    offset_to_ptr_t get_ptrs() const { return ptrs; }
+    const offset_to_ptr_t &get_ptrs() { return m_ptrs; }
 
-    void insert(int key, ptr_t value) { ptrs.insert(std::make_pair(key, value)); }
+    void insert(int key, ptr_t value) { m_ptrs.insert(std::make_pair(key, value)); }
 
-    std::optional<ptr_t> find(int key) {
-        auto it = ptrs.find(key);
-        if (it == ptrs.end()) return {};
+    std::optional<ptr_t> find(int key) const {
+        auto it = m_ptrs.find(key);
+        if (it == m_ptrs.end()) return {};
         return it->second;
     }
 
     friend std::ostream& operator<<(std::ostream& o, const stack_t& st) {
         o << "Stack: {";
-        for (auto s : st.get_ptrs()) {
+        for (auto s : st.m_ptrs) {
             o << s.first << ": ";
             if (std::holds_alternative<ptr_with_off_t>(s.second)) {
                 auto t = std::get<ptr_with_off_t>(s.second);
@@ -212,64 +213,75 @@ struct stack_t {
     }
 };
 
-using all_types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
-using reg_live_vars_t = std::array<reg_with_loc_t, 11>;
+using live_registers_t = std::array<reg_with_loc_t, 11>;
+using global_type_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
-struct types_t {
-  private:
-    reg_live_vars_t vars;
-    std::shared_ptr<all_types_t> all_types;
-    bool _is_bottom = false;
+class register_types_t {
+    live_registers_t m_vars;
+    std::shared_ptr<global_type_env_t> m_all_types;
+    bool m_is_bottom = false;
 
   public:
-    types_t(bool is_bottom = false) : _is_bottom(is_bottom) {}
-    explicit types_t(reg_live_vars_t _vars, std::shared_ptr<all_types_t> _all_types, bool is_bottom = false)
-        : vars(_vars), all_types(_all_types), _is_bottom(is_bottom) {}
+    register_types_t(bool is_bottom = false) : m_all_types(nullptr), m_is_bottom(is_bottom) {}
+    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> all_types, bool is_bottom = false)
+        : m_vars(std::move(vars)), m_all_types(all_types), m_is_bottom(is_bottom) {}
 
-    types_t operator|(const types_t& other) const {
-        reg_live_vars_t _vars;
-        for (int i = 0; i < vars.size(); i++) {
-            auto it1 = all_types->find(vars[i]);
-            auto it2 = other.all_types->find(other.vars[i]);
-            if (it1 != all_types->end() && it2 != other.all_types->end()) {
-                if (it1->second == it2->second) {
-                    _vars[i] = vars[i];
-                }
+    register_types_t operator|(const register_types_t& other) const {
+        if (is_bottom() || other.is_top()) {
+            return other;
+        } else if (other.is_bottom() || is_top()) {
+            return *this;
+        }
+        live_registers_t out_vars;
+        for (size_t i = 0; i < m_vars.size(); i++) {
+            auto it1 = find(m_vars[i]);
+            auto it2 = other.find(other.m_vars[i]);
+            if (it1 && it2 && it1.value() == it2.value()) {
+                out_vars[i] = m_vars[i];
             }
         }
 
-        types_t v(_vars, all_types, false);
-        return v;
+        return register_types_t(std::move(out_vars), m_all_types, false);
     }
 
     void set_to_bottom() {
-        this->~types_t();
-        new (this) types_t(true);
+        m_vars = live_registers_t{};
+        m_is_bottom = true;
     }
 
-    bool is_bottom() const { return _is_bottom; }
+    void set_to_top() {
+        m_vars = live_registers_t{};
+        m_is_bottom = false;
+    }
 
-    void insert(uint32_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
-        auto it = all_types->insert(std::make_pair(reg_with_loc, type));
+    bool is_bottom() const { return m_is_bottom; }
+
+    bool is_top() const {
+        if (m_is_bottom) { return false; }
+        return (m_all_types == nullptr || m_vars.empty());
+    }
+
+    void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
+        auto it = m_all_types->insert(std::make_pair(reg_with_loc, type));
         if (not it.second) it.first->second = type;
-        vars[reg] = reg_with_loc;
+        m_vars[reg] = reg_with_loc;
     }
 
     std::optional<ptr_t> find(const reg_with_loc_t& reg) const {
-        auto it = all_types->find(reg);
-        if (it == all_types->end()) return {};
+        auto it = m_all_types->find(reg);
+        if (it == m_all_types->end()) return {};
         return it->second;
     }
 
-    std::optional<ptr_t> find(uint32_t key) const {
-        auto reg = vars[key];
+    std::optional<ptr_t> find(register_t key) const {
+        auto reg = m_vars[key];
         return find(reg);
     }
 
-    reg_live_vars_t get_vars() const { return vars; }
+    const live_registers_t &get_vars() { return m_vars; }
 
-    friend std::ostream& operator<<(std::ostream& o, const types_t& typ) {
-        for (const auto& v : typ.get_vars()) {
+    friend std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
+        for (const auto& v : typ.m_vars) {
             auto it = typ.find(v);
             if (it) {
                 o << "\ttype of r" << v.r << ": ";
@@ -290,20 +302,19 @@ struct types_t {
 }
 
 class type_domain_t final {
-  private:
-    crab::stack_t stack;
-    crab::types_t types;
-    std::shared_ptr<crab::ctx_t> ctx;
-    label_t label;
+    crab::stack_t m_stack;
+    crab::register_types_t m_types;
+    std::shared_ptr<crab::ctx_t> m_ctx;
+    label_t m_label;
     uint32_t m_curr_pos = 0;
 
   public:
 
-  type_domain_t() : label(label_t::entry) {}
-  type_domain_t(const crab::types_t& _types, const crab::stack_t& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
-            : stack(_st), types(_types), ctx(_ctx), label(_l) {}
+  type_domain_t() : m_label(label_t::entry) {}
+  type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
+            : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx), m_label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-  static type_domain_t setup_entry(std::shared_ptr<crab::ctx_t>, std::shared_ptr<crab::all_types_t>);
+  static type_domain_t setup_entry();
   // bottom/top
   static type_domain_t bottom();
   void set_to_top();
@@ -340,8 +351,8 @@ class type_domain_t final {
   void operator()(const Assert &);
   void operator()(const basic_block_t& bb) {
       m_curr_pos = 0;
-      label = bb.label();
-      std::cout << label << ": \n";
+      m_label = bb.label();
+      std::cout << m_label << ": \n";
       for (const Instruction& statement : bb) {
         m_curr_pos++;
         std::visit(*this, statement);
