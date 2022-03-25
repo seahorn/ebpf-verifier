@@ -45,14 +45,6 @@ struct ptr_no_off_t {
 
     ptr_no_off_t(region _r) : r(_r) {}
 
-    friend bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-        return (p1.r == p2.r);
-    }
-
-    friend bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-        return !(p2 == p1);
-    }
-
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
         return o << "{" << get_region(p.r) << "}";
     }
@@ -70,18 +62,27 @@ struct ptr_with_off_t {
 
     ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
 
-    friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-        return (p1.r == p2.r && p1.offset == p2.offset);
-    }
-
-    friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-        return !(p1 == p2);
-    }
-
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
-        return o << "{" << get_region(p.r) << ", " << p.offset << "}";
+        o << "{" << get_region(p.r) << ", " << p.offset << "}";
+        return o;
     }
 };
+
+bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+    return (p1.r == p2.r);
+}
+
+bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+    return !(p1 == p2);
+}
+
+bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+    return (p1.r == p2.r && p1.offset == p2.offset);
+}
+
+bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+    return !(p1 == p2);
+}
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 using register_t = uint8_t;
@@ -110,12 +111,32 @@ struct reg_with_loc_t {
 };
 }
 
+
 namespace std {
     template <>
     struct std::hash<crab::reg_with_loc_t> {
         std::size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
     };
+
+    // does not seem to work for me
+    template <>
+    struct std::equal_to<crab::ptr_t> {
+        constexpr bool operator()(const crab::ptr_t& p1, const crab::ptr_t& p2) const {
+            if (p1.index() != p2.index()) return false;
+            if (std::holds_alternative<crab::ptr_no_off_t>(p1)) {
+                auto ptr_no_off1 = std::get<crab::ptr_no_off_t>(p1);
+                auto ptr_no_off2 = std::get<crab::ptr_no_off_t>(p2);
+                return (ptr_no_off1.r == ptr_no_off2.r);
+            }
+            else {
+                auto ptr_with_off1 = std::get<crab::ptr_with_off_t>(p1);
+                auto ptr_with_off2 = std::get<crab::ptr_with_off_t>(p2);
+                return (ptr_with_off1.r == ptr_with_off2.r && ptr_with_off1.offset == ptr_with_off2.offset);
+            }
+        }
+    };
 }
+
 
 namespace crab {
 
