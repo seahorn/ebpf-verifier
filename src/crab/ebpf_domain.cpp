@@ -24,8 +24,8 @@
 #include "platform.hpp"
 #include "string_constraints.hpp"
 
-using crab::domains::NumAbsDomain;
 using crab::data_kind_t;
+using crab::domains::NumAbsDomain;
 
 struct reg_pack_t {
     variable_t value, offset, type, region_size;
@@ -46,9 +46,7 @@ static linear_constraint_t eq(variable_t a, variable_t b) {
     return {a - b, constraint_kind_t::EQUALS_ZERO};
 }
 
-static linear_constraint_t eq_types(const Reg& a, const Reg& b) {
-    return eq(reg_pack(a).type, reg_pack(b).type);
-}
+static linear_constraint_t eq_types(const Reg& a, const Reg& b) { return eq(reg_pack(a).type, reg_pack(b).type); }
 
 static linear_constraint_t neq(variable_t a, variable_t b) {
     using namespace crab::dsl_syntax;
@@ -137,23 +135,12 @@ static bool is_unsigned_cmp(Condition::Op op) {
     return {};
 }
 
-void ebpf_domain_t::set_require_check(std::function<check_require_func_t> f) { check_require = std::move(f); }
-
-ebpf_domain_t ebpf_domain_t::top() {
-    ebpf_domain_t abs;
-    abs.set_to_top();
-    return abs;
-}
-
-ebpf_domain_t ebpf_domain_t::bottom() {
-    ebpf_domain_t abs;
-    abs.set_to_bottom();
-    return abs;
-}
+void ebpf_domain_t::set_require_check(check_require_func_t f) { check_require = std::move(f); }
 
 ebpf_domain_t::ebpf_domain_t() : m_inv(NumAbsDomain::top()) {}
 
-ebpf_domain_t::ebpf_domain_t(NumAbsDomain inv, crab::domains::array_domain_t stack) : m_inv(std::move(inv)), stack(stack) {}
+ebpf_domain_t::ebpf_domain_t(NumAbsDomain&& inv, crab::domains::array_domain_t&& stack)
+    : m_inv(std::move(inv)), stack(stack) {}
 
 void ebpf_domain_t::set_to_top() {
     m_inv.set_to_top();
@@ -166,13 +153,13 @@ bool ebpf_domain_t::is_bottom() const { return m_inv.is_bottom(); }
 
 bool ebpf_domain_t::is_top() const { return m_inv.is_top() && stack.is_top(); }
 
-bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) {
+bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) const {
     return m_inv <= other.m_inv && stack <= other.stack;
 }
 
-bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
-    return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
-}
+// bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
+//     return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
+// }
 
 void ebpf_domain_t::operator|=(ebpf_domain_t&& other) {
     if (is_bottom()) {
@@ -192,27 +179,24 @@ ebpf_domain_t ebpf_domain_t::operator|(ebpf_domain_t&& other) const {
     return ebpf_domain_t(m_inv | std::move(other.m_inv), stack | other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const& {
+ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv | other.m_inv, stack | other.stack);
-}
-
-ebpf_domain_t ebpf_domain_t::operator|(const ebpf_domain_t& other) && {
-    return ebpf_domain_t(other.m_inv | std::move(m_inv), other.stack | std::move(stack));
 }
 
 ebpf_domain_t ebpf_domain_t::operator&(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv & other.m_inv, stack & other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) {
+ebpf_domain_t ebpf_domain_t::widen(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv.widen(other.m_inv), stack | other.stack);
 }
 
-ebpf_domain_t ebpf_domain_t::widening_thresholds(const ebpf_domain_t& other, const crab::iterators::thresholds_t& ts) {
-    return ebpf_domain_t(m_inv.widening_thresholds(other.m_inv, ts), stack | other.stack);
-}
+// ebpf_domain_t ebpf_domain_t::widening_thresholds(const ebpf_domain_t& other, const crab::iterators::thresholds_t& ts)
+// {
+//     return ebpf_domain_t(m_inv.widening_thresholds(other.m_inv, ts), stack | other.stack);
+// }
 
-ebpf_domain_t ebpf_domain_t::narrow(const ebpf_domain_t& other) {
+ebpf_domain_t ebpf_domain_t::narrow(const ebpf_domain_t& other) const {
     return ebpf_domain_t(m_inv.narrow(other.m_inv), stack & other.stack);
 }
 
@@ -223,13 +207,21 @@ void ebpf_domain_t::operator-=(variable_t var) { m_inv -= var; }
 void ebpf_domain_t::assign(variable_t x, const linear_expression_t& e) { m_inv.assign(x, e); }
 void ebpf_domain_t::assign(variable_t x, long e) { m_inv.set(x, crab::interval_t(number_t(e))); }
 
-void ebpf_domain_t::apply(crab::arith_binop_t op, variable_t x, variable_t y, const number_t& z) { m_inv.apply(op, x, y, z); }
+void ebpf_domain_t::apply(crab::arith_binop_t op, variable_t x, variable_t y, const number_t& z) {
+    m_inv.apply(op, x, y, z);
+}
 
-void ebpf_domain_t::apply(crab::arith_binop_t op, variable_t x, variable_t y, variable_t z) { m_inv.apply(op, x, y, z); }
+void ebpf_domain_t::apply(crab::arith_binop_t op, variable_t x, variable_t y, variable_t z) {
+    m_inv.apply(op, x, y, z);
+}
 
-void ebpf_domain_t::apply(crab::bitwise_binop_t op, variable_t x, variable_t y, variable_t z) { m_inv.apply(op, x, y, z); }
+void ebpf_domain_t::apply(crab::bitwise_binop_t op, variable_t x, variable_t y, variable_t z) {
+    m_inv.apply(op, x, y, z);
+}
 
-void ebpf_domain_t::apply(crab::bitwise_binop_t op, variable_t x, variable_t y, const number_t& k) { m_inv.apply(op, x, y, k); }
+void ebpf_domain_t::apply(crab::bitwise_binop_t op, variable_t x, variable_t y, const number_t& k) {
+    m_inv.apply(op, x, y, k);
+}
 
 void ebpf_domain_t::apply(crab::binop_t op, variable_t x, variable_t y, const number_t& z) {
     std::visit([&](auto top) { apply(top, x, y, z); }, op);
@@ -260,13 +252,15 @@ void ebpf_domain_t::forget_packet_pointers() {
     }
 }
 
-void ebpf_domain_t::apply(NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, const number_t& z, bool finite_width) {
+void ebpf_domain_t::apply(NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, const number_t& z,
+                          bool finite_width) {
     inv.apply(op, x, y, z);
     if (finite_width)
         overflow(x);
 }
 
-void ebpf_domain_t::apply(NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, variable_t z, bool finite_width) {
+void ebpf_domain_t::apply(NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, variable_t z,
+                          bool finite_width) {
     inv.apply(op, x, y, z);
     if (finite_width)
         overflow(x);
@@ -276,37 +270,80 @@ void ebpf_domain_t::add(variable_t lhs, variable_t op2) { apply(m_inv, crab::ari
 void ebpf_domain_t::add(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::ADD, lhs, lhs, op2); }
 void ebpf_domain_t::sub(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2); }
 void ebpf_domain_t::sub(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2); }
-void ebpf_domain_t::add_overflow(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::ADD, lhs, lhs, op2, true); }
-void ebpf_domain_t::add_overflow(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::ADD, lhs, lhs, op2, true); }
-void ebpf_domain_t::sub_overflow(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2, true); }
-void ebpf_domain_t::sub_overflow(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2, true); }
+void ebpf_domain_t::add_overflow(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::ADD, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::add_overflow(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::ADD, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::sub_overflow(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::sub_overflow(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::SUB, lhs, lhs, op2, true);
+}
 void ebpf_domain_t::neg(variable_t lhs) { apply(m_inv, crab::arith_binop_t::MUL, lhs, lhs, (number_t)-1, true); }
 void ebpf_domain_t::mul(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::MUL, lhs, lhs, op2, true); }
-void ebpf_domain_t::mul(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::MUL, lhs, lhs, op2, true); }
-void ebpf_domain_t::div(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::SDIV, lhs, lhs, op2, true); }
-void ebpf_domain_t::div(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::SDIV, lhs, lhs, op2, true); }
-void ebpf_domain_t::udiv(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::UDIV, lhs, lhs, op2, true); }
-void ebpf_domain_t::udiv(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::UDIV, lhs, lhs, op2, true); }
-void ebpf_domain_t::rem(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::SREM, lhs, lhs, op2, true); }
+void ebpf_domain_t::mul(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::MUL, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::div(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::SDIV, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::div(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::SDIV, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::udiv(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::UDIV, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::udiv(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::UDIV, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::rem(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::SREM, lhs, lhs, op2, true);
+}
 void ebpf_domain_t::rem(variable_t lhs, const number_t& op2, bool mod) {
     apply(m_inv, crab::arith_binop_t::SREM, lhs, lhs, op2, mod);
 }
-void ebpf_domain_t::urem(variable_t lhs, variable_t op2) { apply(m_inv, crab::arith_binop_t::UREM, lhs, lhs, op2, true); }
-void ebpf_domain_t::urem(variable_t lhs, const number_t& op2) { apply(m_inv, crab::arith_binop_t::UREM, lhs, lhs, op2, true); }
+void ebpf_domain_t::urem(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::arith_binop_t::UREM, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::urem(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::arith_binop_t::UREM, lhs, lhs, op2, true);
+}
 
-void ebpf_domain_t::bitwise_and(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::AND, lhs, lhs, op2); }
-void ebpf_domain_t::bitwise_and(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::AND, lhs, lhs, op2); }
-void ebpf_domain_t::bitwise_or(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::OR, lhs, lhs, op2); }
-void ebpf_domain_t::bitwise_or(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::OR, lhs, lhs, op2); }
-void ebpf_domain_t::bitwise_xor(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::XOR, lhs, lhs, op2); }
-void ebpf_domain_t::bitwise_xor(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::XOR, lhs, lhs, op2); }
-void ebpf_domain_t::shl_overflow(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::SHL, lhs, lhs, op2, true); }
-void ebpf_domain_t::shl_overflow(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::SHL, lhs, lhs, op2, true); }
+void ebpf_domain_t::bitwise_and(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::bitwise_binop_t::AND, lhs, lhs, op2);
+}
+void ebpf_domain_t::bitwise_and(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::AND, lhs, lhs, op2);
+}
+void ebpf_domain_t::bitwise_or(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::bitwise_binop_t::OR, lhs, lhs, op2);
+}
+void ebpf_domain_t::bitwise_or(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::OR, lhs, lhs, op2);
+}
+void ebpf_domain_t::bitwise_xor(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::bitwise_binop_t::XOR, lhs, lhs, op2);
+}
+void ebpf_domain_t::bitwise_xor(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::XOR, lhs, lhs, op2);
+}
+void ebpf_domain_t::shl_overflow(variable_t lhs, variable_t op2) {
+    apply(m_inv, crab::bitwise_binop_t::SHL, lhs, lhs, op2, true);
+}
+void ebpf_domain_t::shl_overflow(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::SHL, lhs, lhs, op2, true);
+}
 void ebpf_domain_t::lshr(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::LSHR, lhs, lhs, op2); }
-void ebpf_domain_t::lshr(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::LSHR, lhs, lhs, op2); }
+void ebpf_domain_t::lshr(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::LSHR, lhs, lhs, op2);
+}
 void ebpf_domain_t::ashr(variable_t lhs, variable_t op2) { apply(m_inv, crab::bitwise_binop_t::ASHR, lhs, lhs, op2); }
-void ebpf_domain_t::ashr(variable_t lhs, const number_t& op2) { apply(m_inv, crab::bitwise_binop_t::ASHR, lhs, lhs, op2); }
-
+void ebpf_domain_t::ashr(variable_t lhs, const number_t& op2) {
+    apply(m_inv, crab::bitwise_binop_t::ASHR, lhs, lhs, op2);
+}
 
 static void assume(NumAbsDomain& inv, const linear_constraint_t& cst) { inv += cst; }
 void ebpf_domain_t::assume(const linear_constraint_t& cst) { ::assume(m_inv, cst); }
@@ -356,13 +393,12 @@ void ebpf_domain_t::TypeDomain::assign_type(NumAbsDomain& inv, std::optional<var
     inv.assign(lhs, rhs);
 }
 
-void ebpf_domain_t::TypeDomain::assign_type(NumAbsDomain& inv, const Reg& lhs, const std::optional<linear_expression_t>& rhs) {
+void ebpf_domain_t::TypeDomain::assign_type(NumAbsDomain& inv, const Reg& lhs,
+                                            const std::optional<linear_expression_t>& rhs) {
     inv.assign(reg_pack(lhs).type, rhs);
 }
 
-void ebpf_domain_t::TypeDomain::havoc_type(NumAbsDomain& inv, const Reg& r) {
-    inv -= reg_pack(r).type;
-}
+void ebpf_domain_t::TypeDomain::havoc_type(NumAbsDomain& inv, const Reg& r) { inv -= reg_pack(r).type; }
 
 int ebpf_domain_t::TypeDomain::get_type(const NumAbsDomain& inv, const Reg& r) const {
     auto res = inv[reg_pack(r).type].singleton();
@@ -380,8 +416,9 @@ int ebpf_domain_t::TypeDomain::get_type(const NumAbsDomain& inv, variable_t v) c
 
 int ebpf_domain_t::TypeDomain::get_type(const NumAbsDomain& inv, int t) const { return t; }
 
-NumAbsDomain ebpf_domain_t::TypeDomain::join_over_types(const NumAbsDomain& inv, const Reg& reg,
-                                                        const std::function<void(NumAbsDomain&, type_encoding_t)>& transition) const {
+NumAbsDomain ebpf_domain_t::TypeDomain::join_over_types(
+    const NumAbsDomain& inv, const Reg& reg,
+    const std::function<void(NumAbsDomain&, type_encoding_t)>& transition) const {
     crab::interval_t types = inv.eval_interval(reg_pack(reg).type);
     if (types.is_bottom())
         return NumAbsDomain(true);
@@ -417,7 +454,8 @@ bool ebpf_domain_t::TypeDomain::same_type(const NumAbsDomain& inv, const Reg& a,
     return inv.entail(eq_types(a, b));
 }
 
-bool ebpf_domain_t::TypeDomain::implies_type(const NumAbsDomain& inv, const linear_constraint_t& a, const linear_constraint_t& b) const {
+bool ebpf_domain_t::TypeDomain::implies_type(const NumAbsDomain& inv, const linear_constraint_t& a,
+                                             const linear_constraint_t& b) const {
     return inv.when(a).entail(b);
 }
 
@@ -434,12 +472,10 @@ bool ebpf_domain_t::TypeDomain::is_in_group(const NumAbsDomain& m_inv, const Reg
     case TypeGroup::shared: return m_inv.entail(t == T_SHARED);
     case TypeGroup::non_map_fd: return m_inv.entail(t >= T_NUM);
     case TypeGroup::mem: return m_inv.entail(t >= T_PACKET);
-    case TypeGroup::mem_or_num:
-        return m_inv.entail(t >= T_NUM) && m_inv.entail(t != T_CTX);
+    case TypeGroup::mem_or_num: return m_inv.entail(t >= T_NUM) && m_inv.entail(t != T_CTX);
     case TypeGroup::pointer: return m_inv.entail(t >= T_CTX);
     case TypeGroup::ptr_or_num: return m_inv.entail(t >= T_NUM);
-    case TypeGroup::stack_or_packet:
-        return m_inv.entail(t >= T_PACKET) && m_inv.entail(t <= T_STACK);
+    case TypeGroup::stack_or_packet: return m_inv.entail(t >= T_PACKET) && m_inv.entail(t <= T_STACK);
     }
     assert(false);
     return false;
@@ -470,34 +506,37 @@ int ebpf_domain_t::get_instruction_count_upper_bound() {
     return (ub.is_finite() && ub.number().value().fits_sint()) ? (int)ub.number().value() : INT_MAX;
 }
 
-void ebpf_domain_t::check_access_stack(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s) {
+void ebpf_domain_t::check_access_stack(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub,
+                                       const std::string& s) {
     using namespace crab::dsl_syntax;
     require(inv, lb >= 0, std::string("Lower bound must be at least 0") + s);
-    require(inv, ub <= EBPF_STACK_SIZE, std::string("Upper bound must be at most EBPF_STACK_SIZE") + s + std::string(", make sure to bounds check any pointer access"));
+    require(inv, ub <= EBPF_STACK_SIZE,
+            std::string("Upper bound must be at most EBPF_STACK_SIZE") + s +
+                std::string(", make sure to bounds check any pointer access"));
 }
 
-void ebpf_domain_t::check_access_context(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s) {
+void ebpf_domain_t::check_access_context(NumAbsDomain& inv, const linear_expression_t& lb,
+                                         const linear_expression_t& ub, const std::string& s) {
     using namespace crab::dsl_syntax;
     require(inv, lb >= 0, std::string("Lower bound must be at least 0") + s);
     require(inv, ub <= global_program_info.type.context_descriptor->size,
-            std::string("Upper bound must be at most ") + std::to_string(global_program_info.type.context_descriptor->size) +
-                s);
+            std::string("Upper bound must be at most ") +
+                std::to_string(global_program_info.type.context_descriptor->size) + s);
 }
 
-void ebpf_domain_t::check_access_packet(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s,
-                                        std::optional<variable_t> region_size) {
+void ebpf_domain_t::check_access_packet(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub,
+                                        const std::string& s, std::optional<variable_t> region_size) {
     using namespace crab::dsl_syntax;
     require(inv, lb >= variable_t::meta_offset(), std::string("Lower bound must be at least meta_offset") + s);
     if (region_size)
-        require(inv, ub <= *region_size,
-                std::string("Upper bound must be at most packet_size") + s);
+        require(inv, ub <= *region_size, std::string("Upper bound must be at most packet_size") + s);
     else
         require(inv, ub <= MAX_PACKET_SIZE,
                 std::string("Upper bound must be at most ") + std::to_string(MAX_PACKET_SIZE) + s);
 }
 
-void ebpf_domain_t::check_access_shared(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s,
-                                        variable_t region_size) {
+void ebpf_domain_t::check_access_shared(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub,
+                                        const std::string& s, variable_t region_size) {
     using namespace crab::dsl_syntax;
     require(inv, lb >= 0, std::string("Lower bound must be at least 0") + s);
     require(inv, ub <= region_size, std::string("Upper bound must be at most ") + region_size.name() + s);
@@ -509,8 +548,8 @@ void ebpf_domain_t::operator()(const Assume& s) {
     if (std::holds_alternative<Reg>(cond.right)) {
         auto src = reg_pack(std::get<Reg>(cond.right));
         if (type_inv.same_type(m_inv, cond.left, std::get<Reg>(cond.right))) {
-            m_inv = type_inv.join_by_if_else(m_inv,
-                type_is_number(cond.left),
+            m_inv = type_inv.join_by_if_else(
+                m_inv, type_is_number(cond.left),
                 [&](NumAbsDomain& inv) {
                     if (!is_unsigned_cmp(cond.op))
                         for (const linear_constraint_t& cst : jmp_to_cst_reg(cond.op, dst.value, src.value))
@@ -520,8 +559,7 @@ void ebpf_domain_t::operator()(const Assume& s) {
                     // Either pointers to a singleton region,
                     // or an equality comparison on map descriptors/pointers to non-singleton locations
                     inv += jmp_to_cst_offsets_reg(cond.op, dst.offset, src.offset);
-                }
-            );
+                });
         } else {
             // We should only reach here if `--assume-assert` is off
             assert(!thread_local_options.assume_assertions || is_bottom());
@@ -566,7 +604,7 @@ void ebpf_domain_t::operator()(const Comparable& s) {
 }
 
 void ebpf_domain_t::operator()(const Addable& s) {
-    if (!type_inv.implies_type(m_inv, type_is_pointer(reg_pack(s.ptr)),type_is_number(s.num)))
+    if (!type_inv.implies_type(m_inv, type_is_pointer(reg_pack(s.ptr)), type_is_number(s.num)))
         require(m_inv, linear_constraint_t::FALSE(), "only numbers can be added to pointers (" + to_string(s) + ")");
 }
 
@@ -722,7 +760,8 @@ void ebpf_domain_t::operator()(const ValidMapKeyValue& s) {
                 std::string lb_s = lb_is && lb_is->fits_sint() ? std::to_string((int)*lb_is) : "-oo";
                 auto ub_is = inv.eval_interval(ub).ub().number();
                 std::string ub_s = ub_is && ub_is->fits_sint() ? std::to_string((int)*ub_is) : "oo";
-                require(inv, linear_constraint_t::FALSE(), "Illegal map update with a non-numerical value [" + lb_s + "-" + ub_s + ")");
+                require(inv, linear_constraint_t::FALSE(),
+                        "Illegal map update with a non-numerical value [" + lb_s + "-" + ub_s + ")");
             } else if (thread_local_options.strict && fd_type.has_value()) {
                 EbpfMapType map_type = global_program_info.platform->get_map_type(*fd_type);
                 if (map_type.is_array) {
@@ -759,9 +798,8 @@ void ebpf_domain_t::operator()(const ValidAccess& s) {
 
     auto reg = reg_pack(s.reg);
     linear_expression_t lb = reg.offset + s.offset;
-    linear_expression_t ub = std::holds_alternative<Imm>(s.width)
-        ? lb + std::get<Imm>(s.width).v
-        : lb + reg_pack(std::get<Reg>(s.width)).value;
+    linear_expression_t ub = std::holds_alternative<Imm>(s.width) ? lb + std::get<Imm>(s.width).v
+                                                                  : lb + reg_pack(std::get<Reg>(s.width)).value;
     std::string m = std::string(" (") + to_string(s) + ")";
     // join_over_types instead of simple iteration is only needed for assume-assert
     m_inv = type_inv.join_over_types(m_inv, s.reg, [&](NumAbsDomain& inv, type_encoding_t type) {
@@ -798,9 +836,7 @@ void ebpf_domain_t::operator()(const ValidAccess& s) {
             if (!is_comparison_check && !s.or_null)
                 require(inv, reg.value > 0, "Possible null access");
             break;
-        default:
-            require(inv, linear_constraint_t::FALSE(), "Invalid type");
-            break;
+        default: require(inv, linear_constraint_t::FALSE(), "Invalid type"); break;
         }
     });
 }
@@ -824,12 +860,13 @@ void ebpf_domain_t::operator()(const Packet& a) {
     scratch_caller_saved_registers();
 }
 
-void ebpf_domain_t::do_load_stack(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr, int width) {
+void ebpf_domain_t::do_load_stack(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr,
+                                  int width) {
     type_inv.assign_type(inv, target_reg, stack.load(inv, data_kind_t::types, addr, width));
 
     const reg_pack_t& target = reg_pack(target_reg);
     if (width == 1 || width == 2 || width == 4 || width == 8) {
-        inv.assign(target.value, stack.load(inv,  data_kind_t::values, addr, width));
+        inv.assign(target.value, stack.load(inv, data_kind_t::values, addr, width));
         inv.assign(target.offset, stack.load(inv, data_kind_t::offsets, addr, width));
         inv.assign(target.region_size, stack.load(inv, data_kind_t::region_size, addr, width));
     } else {
@@ -839,7 +876,8 @@ void ebpf_domain_t::do_load_stack(NumAbsDomain& inv, const Reg& target_reg, cons
     }
 }
 
-void ebpf_domain_t::do_load_ctx(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr_vague, int width) {
+void ebpf_domain_t::do_load_ctx(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr_vague,
+                                int width) {
     using namespace crab::dsl_syntax;
     if (inv.is_bottom())
         return;
@@ -891,7 +929,8 @@ void ebpf_domain_t::do_load_ctx(NumAbsDomain& inv, const Reg& target_reg, const 
     inv += target.value <= PTR_MAX;
 }
 
-void ebpf_domain_t::do_load_packet_or_shared(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr, int width) {
+void ebpf_domain_t::do_load_packet_or_shared(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr,
+                                             int width) {
     if (inv.is_bottom())
         return;
     const reg_pack_t& target = reg_pack(target_reg);
@@ -924,27 +963,29 @@ void ebpf_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
     m_inv = type_inv.join_over_types(m_inv, b.access.basereg, [&](NumAbsDomain& inv, type_encoding_t type) {
         switch (type) {
-            case T_UNINIT: return;
-            case T_MAP: return;
-            case T_MAP_PROGRAMS: return;
-            case T_NUM: return;
-            case T_CTX: do_load_ctx(inv, target_reg, addr, width); break;
-            case T_STACK: do_load_stack(inv, target_reg, addr, width); break;
-            case T_PACKET: do_load_packet_or_shared(inv, target_reg, addr, width); break;
-            default: do_load_packet_or_shared(inv, target_reg, addr, width); break;
+        case T_UNINIT: return;
+        case T_MAP: return;
+        case T_MAP_PROGRAMS: return;
+        case T_NUM: return;
+        case T_CTX: do_load_ctx(inv, target_reg, addr, width); break;
+        case T_STACK: do_load_stack(inv, target_reg, addr, width); break;
+        case T_PACKET: do_load_packet_or_shared(inv, target_reg, addr, width); break;
+        default: do_load_packet_or_shared(inv, target_reg, addr, width); break;
         }
     });
 }
 
 template <typename A, typename X, typename Y>
 void ebpf_domain_t::do_store_stack(NumAbsDomain& inv, int width, const A& addr, X val_type, Y val_value,
-                    std::optional<variable_t> opt_val_offset, std::optional<variable_t> opt_val_region_size) {
+                                   std::optional<variable_t> opt_val_offset,
+                                   std::optional<variable_t> opt_val_region_size) {
     type_inv.assign_type(inv, stack.store_type(inv, addr, width, val_type), val_type);
     if (width == 8) {
         inv.assign(stack.store(inv, data_kind_t::values, addr, width, val_value), val_value);
         if (opt_val_offset && type_inv.get_type(m_inv, val_type) != T_NUM) {
             inv.assign(stack.store(inv, data_kind_t::offsets, addr, width, *opt_val_offset), *opt_val_offset);
-            inv.assign(stack.store(inv, data_kind_t::region_size, addr, width, *opt_val_region_size), *opt_val_region_size);
+            inv.assign(stack.store(inv, data_kind_t::region_size, addr, width, *opt_val_region_size),
+                       *opt_val_region_size);
         } else {
             stack.havoc(inv, data_kind_t::offsets, addr, width);
             stack.havoc(inv, data_kind_t::region_size, addr, width);
@@ -977,7 +1018,8 @@ void ebpf_domain_t::operator()(const Mem& b) {
 }
 
 template <typename Type, typename Value>
-void ebpf_domain_t::do_mem_store(const Mem& b, Type val_type, Value val_value, std::optional<variable_t> opt_val_offset, std::optional<variable_t> opt_val_region_size) {
+void ebpf_domain_t::do_mem_store(const Mem& b, Type val_type, Value val_value, std::optional<variable_t> opt_val_offset,
+                                 std::optional<variable_t> opt_val_region_size) {
     if (m_inv.is_bottom())
         return;
     using namespace crab::dsl_syntax;
@@ -1008,9 +1050,7 @@ void ebpf_domain_t::operator()(const Call& call) {
     std::optional<Reg> maybe_fd_reg{};
     for (ArgSingle param : call.singles) {
         switch (param.kind) {
-        case ArgSingle::Kind::MAP_FD:
-            maybe_fd_reg = param.reg;
-            break;
+        case ArgSingle::Kind::MAP_FD: maybe_fd_reg = param.reg; break;
         case ArgSingle::Kind::ANYTHING:
         case ArgSingle::Kind::MAP_FD_PROGRAMS:
         case ArgSingle::Kind::PTR_TO_MAP_KEY:
@@ -1101,9 +1141,7 @@ void ebpf_domain_t::do_load_mapfd(const Reg& dst_reg, int mapfd, bool maybe_null
     assign_valid_ptr(dst_reg, maybe_null);
 }
 
-void ebpf_domain_t::operator()(const LoadMapFd& ins) {
-    do_load_mapfd(ins.dst, ins.mapfd, false);
-}
+void ebpf_domain_t::operator()(const LoadMapFd& ins) { do_load_mapfd(ins.dst, ins.mapfd, false); }
 
 void ebpf_domain_t::assign_valid_ptr(const Reg& dst_reg, bool maybe_null) {
     using namespace crab::dsl_syntax;
@@ -1202,8 +1240,8 @@ void ebpf_domain_t::operator()(const Bin& bin) {
             } else {
                 // Here we're not sure that lhs and rhs are the same type; they might be.
                 // But previous assertions should fail unless we know that exactly one of lhs or rhs to is a pointer
-                m_inv = type_inv.join_by_if_else(m_inv,
-                    type_is_number(bin.dst),
+                m_inv = type_inv.join_by_if_else(
+                    m_inv, type_is_number(bin.dst),
                     [&](NumAbsDomain& inv) {
                         // num + ptr
                         apply(inv, crab::arith_binop_t::ADD, dst.offset, dst.value, src.offset, false);
@@ -1213,8 +1251,7 @@ void ebpf_domain_t::operator()(const Bin& bin) {
                     [&](NumAbsDomain& inv) {
                         // ptr + num
                         apply(inv, crab::arith_binop_t::ADD, dst.offset, dst.offset, src.value, false);
-                    }
-                );
+                    });
                 // careful: change dst.value only after dealing with offset
                 apply(m_inv, crab::arith_binop_t::ADD, dst.value, dst.value, src.value, true);
             }
@@ -1222,8 +1259,8 @@ void ebpf_domain_t::operator()(const Bin& bin) {
         }
         case Bin::Op::SUB: {
             if (type_inv.same_type(m_inv, bin.dst, std::get<Reg>(bin.v))) {
-                m_inv = type_inv.join_by_if_else(m_inv,
-                    type_is_number(bin.dst),
+                m_inv = type_inv.join_by_if_else(
+                    m_inv, type_is_number(bin.dst),
                     [&](NumAbsDomain& inv) {
                         // This is: sub_overflow(inv, dst.value, src.value);
                         apply(inv, crab::arith_binop_t::SUB, dst.value, dst.value, src.value, true);
@@ -1234,8 +1271,7 @@ void ebpf_domain_t::operator()(const Bin& bin) {
                         inv -= dst.offset;
                         inv -= dst.region_size;
                         type_inv.assign_type(inv, bin.dst, T_NUM);
-                    }
-                );
+                    });
             } else {
                 // Here we're not sure that lhs and rhs are the same type; they might be, meaning lhs may be a number.
                 // But previous assertions should fail unless we know that rhs is a number.
@@ -1303,16 +1339,18 @@ void ebpf_domain_t::operator()(const Bin& bin) {
     }
 }
 
-string_invariant ebpf_domain_t::to_set() {
-    return this->m_inv.to_set() + this->stack.to_set();
+string_invariant ebpf_domain_t::to_set() { return this->m_inv.to_set() + this->stack.to_set(); }
+
+void ebpf_domain_t::write(std::ostream& o) const {
+    if (is_bottom()) {
+        o << "_|_";
+    } else {
+        o << m_inv << "\nStack: " << stack;
+    }
 }
 
 std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom) {
-    if (dom.is_bottom()) {
-        o << "_|_";
-    } else {
-        o << dom.m_inv << "\nStack: " << dom.stack;
-    }
+    dom.write(o);
     return o;
 }
 
@@ -1374,3 +1412,5 @@ ebpf_domain_t ebpf_domain_t::setup_entry(bool check_termination) {
     }
     return inv;
 }
+
+std::string ebpf_domain_t::domain_name() const { return "Prevail eBPF domain"; }

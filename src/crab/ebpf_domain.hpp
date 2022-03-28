@@ -8,48 +8,35 @@
 #include <optional>
 #include <vector>
 
+#include "crab/abstract_domain.hpp"
 #include "crab/array_domain.hpp"
 #include "crab/split_dbm.hpp"
 #include "crab/variable.hpp"
 #include "string_constraints.hpp"
 
-using NumAbsDomain = crab::domains::NumAbsDomain;
-
 class ebpf_domain_t final {
   public:
     ebpf_domain_t();
-    ebpf_domain_t(crab::domains::NumAbsDomain inv, crab::domains::array_domain_t stack);
+    // Create an instance ebpf domain that resembles the initial state
+    // of eBPF (r1 points to context, r10 points to stack, etc).
+    static ebpf_domain_t setup_entry(bool check_termination);
 
     // Generic abstract domain operations
-    static ebpf_domain_t top();
-    static ebpf_domain_t bottom();
     void set_to_top();
     void set_to_bottom();
     bool is_bottom() const;
     bool is_top() const;
-    bool operator<=(const ebpf_domain_t& other);
-    bool operator==(const ebpf_domain_t& other) const;
+    bool operator<=(const ebpf_domain_t& other) const;
     void operator|=(ebpf_domain_t&& other);
     void operator|=(const ebpf_domain_t& other);
     ebpf_domain_t operator|(ebpf_domain_t&& other) const;
-    ebpf_domain_t operator|(const ebpf_domain_t& other) const&;
-    ebpf_domain_t operator|(const ebpf_domain_t& other) &&;
+    ebpf_domain_t operator|(const ebpf_domain_t& other) const;
     ebpf_domain_t operator&(const ebpf_domain_t& other) const;
-    ebpf_domain_t widen(const ebpf_domain_t& other);
-    ebpf_domain_t widening_thresholds(const ebpf_domain_t& other, const crab::iterators::thresholds_t& ts);
-    ebpf_domain_t narrow(const ebpf_domain_t& other);
+    ebpf_domain_t widen(const ebpf_domain_t& other) const;
+    ebpf_domain_t narrow(const ebpf_domain_t& other) const;
 
-    typedef bool check_require_func_t(NumAbsDomain&, const linear_constraint_t&, std::string);
-    void set_require_check(std::function<check_require_func_t> f);
-    int get_instruction_count_upper_bound();
-    static ebpf_domain_t setup_entry(bool check_termination);
-
-    static ebpf_domain_t from_constraints(const std::set<std::string>& constraints);
-    string_invariant to_set();
-
-    // abstract transformers
+    // Abstract transformers
     void operator()(const basic_block_t& bb, bool check_termination);
-
     void operator()(const Addable&);
     void operator()(const Assert&);
     void operator()(const Assume&);
@@ -71,7 +58,20 @@ class ebpf_domain_t final {
     void operator()(const ValidStore&);
     void operator()(const ZeroOffset&);
 
+    void write(std::ostream& o) const;
+    std::string domain_name() const;
+
+    // To perform checks while computing fixpoint
+    void set_require_check(check_require_func_t f);
+    // For termination
+    int get_instruction_count_upper_bound();
+    // Translate from/to string format
+    static ebpf_domain_t from_constraints(const std::set<std::string>& constraints);
+    string_invariant to_set();
+
   private:
+    ebpf_domain_t(crab::domains::NumAbsDomain&& inv, crab::domains::array_domain_t&& stack);
+
     // private generic domain functions
     void operator+=(const linear_constraint_t& cst);
     void operator-=(variable_t var);
@@ -87,8 +87,10 @@ class ebpf_domain_t final {
     void apply(crab::binop_t op, variable_t x, variable_t y, const number_t& z);
     void apply(crab::binop_t op, variable_t x, variable_t y, variable_t z);
 
-    void apply(crab::domains::NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, const number_t& z, bool finite_width = false);
-    void apply(crab::domains::NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, variable_t z, bool finite_width = false);
+    void apply(crab::domains::NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, const number_t& z,
+               bool finite_width = false);
+    void apply(crab::domains::NumAbsDomain& inv, crab::binop_t op, variable_t x, variable_t y, variable_t z,
+               bool finite_width = false);
 
     void add(variable_t lhs, variable_t op2);
     void add(variable_t lhs, const number_t& op2);
@@ -144,32 +146,35 @@ class ebpf_domain_t final {
     void require(crab::domains::NumAbsDomain& inv, const linear_constraint_t& cst, const std::string& s);
 
     // memory check / load / store
-    void check_access_stack(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s);
-    void check_access_context(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s);
-    void check_access_packet(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s,
+    void check_access_stack(crab::domains::NumAbsDomain& inv, const linear_expression_t& lb,
+                            const linear_expression_t& ub, const std::string& s);
+    void check_access_context(crab::domains::NumAbsDomain& inv, const linear_expression_t& lb,
+                              const linear_expression_t& ub, const std::string& s);
+    void check_access_packet(crab::domains::NumAbsDomain& inv, const linear_expression_t& lb,
+                             const linear_expression_t& ub, const std::string& s,
                              std::optional<variable_t> region_size);
-    void check_access_shared(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub, const std::string& s,
-                             variable_t region_size);
+    void check_access_shared(crab::domains::NumAbsDomain& inv, const linear_expression_t& lb,
+                             const linear_expression_t& ub, const std::string& s, variable_t region_size);
 
-    void do_load_stack(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr, int width);
-    void do_load_ctx(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr_vague, int width);
-    void do_load_packet_or_shared(NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr, int width);
+    void do_load_stack(crab::domains::NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr,
+                       int width);
+    void do_load_ctx(crab::domains::NumAbsDomain& inv, const Reg& target_reg, const linear_expression_t& addr_vague,
+                     int width);
+    void do_load_packet_or_shared(crab::domains::NumAbsDomain& inv, const Reg& target_reg,
+                                  const linear_expression_t& addr, int width);
     void do_load(const Mem& b, const Reg& target_reg);
 
     template <typename A, typename X, typename Y>
     void do_store_stack(crab::domains::NumAbsDomain& inv, int width, const A& addr, X val_type, Y val_value,
-                        std::optional<variable_t> opt_val_offset,
-                        std::optional<variable_t> opt_val_region_size);
+                        std::optional<variable_t> opt_val_offset, std::optional<variable_t> opt_val_region_size);
 
     template <typename Type, typename Value>
-    void do_mem_store(const Mem& b, Type val_type, Value val_value,
-                      std::optional<variable_t> opt_val_offset,
+    void do_mem_store(const Mem& b, Type val_type, Value val_value, std::optional<variable_t> opt_val_offset,
                       std::optional<variable_t> opt_val_region_size);
 
     friend std::ostream& operator<<(std::ostream& o, const ebpf_domain_t& dom);
 
     static void initialize_packet(ebpf_domain_t& inv);
-
 
   private:
     /// Mapping from variables (including registers, types, offsets,
@@ -182,32 +187,36 @@ class ebpf_domain_t final {
     /// while dealing with overlapping byte ranges.
     crab::domains::array_domain_t stack;
 
-    std::function<check_require_func_t> check_require{};
+    check_require_func_t check_require{};
     bool get_map_fd_range(const Reg& map_fd_reg, int* start_fd, int* end_fd) const;
 
     struct TypeDomain {
-        void assign_type(NumAbsDomain& inv, const Reg& lhs, type_encoding_t t);
-        void assign_type(NumAbsDomain& inv, const Reg& lhs, const Reg& rhs);
-        void assign_type(NumAbsDomain& inv, const Reg& lhs, const std::optional<linear_expression_t>& rhs);
-        void assign_type(NumAbsDomain& inv, std::optional<variable_t> lhs, const Reg& rhs);
-        void assign_type(NumAbsDomain& inv, std::optional<variable_t> lhs, int rhs);
+        void assign_type(crab::domains::NumAbsDomain& inv, const Reg& lhs, type_encoding_t t);
+        void assign_type(crab::domains::NumAbsDomain& inv, const Reg& lhs, const Reg& rhs);
+        void assign_type(crab::domains::NumAbsDomain& inv, const Reg& lhs,
+                         const std::optional<linear_expression_t>& rhs);
+        void assign_type(crab::domains::NumAbsDomain& inv, std::optional<variable_t> lhs, const Reg& rhs);
+        void assign_type(crab::domains::NumAbsDomain& inv, std::optional<variable_t> lhs, int rhs);
 
-        void havoc_type(NumAbsDomain& inv, const Reg& r);
+        void havoc_type(crab::domains::NumAbsDomain& inv, const Reg& r);
 
-        [[nodiscard]] int get_type(const NumAbsDomain& inv, variable_t v) const;
-        [[nodiscard]] int get_type(const NumAbsDomain& inv, const Reg& r) const;
-        [[nodiscard]] int get_type(const NumAbsDomain& inv, int t) const;
+        [[nodiscard]] int get_type(const crab::domains::NumAbsDomain& inv, variable_t v) const;
+        [[nodiscard]] int get_type(const crab::domains::NumAbsDomain& inv, const Reg& r) const;
+        [[nodiscard]] int get_type(const crab::domains::NumAbsDomain& inv, int t) const;
 
-        [[nodiscard]] bool same_type(const NumAbsDomain& inv, const Reg& a, const Reg& b) const;
-        [[nodiscard]] bool implies_type(const NumAbsDomain& inv, const linear_constraint_t& a, const linear_constraint_t& b) const;
+        [[nodiscard]] bool same_type(const crab::domains::NumAbsDomain& inv, const Reg& a, const Reg& b) const;
+        [[nodiscard]] bool implies_type(const crab::domains::NumAbsDomain& inv, const linear_constraint_t& a,
+                                        const linear_constraint_t& b) const;
 
-        NumAbsDomain join_over_types(const NumAbsDomain& inv, const Reg& reg,
-                                     const std::function<void(NumAbsDomain&, type_encoding_t)>& transition) const;
-        NumAbsDomain join_by_if_else(const NumAbsDomain& inv, const linear_constraint_t& condition,
-                                     const std::function<void(NumAbsDomain&)>& if_true,
-                                     const std::function<void(NumAbsDomain&)>& if_false) const;
+        crab::domains::NumAbsDomain
+        join_over_types(const crab::domains::NumAbsDomain& inv, const Reg& reg,
+                        const std::function<void(crab::domains::NumAbsDomain&, type_encoding_t)>& transition) const;
+        crab::domains::NumAbsDomain
+        join_by_if_else(const crab::domains::NumAbsDomain& inv, const linear_constraint_t& condition,
+                        const std::function<void(crab::domains::NumAbsDomain&)>& if_true,
+                        const std::function<void(crab::domains::NumAbsDomain&)>& if_false) const;
 
-        bool is_in_group(const NumAbsDomain& inv, const Reg& r, TypeGroup group) const;
+        bool is_in_group(const crab::domains::NumAbsDomain& inv, const Reg& r, TypeGroup group) const;
     };
 
     TypeDomain type_inv;
