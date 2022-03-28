@@ -73,6 +73,9 @@ int main(int argc, char** argv) {
     if (verbose)
         ebpf_verifier_options.print_invariants = ebpf_verifier_options.print_failures = true;
 
+    if (gen_proof) 
+        ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
+
     // Main program
 
     if (filename == "@headers") {
