@@ -180,8 +180,9 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
     thread_local_options = *options;
 
     try {
-
+        s << "\nprinting the cfg ==============\n";
         s << cfg;
+        s << "\n";
         abstract_domain_t entry_dom = make_initial(options);
         // Get dictionaries of pre-invariants and post-invariants for each basic block.
         auto [pre_invariants, post_invariants] =

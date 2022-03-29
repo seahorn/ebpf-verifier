@@ -153,8 +153,10 @@ class ctx_t {
   public:
     ctx_t(const ebpf_context_descriptor_t* desc)
     {
-        m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
-        m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
+        if (desc->data != -1)
+            m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
+        if (desc->end != -1)
+            m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
     }
 
     std::optional<ptr_no_off_t> find(int key) const {
@@ -165,7 +167,7 @@ class ctx_t {
 
     friend std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
 
-        o << "type of context: \n";
+        o << "type of context: " << (_ctx.m_packet_ptrs.empty() ? "_|_" : "") << "\n";
         for (const auto& it : _ctx.m_packet_ptrs) {
             o << "\tstores at " << it.first << ": " << it.second << "\n";
         }
@@ -283,8 +285,13 @@ class register_types_t {
     }
 
     void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
-        auto it = m_all_types->insert(std::make_pair(reg_with_loc, type));
-        if (not it.second) it.first->second = type;
+        auto it = m_all_types->find(reg_with_loc);
+        if (it == m_all_types->end())
+            m_all_types->insert(std::make_pair(reg_with_loc, type));
+        else
+            it->second = type;
+        //auto it = m_all_types->insert(std::make_pair(reg_with_loc, type));
+        //if (not it.second) it.first->second = type;
         m_vars[reg] = reg_with_loc;
     }
 
@@ -344,6 +351,8 @@ class type_domain_t final {
   type_domain_t widen(const type_domain_t& other) const;
   // narrowing
   type_domain_t narrow(const type_domain_t& other) const;
+  //forget
+  void operator-=(variable_t var);
 
   //// abstract transformers
   void operator()(const Undefined &);
@@ -361,12 +370,13 @@ class type_domain_t final {
   void operator()(const basic_block_t& bb, bool check_termination) {
       m_curr_pos = 0;
       m_label = bb.label();
-      std::cout << m_label << "\n";
+      std::cout << m_label << ":\n";
       for (const Instruction& statement : bb) {
         std::cout << "  " << statement << "\n";
         m_curr_pos++;
         std::visit(*this, statement);
     }
+    std::cout << "\n";
   }
   void write(std::ostream& os) const;
   std::string domain_name() const;
