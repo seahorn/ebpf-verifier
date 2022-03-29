@@ -19,16 +19,16 @@ enum class region {
 	T_SHARED
 };
 
-inline std::string get_region(const region& r) {
+inline std::string get_reg_ptr(const region& r) {
     switch (r) {
         case region::T_CTX:
-            return "ctx";
+            return "ctx_p";
         case region::T_STACK:
-            return "stack";
+            return "stack_p";
         case region::T_PACKET:
-            return "packet";
+            return "packet_p";
         default:
-            return "shared";
+            return "shared_p";
     }
 }
 
@@ -49,7 +49,7 @@ struct ptr_no_off_t {
     ptr_no_off_t(region _r) : r(_r) {}
 
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
-        return o << "{" << get_region(p.r) << "}";
+        return o << get_reg_ptr(p.r);
     }
   
     // temporarily make operators friend functions in order to avoid duplicate symbol errors
@@ -75,7 +75,7 @@ struct ptr_with_off_t {
     ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
 
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
-        o << "{" << get_region(p.r) << ", " << p.offset << "}";
+        o << get_reg_ptr(p.r) << "<" << p.offset << ">";
         return o;
     }
 
@@ -96,11 +96,10 @@ struct reg_with_loc_t {
     register_t r;
     std::pair<label_t, uint32_t> loc;
 
-    reg_with_loc_t() : r(11), loc(std::make_pair(label_t::entry, 0)) {}
     reg_with_loc_t(register_t _r, const label_t& l, uint32_t loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
 
     bool operator==(const reg_with_loc_t& other) const {
-        return (r < 11 && r == other.r);
+        return (r == other.r && loc == other.loc);
     }
 
     std::size_t hash() const {
@@ -112,6 +111,11 @@ struct reg_with_loc_t {
         seed ^= hash<int>()(loc.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 
         return seed;
+    }
+
+    friend std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
+        o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc.second << " in " << reg.loc.first;
+        return o;
     }
 };
 }
@@ -169,7 +173,7 @@ class ctx_t {
 
         o << "type of context: " << (_ctx.m_packet_ptrs.empty() ? "_|_" : "") << "\n";
         for (const auto& it : _ctx.m_packet_ptrs) {
-            o << "\tstores at " << it.first << ": " << it.second << "\n";
+            o << "  stores at " << it.first << ": " << it.second << "\n";
         }
         return o;
     }
@@ -236,7 +240,7 @@ class stack_t {
     friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
 };
 
-using live_registers_t = std::array<reg_with_loc_t, 11>;
+using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
 using global_type_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
 class register_types_t {
@@ -257,8 +261,9 @@ class register_types_t {
         }
         live_registers_t out_vars;
         for (size_t i = 0; i < m_vars.size(); i++) {
-            auto it1 = find(m_vars[i]);
-            auto it2 = other.find(other.m_vars[i]);
+            if (m_vars[i] == nullptr) continue;
+            auto it1 = find(*(m_vars[i]));
+            auto it2 = other.find(*(other.m_vars[i]));
             if (it1 && it2 && it1.value() == it2.value()) {
                 out_vars[i] = m_vars[i];
             }
@@ -267,13 +272,20 @@ class register_types_t {
         return register_types_t(std::move(out_vars), m_all_types, false);
     }
 
+    void operator-=(register_t var) {
+        if (is_bottom()) {
+            return;
+        }
+        m_vars[var] = nullptr;
+    }
+
     void set_to_bottom() {
-        m_vars = live_registers_t{};
+        m_vars = live_registers_t{nullptr};
         m_is_bottom = true;
     }
 
     void set_to_top() {
-        m_vars = live_registers_t{};
+        m_vars = live_registers_t{nullptr};
         m_is_bottom = false;
     }
 
@@ -281,34 +293,34 @@ class register_types_t {
 
     bool is_top() const {
         if (m_is_bottom) { return false; }
-        return (m_all_types == nullptr || m_vars.empty());
+        if (m_all_types == nullptr) return true;
+        for (auto it : m_vars) {
+            if (it != nullptr) return false;
+        }
+        return true;
     }
 
     void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
-        auto it = m_all_types->find(reg_with_loc);
-        if (it == m_all_types->end())
-            m_all_types->insert(std::make_pair(reg_with_loc, type));
-        else
-            it->second = type;
-        //auto it = m_all_types->insert(std::make_pair(reg_with_loc, type));
-        //if (not it.second) it.first->second = type;
-        m_vars[reg] = reg_with_loc;
+        (*m_all_types)[reg_with_loc] = type;
+        m_vars[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
     }
 
-    std::optional<ptr_t> find(const reg_with_loc_t& reg) const {
+    std::optional<ptr_t> find(reg_with_loc_t reg) const {
         auto it = m_all_types->find(reg);
         if (it == m_all_types->end()) return {};
         return it->second;
     }
 
     std::optional<ptr_t> find(register_t key) const {
-        auto reg = m_vars[key];
+        if (m_vars[key] == nullptr) return {};
+        const reg_with_loc_t& reg = *(m_vars[key]);
         return find(reg);
     }
 
     const live_registers_t &get_vars() { return m_vars; }
 
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
+
 };
 
 }
@@ -372,11 +384,24 @@ class type_domain_t final {
       m_label = bb.label();
       std::cout << m_label << ":\n";
       for (const Instruction& statement : bb) {
-        std::cout << "  " << statement << "\n";
         m_curr_pos++;
         std::visit(*this, statement);
     }
-    std::cout << "\n";
+    auto [it, et] = bb.next_blocks();
+    if (it != et) {
+        std::cout << "  "
+          << "goto ";
+        for (; it != et;) {
+            std::cout << *it;
+            ++it;
+            if (it == et) {
+                std::cout << ";";
+            } else {
+                std::cout << ",";
+            }
+        }
+    }
+    std::cout << "\n\n";
   }
   void write(std::ostream& os) const;
   std::string domain_name() const;
