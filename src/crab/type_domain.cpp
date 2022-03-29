@@ -130,6 +130,10 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
     return other;
 }
 
+void type_domain_t::operator-=(variable_t var) {
+    m_types -= var;
+}
+
 void type_domain_t::write(std::ostream& os) const { 
     os << m_types;
     os << "\t" << m_stack << "\n";
@@ -160,8 +164,7 @@ void type_domain_t::operator()(const Assert &u) {}
 
 type_domain_t type_domain_t::setup_entry() {
 
-    ebpf_context_descriptor_t context_descriptor{0, 0, 4, -1};
-    std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(&context_descriptor);
+    std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
 
     std::cout << "Printing types ==============\n\n";
@@ -176,13 +179,17 @@ type_domain_t type_domain_t::setup_entry() {
     typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region::T_CTX, 0));
     typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region::T_STACK, 512));
 
+    std::cout << "Initial register types:\n";
     auto it = typ.find(R1_ARG);
-    if (it)
+    if (it) {
+        std::cout << "\t";
         print_type(R1_ARG, it.value());
-
+    }
     auto it2 = typ.find(R10_STACK_POINTER);
-    if (it2)
+    if (it2) {
+        std::cout << "\t";
         print_type(R10_STACK_POINTER, it2.value());
+    }
     std::cout << "\n";
 
     type_domain_t inv(std::move(typ), crab::stack_t::bottom(), label_t::entry, ctx);
@@ -197,10 +204,9 @@ void type_domain_t::operator()(const Bin& bin) {
         switch (bin.op)
         {
             case Bin::Op::MOV: {
-
                 auto it = m_types.find(src.v);
                 if (!it) {
-                    CRAB_ERROR("type error: assigning an unknown pointer or a number - R", (int)src.v);
+                    CRAB_ERROR("type error: assigning an unknown pointer or a number - r", (int)src.v);
                 }
 
                 auto reg = reg_with_loc_t(bin.dst.v, m_label, m_curr_pos);
@@ -211,6 +217,9 @@ void type_domain_t::operator()(const Bin& bin) {
                     std::cout << "\t";
                     print_type(bin.dst.v, it2.value());
                     std::cout << "\n";
+                }
+                else {
+                    CRAB_ERROR("Type of r", static_cast<int>(bin.dst.v), " is not being stored");
                 }
             }
 
@@ -227,12 +236,12 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        CRAB_ERROR("type_error: loading from an unknown pointer, or from number - R", (int)basereg.v);
+        CRAB_ERROR("type_error: loading from an unknown pointer, or from number - r", (int)basereg.v);
     }
     ptr_t type_basereg = it.value();
 
     if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
-        CRAB_ERROR("type_error: loading from either packet or shared region not allowed - R", (int)basereg.v);
+        CRAB_ERROR("type_error: loading from either packet or shared region not allowed - r", (int)basereg.v);
     }
 
     ptr_with_off_t type_with_off = std::get<ptr_with_off_t>(type_basereg);
@@ -286,42 +295,54 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
         print_type(target_reg.v, it2.value());
         std::cout << "\n";
     }
+    else {
+        CRAB_ERROR("Type of r", static_cast<int>(target_reg.v), " is not being stored");
+    }
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
 
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
+    int width = b.access.width;
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        CRAB_ERROR("type_error: storing at an unknown pointer, or from number - R", (int)basereg.v);
+        CRAB_ERROR("type_error: storing at an unknown pointer, or from number - r", (int)basereg.v);
     }
     ptr_t type_basereg = it.value();
 
     auto it2 = m_types.find(target_reg.v);
     if (!it2) {
-        CRAB_ERROR("type_error: storing either a number or an unknown pointer - R", (int)target_reg.v);
+        CRAB_ERROR("type_error: storing either a number or an unknown pointer - r", (int)target_reg.v);
     }
     ptr_t type_stored = it2.value();
 
     if (std::holds_alternative<ptr_with_off_t>(type_stored)) {
         ptr_with_off_t type_stored_with_off = std::get<ptr_with_off_t>(type_stored);
         if (type_stored_with_off.r == crab::region::T_STACK) {
-            CRAB_ERROR("type_error: we cannot store stack pointer, R", (int)target_reg.v, ", into stack");
+            CRAB_ERROR("type_error: we cannot store stack pointer, r", (int)target_reg.v, ", into stack");
         }
     }
 
     if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
-        CRAB_ERROR("type_error: we cannot store pointer, R", (int)target_reg.v, ", into packet or shared");
+        CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into packet or shared");
     }
 
     ptr_with_off_t type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
     if (type_basereg_with_off.r == crab::region::T_CTX) {
-        CRAB_ERROR("type_error: we cannot store pointer, R", (int)target_reg.v, ", into ctx");
+        CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into ctx");
     }
 
     int store_at = offset+type_basereg_with_off.offset;
+
+    for (auto i = store_at; i < store_at+width; i++) {
+        auto it = m_stack.find(i);
+        if (it) {
+            CRAB_ERROR("type_error: type being stored into stack at ", store_at, " is overlapping with already stored\
+            at", i);
+        }
+    }
 
     auto it3 = m_stack.find(store_at);
     if (it3) {
