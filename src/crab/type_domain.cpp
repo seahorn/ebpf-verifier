@@ -15,14 +15,54 @@ using crab::reg_with_loc_t;
 using crab::live_registers_t;
 using crab::register_types_t;
 
-type_domain_t::type_domain_t(const type_domain_t& o) : m_label(label_t::entry) {}
+void print_pointer(const ptr_t& p) {
+    if (std::holds_alternative<ptr_with_off_t>(p)) {
+        auto t = std::get<ptr_with_off_t>(p);
+        std::cout << t;
+    }
+    else {
+        auto t = std::get<ptr_no_off_t>(p);
+        std::cout << t;
+    }
+}
+
+void print_type(register_t r, const ptr_t& p) {
+    std::cout << ">>>>type of r" << static_cast<unsigned int>(r) << ": ";
+    print_pointer(p);
+    std::cout << "\n";
+}
+
+namespace crab {
+
+std::ostream& operator<<(std::ostream& o, const stack_t& st) {
+    o << "Stack: {";
+    for (auto it = st.m_ptrs.begin(); it != st.m_ptrs.end(); it++) {
+        auto s = *it;
+        o << s.first << ": ";
+        print_pointer(s.second);
+        if (++it != st.m_ptrs.end()) o << ",";
+    }
+    return o << "}";
+}
+
+std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
+    for (const auto& v : typ.m_vars) {
+        auto it = typ.find(v);
+        if (it) {
+            o << "\t";
+            print_type(v.r, it.value());
+        }
+    }
+    return o;
+}
+}
 
 bool type_domain_t::is_bottom() const {
     return (m_stack.is_bottom() || m_types.is_bottom());
 }
 
 bool type_domain_t::is_top() const {
-    return (m_stack.is_top() || m_types.is_top());
+    return (m_stack.is_top() && m_types.is_top());
 }
 
 type_domain_t type_domain_t::bottom() {
@@ -45,22 +85,37 @@ bool type_domain_t::operator<=(const type_domain_t& abs) const {
     return true;
 }
 
-void type_domain_t::operator|=(const type_domain_t& abs) const {}
-    
-void type_domain_t::operator|=(type_domain_t&& abs) const {}
+void type_domain_t::operator|=(const type_domain_t& abs) {
+    type_domain_t tmp{abs};
+    operator|=(std::move(tmp));
+}
 
-type_domain_t type_domain_t::operator|(const type_domain_t& other) const& {
+void type_domain_t::operator|=(type_domain_t&& abs) {
+    if (is_bottom()) {
+        *this = abs;
+        return;
+    }
+    *this = *this | std::move(abs);
+}
+
+type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
     }
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), m_label, other.m_ctx);
+    return type_domain_t(m_types | other.m_types, m_stack | other.m_stack, m_label, other.m_ctx);
 }
 
-type_domain_t type_domain_t::operator|(type_domain_t&& abs) const {
-    return std::move(abs);
+type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
+    if (is_bottom() || other.is_top()) {
+        return std::move(other);
+    }
+    else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), m_label, other.m_ctx);
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -76,9 +131,7 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
 }
 
 void type_domain_t::write(std::ostream& os) const { 
-    os << "I am printing types in the start\n";
     os << m_types;
-    os << "I am printing stack in the start\n";
     os << "\t" << m_stack << "\n";
 }
 
@@ -103,16 +156,16 @@ void type_domain_t::operator()(const Jmp &u) {}
 void type_domain_t::operator()(const Packet & u) {}
 void type_domain_t::operator()(const LockAdd &u) {}
 void type_domain_t::operator()(const Assume &u) {}
-void type_domain_t::operator()(const Assert &u) {
-
-    std::cout << "I am in Assert\n";
-}
+void type_domain_t::operator()(const Assert &u) {}
 
 type_domain_t type_domain_t::setup_entry() {
 
     ebpf_context_descriptor_t context_descriptor{0, 0, 4, -1};
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(&context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
+
+    std::cout << "Printing types ==============\n\n";
+    std::cout << *ctx << "\n";
 
     live_registers_t vars;
     register_types_t typ(std::move(vars), all_types, true);
@@ -123,6 +176,15 @@ type_domain_t type_domain_t::setup_entry() {
     typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region::T_CTX, 0));
     typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region::T_STACK, 512));
 
+    auto it = typ.find(R1_ARG);
+    if (it)
+        print_type(R1_ARG, it.value());
+
+    auto it2 = typ.find(R10_STACK_POINTER);
+    if (it2)
+        print_type(R10_STACK_POINTER, it2.value());
+    std::cout << "\n";
+
     type_domain_t inv(std::move(typ), crab::stack_t::bottom(), label_t::entry, ctx);
 
     return inv;
@@ -130,8 +192,6 @@ type_domain_t type_domain_t::setup_entry() {
 
 void type_domain_t::operator()(const Bin& bin) {
 
-    std::cout << "I am in Bin\n";
-    std::cout << "  " << bin << "\n";
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
@@ -145,6 +205,13 @@ void type_domain_t::operator()(const Bin& bin) {
 
                 auto reg = reg_with_loc_t(bin.dst.v, m_label, m_curr_pos);
                 m_types.insert(bin.dst.v, reg, it.value());
+
+                auto it2 = m_types.find(bin.dst.v);
+                if (it2) {
+                    std::cout << "\t";
+                    print_type(bin.dst.v, it2.value());
+                    std::cout << "\n";
+                }
             }
 
             default:
@@ -212,6 +279,13 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
             assert(false);
         }
     }
+
+    auto it2 = m_types.find(target_reg.v);
+    if (it2) {
+        std::cout << "\t";
+        print_type(target_reg.v, it2.value());
+        std::cout << "\n";
+    }
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
@@ -263,7 +337,6 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
 
 void type_domain_t::operator()(const Mem& b) {
 
-    std::cout << "  " << b << "\n";
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
             do_load(b, std::get<Reg>(b.value));

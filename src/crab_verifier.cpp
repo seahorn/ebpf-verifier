@@ -144,7 +144,6 @@ static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
     }
     case abstract_domain_kind::TYPE_DOMAIN: {
         type_domain_t entry_inv = type_domain_t::setup_entry();
-        entry_inv.write(std::cout);
         return abstract_domain_t(entry_inv);
     }
     default:
@@ -182,8 +181,8 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
 
     try {
 
+        s << cfg;
         abstract_domain_t entry_dom = make_initial(options);
-        entry_dom.write(std::cout);
         // Get dictionaries of pre-invariants and post-invariants for each basic block.
         auto [pre_invariants, post_invariants] =
             crab::run_forward_analyzer(cfg, std::move(entry_dom), options->check_termination);

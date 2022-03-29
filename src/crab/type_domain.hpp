@@ -162,6 +162,15 @@ class ctx_t {
         if (it == m_packet_ptrs.end()) return {};
         return it->second;
     }
+
+    friend std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
+
+        o << "type of context: \n";
+        for (const auto& it : _ctx.m_packet_ptrs) {
+            o << "\tstores at " << it.first << ": " << it.second << "\n";
+        }
+        return o;
+    }
 };
 
 class stack_t {
@@ -175,12 +184,6 @@ class stack_t {
     stack_t(offset_to_ptr_t && ptrs, bool is_bottom)
     : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
     
-   // stack_t(stack_t&& s) = default; 
-   // stack_t(const stack_t& s) = default;
-    
-   // stack_t& operator=(const stack_t& s) = default;
- //   stack_t& operator=(stack_t&& s) = default;
-
     stack_t operator|(const stack_t& other) const {
         if (is_bottom() || other.is_top()) {
             return other;
@@ -195,27 +198,7 @@ class stack_t {
         }
         return stack_t(std::move(out_ptrs), false);
     }
-/*
-    stack_t operator|(stack_t&& other) && {
-        if (is_bottom() || other.is_top) 
-            return std::move(other);
-        if (other.is_bottom() || is_top())
-            return std::move(*this);
-        return ((const stack_t&)*this) | (const stack_t&)other;
-    }
 
-    stack_t operator|(const stack_t& other) && {
-        if (is_top() || other.is_bottom())
-            return std::move(*this);
-        return ((const stack_t&
-    }
-
-    stack_t operator|(stack_t&& other) const& {
-        if (is_bottom() || other.is_top())
-            return std::move(other);
-        return (*this) | (const stack_t&)other;
-    }
-*/
     void set_to_bottom() {
         m_ptrs.clear();
         m_is_bottom = true;
@@ -248,21 +231,7 @@ class stack_t {
         return it->second;
     }
 
-    friend std::ostream& operator<<(std::ostream& o, const stack_t& st) {
-        o << "Stack: {";
-        for (auto s : st.m_ptrs) {
-            o << s.first << ": ";
-            if (std::holds_alternative<ptr_with_off_t>(s.second)) {
-                auto t = std::get<ptr_with_off_t>(s.second);
-                o << t << ", ";
-            }
-            else {
-                auto t = std::get<ptr_no_off_t>(s.second);
-                o << t << ", ";
-            }
-        }
-        return o << "}";
-    }
+    friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
 };
 
 using live_registers_t = std::array<reg_with_loc_t, 11>;
@@ -277,8 +246,6 @@ class register_types_t {
     register_types_t(bool is_bottom = false) : m_all_types(nullptr), m_is_bottom(is_bottom) {}
     explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> all_types, bool is_bottom = false)
         : m_vars(std::move(vars)), m_all_types(all_types), m_is_bottom(is_bottom) {}
-    //register_types_t(register_types_t&& t) = default;
-   // register_types_t& operator=(register_types_t&& t) = default;
 
     register_types_t operator|(const register_types_t& other) const {
         if (is_bottom() || other.is_top()) {
@@ -334,28 +301,13 @@ class register_types_t {
 
     const live_registers_t &get_vars() { return m_vars; }
 
-    friend std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
-        for (const auto& v : typ.m_vars) {
-            auto it = typ.find(v);
-            if (it) {
-                o << "\ttype of r" << v.r << ": ";
-                if (std::holds_alternative<ptr_with_off_t>(it.value())) {
-                    auto t = std::get<ptr_with_off_t>(it.value());
-                    o << t << "\n";
-                }
-                else {
-                    auto t = std::get<ptr_no_off_t>(it.value());
-                    o << t << "\n";
-                }
-            }
-        }
-        return o;
-    }
+    friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
 };
 
 }
 
 class type_domain_t final {
+
     crab::stack_t m_stack;
     crab::register_types_t m_types;
     std::shared_ptr<crab::ctx_t> m_ctx;
@@ -364,10 +316,11 @@ class type_domain_t final {
 
   public:
 
-  type_domain_t(const type_domain_t& o);
   type_domain_t() : m_label(label_t::entry) {}
   type_domain_t(type_domain_t&& o) = default;
+  type_domain_t(const type_domain_t& o) = default;
   type_domain_t& operator=(type_domain_t&& o) = default;
+  type_domain_t& operator=(const type_domain_t& o) = default;
   type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
             : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx), m_label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
@@ -381,10 +334,10 @@ class type_domain_t final {
   // inclusion
   bool operator<=(const type_domain_t& other) const;
   // join
-  void operator|=(type_domain_t&& other) const;
-  void operator|=(const type_domain_t& other) const;
-  type_domain_t operator|(type_domain_t&& other) const;
-  type_domain_t operator|(const type_domain_t& other) const&;
+  void operator|=(const type_domain_t& abs);
+  void operator|=(type_domain_t&& abs);
+  type_domain_t operator|(const type_domain_t& other) const;
+  type_domain_t operator|(type_domain_t&& abs) const;
   // meet
   type_domain_t operator&(const type_domain_t& other) const;
   // widening
@@ -408,8 +361,9 @@ class type_domain_t final {
   void operator()(const basic_block_t& bb, bool check_termination) {
       m_curr_pos = 0;
       m_label = bb.label();
-      std::cout << m_label << ": \n";
+      std::cout << m_label << "\n";
       for (const Instruction& statement : bb) {
+        std::cout << "  " << statement << "\n";
         m_curr_pos++;
         std::visit(*this, statement);
     }
