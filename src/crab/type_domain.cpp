@@ -17,6 +17,33 @@ using crab::register_types_t;
 
 static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
 
+
+namespace std {
+    template <>
+    struct std::hash<crab::reg_with_loc_t> {
+        std::size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
+    };
+
+    // does not seem to work for me
+    template <>
+    struct std::equal_to<crab::ptr_t> {
+        constexpr bool operator()(const crab::ptr_t& p1, const crab::ptr_t& p2) const {
+            if (p1.index() != p2.index()) return false;
+            if (std::holds_alternative<crab::ptr_no_off_t>(p1)) {
+                auto ptr_no_off1 = std::get<crab::ptr_no_off_t>(p1);
+                auto ptr_no_off2 = std::get<crab::ptr_no_off_t>(p2);
+                return (ptr_no_off1.r == ptr_no_off2.r);
+            }
+            else {
+                auto ptr_with_off1 = std::get<crab::ptr_with_off_t>(p1);
+                auto ptr_with_off2 = std::get<crab::ptr_with_off_t>(p2);
+                return (ptr_with_off1.r == ptr_with_off2.r && ptr_with_off1.offset == ptr_with_off2.offset);
+            }
+        }
+    };
+}
+
+
 void print_ptr_type(const ptr_t& p) {
     if (std::holds_alternative<ptr_with_off_t>(p)) {
         auto t = std::get<ptr_with_off_t>(p);
@@ -53,6 +80,69 @@ void print_annotated(Call const& call, const ptr_t& p, std::ostream& os_) {
 
 namespace crab {
 
+inline std::string get_reg_ptr(const region& r) {
+    switch (r) {
+        case region::T_CTX:
+            return "ctx_p";
+        case region::T_STACK:
+            return "stack_p";
+        case region::T_PACKET:
+            return "packet_p";
+        default:
+            return "shared_p";
+    }
+}
+
+inline std::ostream& operator<<(std::ostream& o, const region& t) {
+    o << static_cast<std::underlying_type<region>::type>(t);
+    return o;
+}
+
+bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+    return (p1.r == p2.r && p1.offset == p2.offset);
+}
+
+bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+    return !(p1 == p2);
+}
+
+std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
+    o << get_reg_ptr(p.r) << "<" << p.offset << ">";
+    return o;
+}
+
+bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+    return (p1.r == p2.r);
+}
+
+bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+    return !(p1 == p2);
+}
+
+std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
+    return o << get_reg_ptr(p.r);
+}
+
+std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
+    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc.second << " in " << reg.loc.first;
+    return o;
+}
+
+bool reg_with_loc_t::operator==(const reg_with_loc_t& other) const {
+    return (r == other.r && loc == other.loc);
+}
+
+std::size_t reg_with_loc_t::hash() const {
+    // Similar to boost::hash_combine
+    using std::hash;
+
+    std::size_t seed = hash<register_t>()(r);
+    seed ^= hash<int>()(loc.first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(loc.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+
+    return seed;
+}
+
 std::ostream& operator<<(std::ostream& o, const stack_t& st) {
     o << "Stack: ";
     if (st.is_bottom())
@@ -70,6 +160,30 @@ std::ostream& operator<<(std::ostream& o, const stack_t& st) {
     return o;
 }
 
+std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
+
+    o << "type of context: " << (_ctx.m_packet_ptrs.empty() ? "_|_" : "") << "\n";
+    for (const auto& it : _ctx.m_packet_ptrs) {
+        o << "  stores at " << it.first << ": " << it.second << "\n";
+    }
+    return o;
+}
+
+ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
+{
+    if (desc->data != -1)
+        m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
+    if (desc->end != -1)
+        m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
+}
+
+std::optional<ptr_no_off_t> ctx_t::find(int key) const {
+    auto it = m_packet_ptrs.find(key);
+    if (it == m_packet_ptrs.end()) return {};
+    return it->second;
+}
+
+
 std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
     if (typ.is_bottom())
         o << "_|_\n";
@@ -82,6 +196,116 @@ std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
     }
     return o;
 }
+
+register_types_t register_types_t::operator|(const register_types_t& other) const {
+    if (is_bottom() || other.is_top()) {
+        return other;
+    } else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    live_registers_t out_vars;
+    for (size_t i = 0; i < m_vars.size(); i++) {
+        if (m_vars[i] == nullptr) continue;
+        auto it1 = find(*(m_vars[i]));
+        auto it2 = other.find(*(other.m_vars[i]));
+        if (it1 && it2 && it1.value() == it2.value()) {
+            out_vars[i] = m_vars[i];
+        }
+    }
+
+    return register_types_t(std::move(out_vars), m_all_types, false);
+}
+
+void register_types_t::operator-=(register_t var) {
+    if (is_bottom()) {
+        return;
+    }
+    m_vars[var] = nullptr;
+}
+
+void register_types_t::set_to_bottom() {
+    m_vars = live_registers_t{nullptr};
+    m_is_bottom = true;
+}
+
+void register_types_t::set_to_top() {
+    m_vars = live_registers_t{nullptr};
+    m_is_bottom = false;
+}
+
+bool register_types_t::is_bottom() const { return m_is_bottom; }
+
+bool register_types_t::is_top() const {
+    if (m_is_bottom) { return false; }
+    if (m_all_types == nullptr) return true;
+    for (auto it : m_vars) {
+        if (it != nullptr) return false;
+    }
+    return true;
+}
+
+void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
+    (*m_all_types)[reg_with_loc] = type;
+    m_vars[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
+}
+
+std::optional<ptr_t> register_types_t::find(reg_with_loc_t reg) const {
+    auto it = m_all_types->find(reg);
+    if (it == m_all_types->end()) return {};
+    return it->second;
+}
+
+std::optional<ptr_t> register_types_t::find(register_t key) const {
+    if (m_vars[key] == nullptr) return {};
+    const reg_with_loc_t& reg = *(m_vars[key]);
+    return find(reg);
+}
+
+stack_t stack_t::operator|(const stack_t& other) const {
+    if (is_bottom() || other.is_top()) {
+        return other;
+    } else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    offset_to_ptr_t out_ptrs;
+    for (auto const&kv: m_ptrs) {
+        auto it = other.find(kv.first);
+        if (it && kv.second == it.value())
+            out_ptrs.insert(kv);
+    }
+    return stack_t(std::move(out_ptrs), false);
+}
+
+void stack_t::set_to_bottom() {
+    m_ptrs.clear();
+    m_is_bottom = true;
+}
+
+void stack_t::set_to_top() {
+    m_ptrs.clear();
+    m_is_bottom = false;
+}
+
+stack_t stack_t::bottom() { return stack_t(true); }
+
+stack_t stack_t::top() { return stack_t(false); }
+
+bool stack_t::is_bottom() const { return m_is_bottom; }
+
+bool stack_t::is_top() const {
+    if (m_is_bottom)
+        return false;
+    return m_ptrs.empty();
+}
+
+void stack_t::insert(int key, ptr_t value) { m_ptrs.insert(std::make_pair(key, value)); }
+
+std::optional<ptr_t> stack_t::find(int key) const {
+    auto it = m_ptrs.find(key);
+    if (it == m_ptrs.end()) return {};
+    return it->second;
+}
+
 }
 
 bool type_domain_t::is_bottom() const {
@@ -223,7 +447,7 @@ void print_info() {
     std::cout << "  shared_p = shared pointer\n";
     std::cout << "  stack_p<n> = stack pointer at offset n\n";
     std::cout << "  ctx_p<n> = context pointer at offset n\n";
-    std::cout << "  context = _|_ means context contains no elements stored\n\n";
+    std::cout << "  'context = _|_' means context contains no elements stored\n\n";
     std::cout << "**************************************************************\n\n";
 }
 
@@ -428,6 +652,31 @@ void type_domain_t::operator()(const Mem& b) {
     } else {
         CRAB_ERROR("Either loading to a number (not allowed) or storing a number (not allowed yet) - ", std::get<Imm>(b.value).v);
     }
+}
+
+void type_domain_t::operator()(const basic_block_t& bb, bool check_termination) {
+    m_curr_pos = 0;
+    m_label = bb.label();
+    std::cout << m_label << ":\n";
+    for (const Instruction& statement : bb) {
+        m_curr_pos++;
+        std::visit(*this, statement);
+    }
+    auto [it, et] = bb.next_blocks();
+    if (it != et) {
+        std::cout << "  "
+        << "goto ";
+        for (; it != et;) {
+            std::cout << *it;
+            ++it;
+            if (it == et) {
+                std::cout << ";";
+            } else {
+                std::cout << ",";
+            }
+        }
+    }
+    std::cout << "\n\n";
 }
 
 void type_domain_t::set_require_check(check_require_func_t f) {}
