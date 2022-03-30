@@ -497,6 +497,7 @@ void type_domain_t::operator()(const Bin& bin) {
             case Bin::Op::MOV: {
                 auto it = m_types.find(src.v);
                 if (!it) {
+                    std::cout << "  " << bin << "\n";
                     CRAB_ERROR("type error: assigning an unknown pointer or a number - r", (int)src.v);
                 }
 
