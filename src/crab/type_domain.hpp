@@ -86,6 +86,7 @@ class stack_t {
     : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
     
     stack_t operator|(const stack_t& other) const;
+    void operator-=(int);
     void set_to_bottom();
     void set_to_top();
     static stack_t bottom();

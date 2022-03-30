@@ -149,11 +149,10 @@ std::ostream& operator<<(std::ostream& o, const stack_t& st) {
         o << "_|_\n";
     else {
         o << "{";
-        for (auto it = st.m_ptrs.begin(); it != st.m_ptrs.end(); it++) {
-            auto s = *it;
+        for (auto s : st.m_ptrs) {
             o << s.first << ": ";
             print_ptr_type(s.second);
-            if (++it != st.m_ptrs.end()) o << ",";
+            o << ", ";
         }
         o << "}";
     }
@@ -205,7 +204,7 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
     }
     live_registers_t out_vars;
     for (size_t i = 0; i < m_vars.size(); i++) {
-        if (m_vars[i] == nullptr) continue;
+        if (m_vars[i] == nullptr || other.m_vars[i] == nullptr) continue;
         auto it1 = find(*(m_vars[i]));
         auto it2 = other.find(*(other.m_vars[i]));
         if (it1 && it2 && it1.value() == it2.value()) {
@@ -276,6 +275,12 @@ stack_t stack_t::operator|(const stack_t& other) const {
     return stack_t(std::move(out_ptrs), false);
 }
 
+void stack_t::operator-=(int key) {
+    auto it = find(key);
+    if (it)
+        m_ptrs.erase(key);
+}
+
 void stack_t::set_to_bottom() {
     m_ptrs.clear();
     m_is_bottom = true;
@@ -298,7 +303,9 @@ bool stack_t::is_top() const {
     return m_ptrs.empty();
 }
 
-void stack_t::insert(int key, ptr_t value) { m_ptrs.insert(std::make_pair(key, value)); }
+void stack_t::insert(int key, ptr_t value) {
+    m_ptrs[key] = value;
+}
 
 std::optional<ptr_t> stack_t::find(int key) const {
     auto it = m_ptrs.find(key);
@@ -381,7 +388,7 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
 }
 
 void type_domain_t::write(std::ostream& os) const { 
-    os << m_types;
+    //os << m_types;
     os << m_stack << "\n";
 }
 
@@ -453,7 +460,7 @@ void print_info() {
 
 type_domain_t type_domain_t::setup_entry() {
 
-    print_info();
+    //print_info();
 
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.get().type.context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
@@ -468,6 +475,8 @@ type_domain_t type_domain_t::setup_entry() {
 
     typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region::T_CTX, 0));
     typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region::T_STACK, 512));
+
+    std::cout << "is types bottom in the start: " << typ.is_bottom() << "\n";
 
     std::cout << "Initial register types:\n";
     auto it = typ.find(R1_ARG);
@@ -497,8 +506,10 @@ void type_domain_t::operator()(const Bin& bin) {
             case Bin::Op::MOV: {
                 auto it = m_types.find(src.v);
                 if (!it) {
-                    std::cout << "  " << bin << "\n";
-                    CRAB_ERROR("type error: assigning an unknown pointer or a number - r", (int)src.v);
+                    //std::cout << "  " << bin << "\n";
+                    //CRAB_ERROR("type error: assigning an unknown pointer or a number - r", (int)src.v);
+                    m_types -= bin.dst.v;
+                    break;
                 }
 
                 auto reg = reg_with_loc_t(bin.dst.v, m_label, m_curr_pos);
@@ -531,7 +542,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
     if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
         std::cout << "  " << b << "\n";
-        CRAB_ERROR("type_error: loading from either packet or shared region not allowed - r", (int)basereg.v);
+        //CRAB_ERROR("type_error: loading from either packet or shared region not allowed - r", (int)basereg.v);
+        m_types -= target_reg.v;
+        return;
     }
 
     ptr_with_off_t type_with_off = std::get<ptr_with_off_t>(type_basereg);
@@ -544,7 +557,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
             if (!it) {
                 std::cout << "  " << b << "\n";
-                CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in stack");
+                //CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in stack");
+                m_types -= target_reg.v;
+                return;
             }
             ptr_t type_loaded = it.value();
 
@@ -569,7 +584,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
             if (!it) {
                 std::cout << "  " << b << "\n";
-                CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in context");
+                //CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in context");
+                m_types -= target_reg.v;
+                return;
             }
             ptr_no_off_t type_loaded = it.value();
 
@@ -599,46 +616,60 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
     ptr_t type_basereg = it.value();
 
     auto it2 = m_types.find(target_reg.v);
-    if (!it2) {
-        CRAB_ERROR("type_error: storing either a number or an unknown pointer - r", (int)target_reg.v);
-    }
-    ptr_t type_stored = it2.value();
 
-    if (std::holds_alternative<ptr_with_off_t>(type_stored)) {
-        ptr_with_off_t type_stored_with_off = std::get<ptr_with_off_t>(type_stored);
-        if (type_stored_with_off.r == crab::region::T_STACK) {
-            CRAB_ERROR("type_error: we cannot store stack pointer, r", (int)target_reg.v, ", into stack");
+    if (std::holds_alternative<ptr_with_off_t>(type_basereg)) {
+        // we know base register is either CTX_P or STACK_P
+        ptr_with_off_t type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
+
+        int store_at = offset+type_basereg_with_off.offset;
+        if (type_basereg_with_off.r == crab::region::T_STACK) {
+            // type of basereg is STACK_P
+            if (!it2) {
+                //CRAB_ERROR("type_error: storing either a number or an unknown pointer - r", (int)target_reg.v);
+                m_stack -= store_at;
+                return;
+            }
+            else {
+                auto type_to_store = it2.value();
+                if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
+                        std::get<ptr_with_off_t>(type_to_store).r == crab::region::T_STACK) {
+                    CRAB_ERROR("type_error: we cannot store stack pointer, r", (int)target_reg.v, ", into stack");
+                }
+                else {
+                    for (auto i = store_at; i < store_at+width; i++) {
+                        auto it3 = m_stack.find(i);
+                        if (it3) {
+                            CRAB_ERROR("type_error: type being stored into stack at ", store_at, " is overlapping with already stored\
+                            at", i);
+                        }
+                    }
+                    auto it4 = m_stack.find(store_at);
+                    if (it4) {
+                        auto type_in_stack = it4.value();
+                        if (type_to_store != type_in_stack) {
+                            CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
+                        }
+                    }
+                    else {
+                        m_stack.insert(store_at, type_to_store);
+                    }
+                }
+            }
         }
-    }
-
-    if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
-        CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into packet or shared");
-    }
-
-    ptr_with_off_t type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
-    if (type_basereg_with_off.r == crab::region::T_CTX) {
-        CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into ctx");
-    }
-
-    int store_at = offset+type_basereg_with_off.offset;
-
-    for (auto i = store_at; i < store_at+width; i++) {
-        auto it = m_stack.find(i);
-        if (it) {
-            CRAB_ERROR("type_error: type being stored into stack at ", store_at, " is overlapping with already stored\
-            at", i);
+        else if (type_basereg_with_off.r == crab::region::T_CTX) {
+            // type of basereg is CTX_P
+            if (it2) {
+                CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into ctx");
+            }
         }
-    }
-
-    auto it3 = m_stack.find(store_at);
-    if (it3) {
-        auto type_in_stack = it3.value();
-        if (type_stored != type_in_stack) {
-            CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
-        }
+        else
+            assert(false);
     }
     else {
-        m_stack.insert(store_at, type_stored);
+        // base register type is either PACKET_P or SHARED_P
+        if (it2) {
+            CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into packet or shared");
+        }
     }
 }
 
