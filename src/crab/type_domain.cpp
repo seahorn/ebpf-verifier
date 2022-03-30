@@ -20,13 +20,13 @@ static std::string size(int w) { return std::string("u") + std::to_string(w * 8)
 
 namespace std {
     template <>
-    struct std::hash<crab::reg_with_loc_t> {
-        std::size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
+    struct hash<crab::reg_with_loc_t> {
+        size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
     };
 
     // does not seem to work for me
     template <>
-    struct std::equal_to<crab::ptr_t> {
+    struct equal_to<crab::ptr_t> {
         constexpr bool operator()(const crab::ptr_t& p1, const crab::ptr_t& p2) const {
             if (p1.index() != p2.index()) return false;
             if (std::holds_alternative<crab::ptr_no_off_t>(p1)) {
