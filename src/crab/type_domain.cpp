@@ -124,7 +124,7 @@ std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
 }
 
 std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
-    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc->second << " in " << reg.loc->first;
+    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc->second << " in " << reg.loc->first << " ";
     return o;
 }
 
@@ -455,13 +455,15 @@ void print_info() {
     std::cout << "  shared_p = shared pointer\n";
     std::cout << "  stack_p<n> = stack pointer at offset n\n";
     std::cout << "  ctx_p<n> = context pointer at offset n\n";
-    std::cout << "  'context = _|_' means context contains no elements stored\n\n";
+    std::cout << "  'context = _|_' means context contains no elements stored\n";
+    std::cout << "  when invoked with print invariants option\n";
+    std::cout << "      'r@n in bb : p_type' means register 'r' in basic block 'bb' at offset 'n' has type 'p_type'\n\n";
     std::cout << "**************************************************************\n\n";
 }
 
 type_domain_t type_domain_t::setup_entry() {
 
-    //print_info();
+    print_info();
 
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.get().type.context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
