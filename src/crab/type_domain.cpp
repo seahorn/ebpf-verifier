@@ -124,7 +124,7 @@ std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
 }
 
 std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
-    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc.second << " in " << reg.loc.first;
+    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc->second << " in " << reg.loc->first;
     return o;
 }
 
@@ -137,8 +137,9 @@ std::size_t reg_with_loc_t::hash() const {
     using std::hash;
 
     std::size_t seed = hash<register_t>()(r);
-    seed ^= hash<int>()(loc.first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash<int>()(loc.second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(loc->first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(loc->first.to) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(loc->second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 
     return seed;
 }
@@ -362,7 +363,7 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_types | other.m_types, m_stack | other.m_stack, m_label, other.m_ctx);
+    return type_domain_t(m_types | other.m_types, m_stack | other.m_stack, other.m_ctx);
 }
 
 type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
@@ -372,7 +373,7 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), m_label, other.m_ctx);
+    return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), other.m_ctx);
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -388,7 +389,7 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
 }
 
 void type_domain_t::write(std::ostream& os) const { 
-    //os << m_types;
+    os << m_types;
     os << m_stack << "\n";
 }
 
@@ -404,20 +405,20 @@ string_invariant type_domain_t::to_set() {
     return string_invariant{};
 }
 
-void type_domain_t::operator()(const Undefined & u) {
+void type_domain_t::operator()(const Undefined & u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Un &u) {
+void type_domain_t::operator()(const Un &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const LoadMapFd &u) {
+void type_domain_t::operator()(const LoadMapFd &u, location_t loc) {
     std::cout << "  " << u << ";\n";
     m_types -= u.dst.v;
 }
-void type_domain_t::operator()(const Call &u) {
+void type_domain_t::operator()(const Call &u, location_t loc) {
     register_t r0_reg{R0_RETURN_VALUE};
     if (u.is_map_lookup) {
-        auto r0 = reg_with_loc_t(r0_reg, m_label, m_curr_pos);
+        auto r0 = reg_with_loc_t(r0_reg, loc);
         auto type = ptr_no_off_t(crab::region::T_SHARED);
         m_types.insert(r0_reg, r0, type);
         print_annotated(u, type, std::cout);
@@ -427,24 +428,24 @@ void type_domain_t::operator()(const Call &u) {
         std::cout << "  " << u << ";\n";
     }
 }
-void type_domain_t::operator()(const Exit &u) {
+void type_domain_t::operator()(const Exit &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Jmp &u) {
+void type_domain_t::operator()(const Jmp &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Packet & u) {
+void type_domain_t::operator()(const Packet & u, location_t loc) {
     std::cout << "  " << u << ";\n";
     //CRAB_ERROR("type_error: loading from packet region not allowed");
     m_types -= register_t{0};
 }
-void type_domain_t::operator()(const LockAdd &u) {
+void type_domain_t::operator()(const LockAdd &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Assume &u) {
+void type_domain_t::operator()(const Assume &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Assert &u) {
+void type_domain_t::operator()(const Assert &u, location_t loc) {
     std::cout << "  " << u << ";\n";
 }
 
@@ -470,13 +471,11 @@ type_domain_t type_domain_t::setup_entry() {
     live_registers_t vars;
     register_types_t typ(std::move(vars), all_types);
 
-    auto r1 = reg_with_loc_t(R1_ARG, label_t::entry, 0);
-    auto r10 = reg_with_loc_t(R10_STACK_POINTER, label_t::entry, 0);
+    auto r1 = reg_with_loc_t(R1_ARG, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
+    auto r10 = reg_with_loc_t(R10_STACK_POINTER, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
 
     typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region::T_CTX, 0));
     typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region::T_STACK, 512));
-
-    std::cout << "is types bottom in the start: " << typ.is_bottom() << "\n";
 
     std::cout << "Initial register types:\n";
     auto it = typ.find(R1_ARG);
@@ -493,12 +492,11 @@ type_domain_t type_domain_t::setup_entry() {
     }
     std::cout << "\n";
 
-    type_domain_t inv(std::move(typ), crab::stack_t::top(), label_t::entry, ctx);
+    type_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
     return inv;
 }
 
-void type_domain_t::operator()(const Bin& bin) {
-
+void type_domain_t::operator()(const Bin& bin, location_t loc) {
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
@@ -512,7 +510,7 @@ void type_domain_t::operator()(const Bin& bin) {
                     break;
                 }
 
-                auto reg = reg_with_loc_t(bin.dst.v, m_label, m_curr_pos);
+                auto reg = reg_with_loc_t(bin.dst.v, loc);
                 m_types.insert(bin.dst.v, reg, it.value());
                 break;
             }
@@ -528,7 +526,7 @@ void type_domain_t::operator()(const Bin& bin) {
     std::cout << "  " << bin << ";\n";
 }
 
-void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
+void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
 
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
@@ -565,13 +563,13 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
             if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, m_label, m_curr_pos);
+                auto reg = reg_with_loc_t(target_reg.v, loc);
                 m_types.insert(target_reg.v, reg, type_loaded_with_off);
                 print_annotated(b, type_loaded_with_off, std::cout);
             }
             else {
                 ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, m_label, m_curr_pos);
+                auto reg = reg_with_loc_t(target_reg.v, loc);
                 m_types.insert(target_reg.v, reg, type_loaded_no_off);
                 print_annotated(b, type_loaded_no_off, std::cout);
             }
@@ -590,7 +588,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
             }
             ptr_no_off_t type_loaded = it.value();
 
-            auto reg = reg_with_loc_t(target_reg.v, m_label, m_curr_pos);
+            auto reg = reg_with_loc_t(target_reg.v, loc);
             m_types.insert(target_reg.v, reg, type_loaded);
             print_annotated(b, type_loaded, std::cout);
             break;
@@ -602,7 +600,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
     }
 }
 
-void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
+void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
 
     std::cout << "  " << b << ";\n";
     int offset = b.access.offset;
@@ -673,13 +671,13 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
     }
 }
 
-void type_domain_t::operator()(const Mem& b) {
+void type_domain_t::operator()(const Mem& b, location_t loc) {
 
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value));
+            do_load(b, std::get<Reg>(b.value), loc);
         } else {
-            do_mem_store(b, std::get<Reg>(b.value));
+            do_mem_store(b, std::get<Reg>(b.value), loc);
         }
     } else {
         CRAB_ERROR("Either loading to a number (not allowed) or storing a number (not allowed yet) - ", std::get<Imm>(b.value).v);
@@ -687,12 +685,12 @@ void type_domain_t::operator()(const Mem& b) {
 }
 
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination) {
-    m_curr_pos = 0;
-    m_label = bb.label();
-    std::cout << m_label << ":\n";
+    uint32_t curr_pos = 0;
+    auto label = bb.label();
+    std::cout << label << ":\n";
     for (const Instruction& statement : bb) {
-        m_curr_pos++;
-        std::visit(*this, statement);
+        location_t loc = location_t(std::make_pair(label, ++curr_pos));
+        std::visit([this, loc](const auto& v) { std::apply(*this, std::make_pair(v, loc)); }, statement);
     }
     auto [it, et] = bb.next_blocks();
     if (it != et) {

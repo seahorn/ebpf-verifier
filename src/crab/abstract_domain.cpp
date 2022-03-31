@@ -110,63 +110,63 @@ void abstract_domain_t::abstract_domain_model<Domain>::operator()(const basic_bl
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Undefined& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Undefined& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Bin& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Bin& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Un& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Un& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const LoadMapFd& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const LoadMapFd& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Call& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Call& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Exit& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Exit& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Jmp& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Jmp& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Mem& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Mem& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Packet& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Packet& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const LockAdd& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const LockAdd& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Assume& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Assume& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
-void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Assert& s) {
-    m_abs_val.operator()(s);
+void abstract_domain_t::abstract_domain_model<Domain>::operator()(const Assert& s, location_t loc) {
+    m_abs_val.operator()(s, loc);
 }
 
 template <typename Domain>
@@ -250,29 +250,29 @@ void abstract_domain_t::operator()(const basic_block_t& bb, bool check_terminati
     m_concept->operator()(bb, check_termination);
 }
 
-void abstract_domain_t::operator()(const Undefined& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Undefined& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Bin& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Bin& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Un& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Un& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const LoadMapFd& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const LoadMapFd& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Call& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Call& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Exit& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Exit& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Jmp& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Jmp& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Mem& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Mem& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Packet& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Packet& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const LockAdd& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const LockAdd& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Assume& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Assume& s, location_t loc) { m_concept->operator()(s, loc); }
 
-void abstract_domain_t::operator()(const Assert& s) { m_concept->operator()(s); }
+void abstract_domain_t::operator()(const Assert& s, location_t loc) { m_concept->operator()(s, loc); }
 
 void abstract_domain_t::write(std::ostream& os) const { m_concept->write(os); }
 
