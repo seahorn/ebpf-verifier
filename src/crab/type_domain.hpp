@@ -52,12 +52,13 @@ struct ptr_with_off_t {
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 using register_t = uint8_t;
+using location_t = boost::optional<std::pair<label_t, uint32_t>>;
 
 struct reg_with_loc_t {
     register_t r;
-    std::pair<label_t, uint32_t> loc;
+    location_t loc;
 
-    reg_with_loc_t(register_t _r, const label_t& l, uint32_t loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
+    reg_with_loc_t(register_t _r, location_t _loc) : r(_r), loc(_loc) {}
     bool operator==(const reg_with_loc_t& other) const;
     std::size_t hash() const;
     friend std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg);
@@ -132,18 +133,16 @@ class type_domain_t final {
     crab::stack_t m_stack;
     crab::register_types_t m_types;
     std::shared_ptr<crab::ctx_t> m_ctx;
-    label_t m_label;
-    uint32_t m_curr_pos = 0;
 
   public:
 
-    type_domain_t() : m_label(label_t::entry) {}
+    type_domain_t() = default;
     type_domain_t(type_domain_t&& o) = default;
     type_domain_t(const type_domain_t& o) = default;
     type_domain_t& operator=(type_domain_t&& o) = default;
     type_domain_t& operator=(const type_domain_t& o) = default;
-    type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
-            : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx), m_label(_l) {}
+    type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, std::shared_ptr<crab::ctx_t> _ctx)
+            : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx) {}
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
     static type_domain_t setup_entry();
     // bottom/top
@@ -169,18 +168,18 @@ class type_domain_t final {
     void operator-=(crab::variable_t var);
 
     //// abstract transformers
-    void operator()(const Undefined &);
-    void operator()(const Bin &);
-    void operator()(const Un &) ;
-    void operator()(const LoadMapFd &);
-    void operator()(const Call &);
-    void operator()(const Exit &);
-    void operator()(const Jmp &);
-    void operator()(const Mem &);
-    void operator()(const Packet &);
-    void operator()(const LockAdd &);
-    void operator()(const Assume &);
-    void operator()(const Assert &);
+    void operator()(const Undefined &, location_t loc = boost::none);
+    void operator()(const Bin &, location_t loc = boost::none);
+    void operator()(const Un &, location_t loc = boost::none);
+    void operator()(const LoadMapFd &, location_t loc = boost::none);
+    void operator()(const Call &, location_t loc = boost::none);
+    void operator()(const Exit &, location_t loc = boost::none);
+    void operator()(const Jmp &, location_t loc = boost::none);
+    void operator()(const Mem &, location_t loc = boost::none);
+    void operator()(const Packet &, location_t loc = boost::none);
+    void operator()(const LockAdd &, location_t loc = boost::none);
+    void operator()(const Assume &, location_t loc = boost::none);
+    void operator()(const Assert &, location_t loc = boost::none);
     void operator()(const basic_block_t& bb, bool check_termination);
     void write(std::ostream& os) const;
     std::string domain_name() const;
@@ -190,7 +189,7 @@ class type_domain_t final {
 
   private:
 
-    void do_load(const Mem&, const Reg&);
-    void do_mem_store(const Mem&, const Reg&);
+    void do_load(const Mem&, const Reg&, location_t);
+    void do_mem_store(const Mem&, const Reg&, location_t);
 
 }; // end type_domain_t

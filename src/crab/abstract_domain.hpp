@@ -1,11 +1,13 @@
 #pragma once
 
+#include <boost/optional/optional.hpp>
 #include "cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
 #include "array_domain.hpp"
 using check_require_func_t = std::function<bool(crab::domains::NumAbsDomain&, const crab::linear_constraint_t&, std::string)>;
+using location_t = boost::optional<std::pair<label_t, uint32_t>>;
 class abstract_domain_t {
   private:
     class abstract_domain_concept {
@@ -30,18 +32,18 @@ class abstract_domain_t {
         virtual std::unique_ptr<abstract_domain_concept> widen(const abstract_domain_concept& abs) const = 0;
         virtual std::unique_ptr<abstract_domain_concept> narrow(const abstract_domain_concept& abs) const = 0;
         virtual void operator()(const basic_block_t&, bool) = 0;
-        virtual void operator()(const Undefined&) = 0;
-        virtual void operator()(const Bin&) = 0;
-        virtual void operator()(const Un&) = 0;
-        virtual void operator()(const LoadMapFd&) = 0;
-        virtual void operator()(const Call&) = 0;
-        virtual void operator()(const Exit&) = 0;
-        virtual void operator()(const Jmp&) = 0;
-        virtual void operator()(const Mem&) = 0;
-        virtual void operator()(const Packet&) = 0;
-        virtual void operator()(const LockAdd&) = 0;
-        virtual void operator()(const Assume&) = 0;
-        virtual void operator()(const Assert&) = 0;
+        virtual void operator()(const Undefined&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Bin&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Un&, location_t loc = boost::none) = 0;
+        virtual void operator()(const LoadMapFd&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Call&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Exit&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Jmp&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Mem&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Packet&, location_t loc = boost::none) = 0;
+        virtual void operator()(const LockAdd&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Assume&, location_t loc = boost::none) = 0;
+        virtual void operator()(const Assert&, location_t loc = boost::none) = 0;
         virtual void write(std::ostream& os) const = 0;
         virtual std::string domain_name() const = 0;
 
@@ -73,18 +75,18 @@ class abstract_domain_t {
         std::unique_ptr<abstract_domain_concept> widen(const abstract_domain_concept& abs) const override;
         std::unique_ptr<abstract_domain_concept> narrow(const abstract_domain_concept& abs) const override;
         void operator()(const basic_block_t& bb, bool check_termination) override;
-        void operator()(const Undefined& s) override;
-        void operator()(const Bin& s) override;
-        void operator()(const Un& s) override;
-        void operator()(const LoadMapFd& s) override;
-        void operator()(const Call& s) override;
-        void operator()(const Exit& s) override;
-        void operator()(const Jmp& s) override;
-        void operator()(const Mem& s) override;
-        void operator()(const Packet& s) override;
-        void operator()(const LockAdd& s) override;
-        void operator()(const Assume& s) override;
-        void operator()(const Assert& s) override;
+        void operator()(const Undefined& s, location_t loc = boost::none) override;
+        void operator()(const Bin& s, location_t loc = boost::none) override;
+        void operator()(const Un& s, location_t loc = boost::none) override;
+        void operator()(const LoadMapFd& s, location_t loc = boost::none) override;
+        void operator()(const Call& s, location_t loc = boost::none) override;
+        void operator()(const Exit& s, location_t loc = boost::none) override;
+        void operator()(const Jmp& s, location_t loc = boost::none) override;
+        void operator()(const Mem& s, location_t loc = boost::none) override;
+        void operator()(const Packet& s, location_t loc = boost::none) override;
+        void operator()(const LockAdd& s, location_t loc = boost::none) override;
+        void operator()(const Assume& s, location_t loc = boost::none) override;
+        void operator()(const Assert& s, location_t loc = boost::none) override;
         void write(std::ostream& os) const override;
         std::string domain_name() const override;
         crab::bound_t get_instruction_count_upper_bound() override;
@@ -116,18 +118,18 @@ class abstract_domain_t {
     abstract_domain_t widen(const abstract_domain_t& abs) const;
     abstract_domain_t narrow(const abstract_domain_t& abs) const;
     void operator()(const basic_block_t& bb, bool check_termination);
-    void operator()(const Undefined& s);
-    void operator()(const Bin& s);
-    void operator()(const Un& s);
-    void operator()(const LoadMapFd& s);
-    void operator()(const Call& s);
-    void operator()(const Exit& s);
-    void operator()(const Jmp& s);
-    void operator()(const Mem& s);
-    void operator()(const Packet& s);
-    void operator()(const LockAdd& s);
-    void operator()(const Assume& s);
-    void operator()(const Assert& s);
+    void operator()(const Undefined& s, location_t loc = boost::none);
+    void operator()(const Bin& s, location_t loc = boost::none);
+    void operator()(const Un& s, location_t loc = boost::none);
+    void operator()(const LoadMapFd& s, location_t loc = boost::none);
+    void operator()(const Call& s, location_t loc = boost::none);
+    void operator()(const Exit& s, location_t loc = boost::none);
+    void operator()(const Jmp& s, location_t loc = boost::none);
+    void operator()(const Mem& s, location_t loc = boost::none);
+    void operator()(const Packet& s, location_t loc = boost::none);
+    void operator()(const LockAdd& s, location_t loc = boost::none);
+    void operator()(const Assume& s, location_t loc = boost::none);
+    void operator()(const Assert& s, location_t loc = boost::none);
     void write(std::ostream& os) const;
     std::string domain_name() const;
     crab::bound_t get_instruction_count_upper_bound();
