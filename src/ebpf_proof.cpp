@@ -8,6 +8,7 @@ bool ebpf_generate_proof(std::ostream& s, const InstructionSeq& prog, const prog
 
     if (!results.pass_verify()) {
         // If the program is not correct then we cannot generate a proof
+        std::cout << "Proof generation not implemented\n";
         return false;
     }
 

@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     app.add_flag("-l", list, "List sections");
 
     std::string domain = "zoneCrab";
-    std::set<string> doms{"stats", "linux", "zoneCrab", "cfg"};
+    std::set<string> doms{"stats", "linux", "zoneCrab", "types", "cfg"};
     app.add_set("-d,--dom,--domain", domain, doms, "Abstract domain")->type_name("DOMAIN");
 
     app.add_flag("--termination", ebpf_verifier_options.check_termination, "Verify termination");
@@ -73,9 +73,6 @@ int main(int argc, char** argv) {
     app.add_flag("--line-info", ebpf_verifier_options.print_line_info, "Print line information");
     app.add_flag("--print-btf-types", ebpf_verifier_options.dump_btf_types_json, "Print BTF types");
 
-    bool gen_proof = false;
-    app.add_flag("--gen-proof", gen_proof, "Generate a proof if program is proven correct");
-
     std::string asmfile;
     app.add_option("--asm", asmfile, "Print disassembly to FILE")->type_name("FILE");
     std::string dotfile;
@@ -87,9 +84,6 @@ int main(int argc, char** argv) {
     if (verbose)
         ebpf_verifier_options.print_invariants = ebpf_verifier_options.print_failures = true;
     ebpf_verifier_options.allow_division_by_zero = !no_division_by_zero;
-
-    if (gen_proof) 
-        ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
 
     // Main program
 
@@ -163,8 +157,11 @@ int main(int argc, char** argv) {
         print_map_descriptors(global_program_info->map_descriptors, out);
     }
 
-    if (domain == "zoneCrab") {
+    if (domain == "zoneCrab" || domain == "types") {
         ebpf_verifier_stats_t verifier_stats;
+        if (domain == "types") {
+          ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
+        }
         auto [res, seconds] = timed_execution([&] {
             return ebpf_verify_program(std::cout, prog, raw_prog.info, &ebpf_verifier_options, &verifier_stats);
         });
@@ -172,10 +169,6 @@ int main(int argc, char** argv) {
             std::cout << "Program terminates within " << verifier_stats.max_instruction_count << " instructions\n";
         }
         std::cout << res.pass_verify() << "," << seconds << "," << resident_set_size_kb() << "\n";
-
-	if (gen_proof) {
-	  ebpf_generate_proof(std::cout, prog, raw_prog.info, &ebpf_verifier_options, res);
-	}
 
         return !res.pass_verify();
     } else if (domain == "linux") {
