@@ -130,6 +130,8 @@ class register_types_t {
 
 class type_domain_t final {
 
+    bool m_is_bottom = false;
+    location_t error_location = boost::none;
     crab::stack_t m_stack;
     crab::register_types_t m_types;
     std::shared_ptr<crab::ctx_t> m_ctx;
@@ -168,19 +170,19 @@ class type_domain_t final {
     void operator-=(crab::variable_t var);
 
     //// abstract transformers
-    void operator()(const Undefined &, location_t loc = boost::none);
-    void operator()(const Bin &, location_t loc = boost::none);
-    void operator()(const Un &, location_t loc = boost::none);
-    void operator()(const LoadMapFd &, location_t loc = boost::none);
-    void operator()(const Call &, location_t loc = boost::none);
-    void operator()(const Exit &, location_t loc = boost::none);
-    void operator()(const Jmp &, location_t loc = boost::none);
-    void operator()(const Mem &, location_t loc = boost::none);
-    void operator()(const Packet &, location_t loc = boost::none);
-    void operator()(const LockAdd &, location_t loc = boost::none);
-    void operator()(const Assume &, location_t loc = boost::none);
-    void operator()(const Assert &, location_t loc = boost::none);
-    void operator()(const basic_block_t& bb, bool check_termination);
+    void operator()(const Undefined &, location_t loc = boost::none, int print = 0);
+    void operator()(const Bin &, location_t loc = boost::none, int print = 0);
+    void operator()(const Un &, location_t loc = boost::none, int print = 0);
+    void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
+    void operator()(const Call &, location_t loc = boost::none, int print = 0);
+    void operator()(const Exit &, location_t loc = boost::none, int print = 0);
+    void operator()(const Jmp &, location_t loc = boost::none, int print = 0);
+    void operator()(const Mem &, location_t loc = boost::none, int print = 0);
+    void operator()(const Packet &, location_t loc = boost::none, int print = 0);
+    void operator()(const LockAdd &, location_t loc = boost::none, int print = 0);
+    void operator()(const Assume &, location_t loc = boost::none, int print = 0);
+    void operator()(const Assert &, location_t loc = boost::none, int print = 0);
+    void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
     std::string domain_name() const;
     crab::bound_t get_instruction_count_upper_bound();
@@ -189,7 +191,8 @@ class type_domain_t final {
 
   private:
 
-    void do_load(const Mem&, const Reg&, location_t);
-    void do_mem_store(const Mem&, const Reg&, location_t);
+    void do_load(const Mem&, const Reg&, location_t, int print = 0);
+    void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
+    void print_initial_types();
 
 }; // end type_domain_t

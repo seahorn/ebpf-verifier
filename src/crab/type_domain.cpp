@@ -78,6 +78,12 @@ void print_annotated(Call const& call, const ptr_t& p, std::ostream& os_) {
     os_ << " = " << call.name << ":" << call.func << "(...)\n";
 }
 
+void print_annotated(Bin const& b, const ptr_t& p, std::ostream& os_) {
+    os_ << "  ";
+    print_type(b.dst.v, p);
+    os_ << " = r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+}
+
 namespace crab {
 
 inline std::string get_reg_ptr(const region& r) {
@@ -162,7 +168,7 @@ std::ostream& operator<<(std::ostream& o, const stack_t& st) {
 
 std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
 
-    o << "type of context: " << (_ctx.m_packet_ptrs.empty() ? "_|_" : "") << "\n";
+    o << "type of context: " << (_ctx.m_packet_ptrs.empty() ? "top" : "") << "\n";
     for (const auto& it : _ctx.m_packet_ptrs) {
         o << "  stores at " << it.first << ": " << it.second << "\n";
     }
@@ -317,10 +323,12 @@ std::optional<ptr_t> stack_t::find(int key) const {
 }
 
 bool type_domain_t::is_bottom() const {
+    if (m_is_bottom) return true;
     return (m_stack.is_bottom() || m_types.is_bottom());
 }
 
 bool type_domain_t::is_top() const {
+    if (m_is_bottom) return false;
     return (m_stack.is_top() && m_types.is_top());
 }
 
@@ -331,6 +339,7 @@ type_domain_t type_domain_t::bottom() {
 }
 
 void type_domain_t::set_to_bottom() {
+    m_is_bottom = true;
     m_types.set_to_bottom();
 }
 
@@ -405,70 +414,85 @@ string_invariant type_domain_t::to_set() {
     return string_invariant{};
 }
 
-void type_domain_t::operator()(const Undefined & u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Un &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const Un &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const LoadMapFd &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0) {
+        std::cout << "  " << u << ";\n";
+        return;
+    }
     m_types -= u.dst.v;
 }
-void type_domain_t::operator()(const Call &u, location_t loc) {
+void type_domain_t::operator()(const Call &u, location_t loc, int print) {
+    if (is_bottom()) return;
     register_t r0_reg{R0_RETURN_VALUE};
+    auto r0 = reg_with_loc_t(r0_reg, loc);
+    if (print > 0) {
+        if (u.is_map_lookup) {
+            auto it = m_types.find(r0);
+            if (it) {
+                print_annotated(u, it.value(), std::cout);
+            }
+        }
+        else
+            std::cout << "  " << u << ";\n";
+        return;
+    }
     if (u.is_map_lookup) {
-        auto r0 = reg_with_loc_t(r0_reg, loc);
         auto type = ptr_no_off_t(crab::region::T_SHARED);
         m_types.insert(r0_reg, r0, type);
-        print_annotated(u, type, std::cout);
     }
     else {
         m_types -= r0_reg;
-        std::cout << "  " << u << ";\n";
     }
 }
-void type_domain_t::operator()(const Exit &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Jmp &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Packet & u, location_t loc) {
-    std::cout << "  " << u << ";\n";
-    //CRAB_ERROR("type_error: loading from packet region not allowed");
+void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0) {
+        std::cout << "  " << u << ";\n";
+        return;
+    }
     m_types -= register_t{0};
 }
-void type_domain_t::operator()(const LockAdd &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Assume &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
+void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
-void type_domain_t::operator()(const Assert &u, location_t loc) {
-    std::cout << "  " << u << ";\n";
-}
-
-void print_info() {
-    std::cout << "\nhow to interpret:\n";
-    std::cout << "  packet_p = packet pointer\n";
-    std::cout << "  shared_p = shared pointer\n";
-    std::cout << "  stack_p<n> = stack pointer at offset n\n";
-    std::cout << "  ctx_p<n> = context pointer at offset n\n";
-    std::cout << "  'context = _|_' means context contains no elements stored\n";
-    std::cout << "  when invoked with print invariants option\n";
-    std::cout << "      'r@n in bb : p_type' means register 'r' in basic block 'bb' at offset 'n' has type 'p_type'\n\n";
-    std::cout << "**************************************************************\n\n";
+void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0)
+        std::cout << "  " << u << ";\n";
 }
 
 type_domain_t type_domain_t::setup_entry() {
 
-    print_info();
-
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.get().type.context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
-
-    std::cout << *ctx << "\n";
 
     live_registers_t vars;
     register_types_t typ(std::move(vars), all_types);
@@ -479,26 +503,27 @@ type_domain_t type_domain_t::setup_entry() {
     typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region::T_CTX, 0));
     typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region::T_STACK, 512));
 
-    std::cout << "Initial register types:\n";
-    auto it = typ.find(R1_ARG);
-    if (it) {
-        std::cout << "  ";
-        print_type(R1_ARG, it.value());
-        std::cout << "\n";
-    }
-    auto it2 = typ.find(R10_STACK_POINTER);
-    if (it2) {
-        std::cout << "  ";
-        print_type(R10_STACK_POINTER, it2.value());
-        std::cout << "\n";
-    }
-    std::cout << "\n";
-
     type_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
     return inv;
 }
 
-void type_domain_t::operator()(const Bin& bin, location_t loc) {
+void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
+    if (is_bottom()) return;
+    if (print > 0) {
+        if (print == 2) {
+            if (std::holds_alternative<Reg>(bin.v) && bin.op == Bin::Op::MOV) {
+                auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
+                auto it = m_types.find(reg_with_loc);
+                if (it) {
+                    print_annotated(bin, it.value(), std::cout);
+                    std::cout << "\n";
+                    return;
+                }
+            }
+        }
+        std::cout << "  " << bin << ";\n";
+        return;
+    }
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
@@ -506,8 +531,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc) {
             case Bin::Op::MOV: {
                 auto it = m_types.find(src.v);
                 if (!it) {
-                    //std::cout << "  " << bin << "\n";
-                    //CRAB_ERROR("type error: assigning an unknown pointer or a number - r", (int)src.v);
+                    //std::cout << "type_error: assigning an unknown pointer or a number - r" << (int)src.v << "\n";
                     m_types -= bin.dst.v;
                     break;
                 }
@@ -525,24 +549,33 @@ void type_domain_t::operator()(const Bin& bin, location_t loc) {
     else {
         m_types -= bin.dst.v;
     }
-    std::cout << "  " << bin << ";\n";
 }
 
-void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
+void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
 
+    if (print > 0) {
+        auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
+        auto it = m_types.find(target_reg_loc);
+        if (it)
+            print_annotated(b, it.value(), std::cout);
+        else
+            std::cout << "  " << b << ";\n";
+        return;
+    }
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        std::cout << "  " << b << "\n";
-        CRAB_ERROR("type_error: loading from an unknown pointer, or from number - r", (int)basereg.v);
+        error_location = loc;
+        std::cout << "type_error: loading from an unknown pointer, or from number - r" << (int)basereg.v << "\n";
+        set_to_bottom();
+        return;
     }
     ptr_t type_basereg = it.value();
 
     if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
-        std::cout << "  " << b << "\n";
-        //CRAB_ERROR("type_error: loading from either packet or shared region not allowed - r", (int)basereg.v);
+        //std::cout << "type_error: loading from either packet or shared region not allowed - r" << (int)basereg.v << "\n";
         m_types -= target_reg.v;
         return;
     }
@@ -556,8 +589,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc)
             auto it = m_stack.find(load_at);
 
             if (!it) {
-                std::cout << "  " << b << "\n";
-                //CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in stack");
+                //std::cout << "type_error: no field at loaded offset " << load_at << " in stack\n";
                 m_types -= target_reg.v;
                 return;
             }
@@ -567,13 +599,11 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc)
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, loc);
                 m_types.insert(target_reg.v, reg, type_loaded_with_off);
-                print_annotated(b, type_loaded_with_off, std::cout);
             }
             else {
                 ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, loc);
                 m_types.insert(target_reg.v, reg, type_loaded_no_off);
-                print_annotated(b, type_loaded_no_off, std::cout);
             }
 
             break;
@@ -583,8 +613,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc)
             auto it = m_ctx->find(load_at);
 
             if (!it) {
-                std::cout << "  " << b << "\n";
-                //CRAB_ERROR("type_error: no field at loaded offset ", load_at, " in context");
+                //std::cout << "type_error: no field at loaded offset " << load_at << " in context\n";
                 m_types -= target_reg.v;
                 return;
             }
@@ -592,7 +621,6 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc)
 
             auto reg = reg_with_loc_t(target_reg.v, loc);
             m_types.insert(target_reg.v, reg, type_loaded);
-            print_annotated(b, type_loaded, std::cout);
             break;
         }
 
@@ -602,16 +630,22 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc)
     }
 }
 
-void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
+void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
 
-    std::cout << "  " << b << ";\n";
+    if (print > 0) {
+        std::cout << "  " << b << ";\n";
+        return;
+    }
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        CRAB_ERROR("type_error: storing at an unknown pointer, or from number - r", (int)basereg.v);
+        error_location = loc;
+        std::cout << "type_error: storing at an unknown pointer, or from number - r" << (int)basereg.v << "\n";
+        set_to_bottom();
+        return;
     }
     ptr_t type_basereg = it.value();
 
@@ -625,7 +659,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
         if (type_basereg_with_off.r == crab::region::T_STACK) {
             // type of basereg is STACK_P
             if (!it2) {
-                //CRAB_ERROR("type_error: storing either a number or an unknown pointer - r", (int)target_reg.v);
+                //std::cout << "type_error: storing either a number or an unknown pointer - r" << (int)target_reg.v << "\n";
                 m_stack -= store_at;
                 return;
             }
@@ -633,21 +667,30 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                 auto type_to_store = it2.value();
                 if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
                         std::get<ptr_with_off_t>(type_to_store).r == crab::region::T_STACK) {
-                    CRAB_ERROR("type_error: we cannot store stack pointer, r", (int)target_reg.v, ", into stack");
+                    error_location = loc;
+                    std::cout << "type_error: we cannot store stack pointer, r" << (int)target_reg.v << ", into stack\n";
+                    set_to_bottom();
+                    return;
                 }
                 else {
                     for (auto i = store_at; i < store_at+width; i++) {
                         auto it3 = m_stack.find(i);
                         if (it3) {
-                            CRAB_ERROR("type_error: type being stored into stack at ", store_at, " is overlapping with already stored\
-                            at", i);
+                            error_location = loc;
+                            std::cout << "type_error: type being stored into stack at " << store_at << " is overlapping with already stored\
+                            at" << i << "\n";
+                            set_to_bottom();
+                            return;
                         }
                     }
                     auto it4 = m_stack.find(store_at);
                     if (it4) {
                         auto type_in_stack = it4.value();
                         if (type_to_store != type_in_stack) {
-                            CRAB_ERROR("type_error: type being stored at offset ", store_at, " is not the same as stored already in stack");
+                            error_location = loc;
+                            std::cout << "type_error: type being stored at offset " << store_at << " is not the same as stored already in stack\n";
+                            set_to_bottom();
+                            return;
                         }
                     }
                     else {
@@ -659,7 +702,10 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
         else if (type_basereg_with_off.r == crab::region::T_CTX) {
             // type of basereg is CTX_P
             if (it2) {
-                CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into ctx");
+                error_location = loc;
+                std::cout << "type_error: we cannot store pointer, r" << (int)target_reg.v << ", into ctx\n";
+                set_to_bottom();
+                return;
             }
         }
         else
@@ -668,47 +714,89 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     else {
         // base register type is either PACKET_P or SHARED_P
         if (it2) {
-            CRAB_ERROR("type_error: we cannot store pointer, r", (int)target_reg.v, ", into packet or shared");
+            error_location = loc;
+            std::cout << "type_error: we cannot store pointer, r" << (int)target_reg.v << ", into packet or shared\n";
+            set_to_bottom();
+            return;
         }
     }
 }
 
-void type_domain_t::operator()(const Mem& b, location_t loc) {
+void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
+    if (is_bottom()) return;
 
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), loc);
+            do_load(b, std::get<Reg>(b.value), loc, print);
         } else {
-            do_mem_store(b, std::get<Reg>(b.value), loc);
+            do_mem_store(b, std::get<Reg>(b.value), loc, print);
         }
     } else {
-        CRAB_ERROR("Either loading to a number (not allowed) or storing a number (not allowed yet) - ", std::get<Imm>(b.value).v);
+        error_location = loc;
+        std::cout << "type_error: Either loading to a number (not allowed) or storing a number (not allowed yet) - " << std::get<Imm>(b.value).v << "\n";
+        set_to_bottom();
+        return;
     }
 }
 
-void type_domain_t::operator()(const basic_block_t& bb, bool check_termination) {
-    uint32_t curr_pos = 0;
-    auto label = bb.label();
-    std::cout << label << ":\n";
-    for (const Instruction& statement : bb) {
-        location_t loc = location_t(std::make_pair(label, ++curr_pos));
-        std::visit([this, loc](const auto& v) { std::apply(*this, std::make_pair(v, loc)); }, statement);
+void type_domain_t::print_initial_types() {
+    auto label = label_t::entry;
+    location_t loc = location_t(std::make_pair(label, 0));
+    std::cout << "\n" << *m_ctx << "\n";
+    std::cout << m_stack << "\n";
+
+    std::cout << "Initial register types:\n";
+    auto r1_with_loc = reg_with_loc_t(R1_ARG, loc);
+    auto it = m_types.find(r1_with_loc);
+    if (it) {
+        std::cout << "  ";
+        print_type(R1_ARG, it.value());
+        std::cout << "\n";
     }
-    auto [it, et] = bb.next_blocks();
-    if (it != et) {
-        std::cout << "  "
-        << "goto ";
-        for (; it != et;) {
-            std::cout << *it;
-            ++it;
-            if (it == et) {
-                std::cout << ";";
-            } else {
-                std::cout << ",";
+    auto r10_with_loc = reg_with_loc_t(R10_STACK_POINTER, loc);
+    auto it2 = m_types.find(r10_with_loc);
+    if (it2) {
+        std::cout << "  ";
+        print_type(R10_STACK_POINTER, it2.value());
+        std::cout << "\n";
+    }
+    std::cout << "\n";
+}
+
+void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
+    auto label = bb.label();
+    uint32_t curr_pos = 0;
+    location_t loc;
+    if (print > 0) {
+        if (label == label_t::entry) {
+            print_initial_types();
+        }
+        std::cout << label << ":\n";
+    }
+
+    for (const Instruction& statement : bb) {
+        loc = location_t(std::make_pair(label, ++curr_pos));
+        std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
+        if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) CRAB_ERROR("type_error");
+    }
+
+    if (print > 0) {
+        auto [it, et] = bb.next_blocks();
+        if (it != et) {
+            std::cout << "  "
+            << "goto ";
+            for (; it != et;) {
+                std::cout << *it;
+                ++it;
+                if (it == et) {
+                    std::cout << ";";
+                } else {
+                    std::cout << ",";
+                }
             }
         }
+        std::cout << "\n\n";
     }
-    std::cout << "\n\n";
 }
 
 void type_domain_t::set_require_check(check_require_func_t f) {}

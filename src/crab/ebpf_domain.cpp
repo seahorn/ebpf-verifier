@@ -1350,7 +1350,7 @@ void ebpf_domain_t::overflow_unsigned(NumAbsDomain& inv, variable_t lhs, int fin
     overflow_bounds(inv, lhs, span, finite_width, false);
 }
 
-void ebpf_domain_t::operator()(const basic_block_t& bb, bool check_termination) {
+void ebpf_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     for (const Instruction& statement : bb) {
         std::visit(*this, statement);
     }
@@ -1399,7 +1399,7 @@ void ebpf_domain_t::check_access_shared(NumAbsDomain& inv, const linear_expressi
     require(inv, ub <= region_size, std::string("Upper bound must be at most ") + region_size.name());
 }
 
-void ebpf_domain_t::operator()(const Assume& s, location_t loc) {
+void ebpf_domain_t::operator()(const Assume& s, location_t loc, int print) {
     Condition cond = s.cond;
     auto dst = reg_pack(cond.left);
     if (std::holds_alternative<Reg>(cond.right)) {
@@ -1432,9 +1432,9 @@ void ebpf_domain_t::operator()(const Assume& s, location_t loc) {
     }
 }
 
-void ebpf_domain_t::operator()(const Undefined& a, location_t loc) {}
+void ebpf_domain_t::operator()(const Undefined& a, location_t loc, int print) {}
 
-void ebpf_domain_t::operator()(const Un& stmt, location_t loc) {
+void ebpf_domain_t::operator()(const Un& stmt, location_t loc, int print) {
     auto dst = reg_pack(stmt.dst);
     auto swap_endianness = [&](variable_t v, auto input, const auto& be_or_le) {
         if (m_inv.entail(type_is_number(stmt.dst))) {
@@ -1486,11 +1486,11 @@ void ebpf_domain_t::operator()(const Un& stmt, location_t loc) {
     }
 }
 
-void ebpf_domain_t::operator()(const Exit& a, location_t loc) {}
+void ebpf_domain_t::operator()(const Exit& a, location_t loc, int print) {}
 
-void ebpf_domain_t::operator()(const Jmp& a, location_t loc) {}
+void ebpf_domain_t::operator()(const Jmp& a, location_t loc, int print) {}
 
-void ebpf_domain_t::operator()(const Comparable& s, location_t loc) {
+void ebpf_domain_t::operator()(const Comparable& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
     if (type_inv.same_type(m_inv, s.r1, s.r2)) {
         // Same type. If both are numbers, that's okay. Otherwise:
@@ -1511,12 +1511,12 @@ void ebpf_domain_t::operator()(const Comparable& s, location_t loc) {
     };
 }
 
-void ebpf_domain_t::operator()(const Addable& s, location_t loc) {
+void ebpf_domain_t::operator()(const Addable& s, location_t loc, int print) {
     if (!type_inv.implies_type(m_inv, type_is_pointer(reg_pack(s.ptr)), type_is_number(s.num)))
         require(m_inv, linear_constraint_t::FALSE(), "Only numbers can be added to pointers");
 }
 
-void ebpf_domain_t::operator()(const ValidDivisor& s, location_t loc) {
+void ebpf_domain_t::operator()(const ValidDivisor& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
     auto reg = reg_pack(s.reg);
     if (!type_inv.implies_type(m_inv, type_is_pointer(reg), type_is_number(s.reg)))
@@ -1527,17 +1527,17 @@ void ebpf_domain_t::operator()(const ValidDivisor& s, location_t loc) {
     }
 }
 
-void ebpf_domain_t::operator()(const ValidStore& s, location_t loc) {
+void ebpf_domain_t::operator()(const ValidStore& s, location_t loc, int print) {
     if (!type_inv.implies_type(m_inv, type_is_not_stack(reg_pack(s.mem)), type_is_number(s.val)))
         require(m_inv, linear_constraint_t::FALSE(), "Only numbers can be stored to externally-visible regions");
 }
 
-void ebpf_domain_t::operator()(const TypeConstraint& s, location_t loc) {
+void ebpf_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
     if (!type_inv.is_in_group(m_inv, s.reg, s.types))
         require(m_inv, linear_constraint_t::FALSE(), "");
 }
 
-void ebpf_domain_t::operator()(const ValidSize& s, location_t loc) {
+void ebpf_domain_t::operator()(const ValidSize& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
     auto r = reg_pack(s.reg);
     require(m_inv, s.can_be_zero ? r.svalue >= 0 : r.svalue > 0, "");
@@ -1646,7 +1646,7 @@ crab::interval_t ebpf_domain_t::get_map_max_entries(const Reg& map_fd_reg) const
     return result;
 }
 
-void ebpf_domain_t::operator()(const ValidMapKeyValue& s, location_t loc) {
+void ebpf_domain_t::operator()(const ValidMapKeyValue& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
 
     auto fd_type = get_map_type(s.map_fd_reg);
@@ -1712,7 +1712,7 @@ void ebpf_domain_t::operator()(const ValidMapKeyValue& s, location_t loc) {
     });
 }
 
-void ebpf_domain_t::operator()(const ValidAccess& s, location_t loc) {
+void ebpf_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
 
     bool is_comparison_check = s.width == (Value)Imm{0};
@@ -1798,13 +1798,13 @@ void ebpf_domain_t::operator()(const ValidAccess& s, location_t loc) {
     });
 }
 
-void ebpf_domain_t::operator()(const ZeroCtxOffset& s, location_t loc) {
+void ebpf_domain_t::operator()(const ZeroCtxOffset& s, location_t loc, int print) {
     using namespace crab::dsl_syntax;
     auto reg = reg_pack(s.reg);
     require(m_inv, reg.ctx_offset == 0, "");
 }
 
-void ebpf_domain_t::operator()(const Assert& stmt, location_t loc) {
+void ebpf_domain_t::operator()(const Assert& stmt, location_t loc, int print) {
     if (check_require || thread_local_options.assume_assertions) {
         this->current_assertion = to_string(stmt.cst);
         std::visit(*this, stmt.cst);
@@ -1812,7 +1812,7 @@ void ebpf_domain_t::operator()(const Assert& stmt, location_t loc) {
     }
 }
 
-void ebpf_domain_t::operator()(const Packet& a, location_t loc) {
+void ebpf_domain_t::operator()(const Packet& a, location_t loc, int print) {
     auto reg = reg_pack(R0_RETURN_VALUE);
     Reg r0_reg{(uint8_t)R0_RETURN_VALUE};
     type_inv.assign_type(m_inv, r0_reg, T_NUM);
@@ -2057,7 +2057,7 @@ void ebpf_domain_t::do_store_stack(NumAbsDomain& inv, const number_t& width, con
     }
 }
 
-void ebpf_domain_t::operator()(const Mem& b, location_t loc) {
+void ebpf_domain_t::operator()(const Mem& b, location_t loc, int print) {
     if (m_inv.is_bottom())
         return;
     if (std::holds_alternative<Reg>(b.value)) {
@@ -2097,11 +2097,11 @@ void ebpf_domain_t::do_mem_store(const Mem& b, Type val_type, SValue val_svalue,
     });
 }
 
-void ebpf_domain_t::operator()(const LockAdd& a, location_t loc) {
+void ebpf_domain_t::operator()(const LockAdd& a, location_t loc, int print) {
     // nothing to do here
 }
 
-void ebpf_domain_t::operator()(const Call& call, location_t loc) {
+void ebpf_domain_t::operator()(const Call& call, location_t loc, int print) {
     using namespace crab::dsl_syntax;
     if (m_inv.is_bottom())
         return;
@@ -2206,7 +2206,7 @@ void ebpf_domain_t::do_load_mapfd(const Reg& dst_reg, int mapfd, bool maybe_null
     assign_valid_ptr(dst_reg, maybe_null);
 }
 
-void ebpf_domain_t::operator()(const LoadMapFd& ins, location_t loc) { do_load_mapfd(ins.dst, ins.mapfd, false); }
+void ebpf_domain_t::operator()(const LoadMapFd& ins, location_t loc, int print) { do_load_mapfd(ins.dst, ins.mapfd, false); }
 
 void ebpf_domain_t::assign_valid_ptr(const Reg& dst_reg, bool maybe_null) {
     using namespace crab::dsl_syntax;
@@ -2383,7 +2383,7 @@ void ebpf_domain_t::ashr(const Reg& dst_reg, const linear_expression_t& right_sv
     havoc_offsets(dst_reg);
 }
 
-void ebpf_domain_t::operator()(const Bin& bin, location_t loc) {
+void ebpf_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     using namespace crab::dsl_syntax;
 
     auto dst = reg_pack(bin.dst);
