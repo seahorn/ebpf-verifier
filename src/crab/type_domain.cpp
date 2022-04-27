@@ -340,7 +340,6 @@ type_domain_t type_domain_t::bottom() {
 
 void type_domain_t::set_to_bottom() {
     m_is_bottom = true;
-    m_types.set_to_bottom();
 }
 
 void type_domain_t::set_to_top() {
@@ -507,6 +506,13 @@ type_domain_t type_domain_t::setup_entry() {
     return inv;
 }
 
+void type_domain_t::report_type_error(std::string s, location_t loc) {
+    std::cout << "type_error at line " << loc->second << " in bb " << loc->first << "\n";
+    std::cout << s;
+    error_location = loc;
+    set_to_bottom();
+}
+
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
     if (print > 0) {
@@ -567,9 +573,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        error_location = loc;
-        std::cout << "type_error: loading from an unknown pointer, or from number - r" << (int)basereg.v << "\n";
-        set_to_bottom();
+        std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
+        std::string desc = std::string("\tloading from an unknown pointer, or from number - r") + s + "\n";
+        report_type_error(desc, loc);
         return;
     }
     ptr_t type_basereg = it.value();
@@ -642,9 +648,9 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 
     auto it = m_types.find(basereg.v);
     if (!it) {
-        error_location = loc;
-        std::cout << "type_error: storing at an unknown pointer, or from number - r" << (int)basereg.v << "\n";
-        set_to_bottom();
+        std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
+        std::string desc = std::string("\tstoring at an unknown pointer, or from number - r") + s + "\n";
+        report_type_error(desc, loc);
         return;
     }
     ptr_t type_basereg = it.value();
@@ -667,19 +673,19 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                 auto type_to_store = it2.value();
                 if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
                         std::get<ptr_with_off_t>(type_to_store).r == crab::region::T_STACK) {
-                    error_location = loc;
-                    std::cout << "type_error: we cannot store stack pointer, r" << (int)target_reg.v << ", into stack\n";
-                    set_to_bottom();
+                    std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
+                    std::string desc = std::string("\twe cannot store stack pointer, - r") + s + ", into stack\n";
+                    report_type_error(desc, loc);
                     return;
                 }
                 else {
                     for (auto i = store_at; i < store_at+width; i++) {
                         auto it3 = m_stack.find(i);
                         if (it3) {
-                            error_location = loc;
-                            std::cout << "type_error: type being stored into stack at " << store_at << " is overlapping with already stored\
-                            at" << i << "\n";
-                            set_to_bottom();
+                            std::string s = std::to_string(store_at);
+                            std::string s1 = std::to_string(i);
+                            std::string desc = std::string("\ttype being stored into stack at ") + s + " is overlapping with already stored at " + s1 + "\n";
+                            report_type_error(desc, loc);
                             return;
                         }
                     }
@@ -687,9 +693,9 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                     if (it4) {
                         auto type_in_stack = it4.value();
                         if (type_to_store != type_in_stack) {
-                            error_location = loc;
-                            std::cout << "type_error: type being stored at offset " << store_at << " is not the same as stored already in stack\n";
-                            set_to_bottom();
+                            std::string s = std::to_string(store_at);
+                            std::string desc = std::string("\ttype being stored at offset ") + s + " is not the same as already stored in stack\n";
+                            report_type_error(desc, loc);
                             return;
                         }
                     }
@@ -702,9 +708,9 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
         else if (type_basereg_with_off.r == crab::region::T_CTX) {
             // type of basereg is CTX_P
             if (it2) {
-                error_location = loc;
-                std::cout << "type_error: we cannot store pointer, r" << (int)target_reg.v << ", into ctx\n";
-                set_to_bottom();
+                std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
+                std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into ctx\n";
+                report_type_error(desc, loc);
                 return;
             }
         }
@@ -714,9 +720,9 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     else {
         // base register type is either PACKET_P or SHARED_P
         if (it2) {
-            error_location = loc;
-            std::cout << "type_error: we cannot store pointer, r" << (int)target_reg.v << ", into packet or shared\n";
-            set_to_bottom();
+            std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
+            std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet or shared\n";
+            report_type_error(desc, loc);
             return;
         }
     }
@@ -732,9 +738,9 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
             do_mem_store(b, std::get<Reg>(b.value), loc, print);
         }
     } else {
-        error_location = loc;
-        std::cout << "type_error: Either loading to a number (not allowed) or storing a number (not allowed yet) - " << std::get<Imm>(b.value).v << "\n";
-        set_to_bottom();
+        std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
+        std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
+        report_type_error(desc, loc);
         return;
     }
 }
@@ -770,14 +776,16 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
     if (print > 0) {
         if (label == label_t::entry) {
             print_initial_types();
+            m_is_bottom = false;
         }
         std::cout << label << ":\n";
     }
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
+        if (print > 0) std::cout << " " << curr_pos << ".";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
-        if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) CRAB_ERROR("type_error");
+        if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) std::cout << "type_error\n";
     }
 
     if (print > 0) {
