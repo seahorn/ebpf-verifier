@@ -171,7 +171,13 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
 
         // Analyze the control-flow graph.
         checks_db db = generate_report(cfg, pre_invariants, post_invariants);
-        if (thread_local_options.print_invariants) {
+        if (thread_local_options.abstract_domain == abstract_domain_kind::TYPE_DOMAIN) {
+            auto state = post_invariants.at(label_t::exit);
+            for (const label_t& label : cfg.sorted_labels()) {
+                state(cfg.get_node(label), options->check_termination, thread_local_options.print_invariants ? 2 : 1);
+            }
+        }
+        else if (thread_local_options.print_invariants) {
             for (const label_t& label : cfg.sorted_labels()) {
                 s << "\nPre-invariant : " << pre_invariants.at(label) << "\n";
                 s << cfg.get_node(label);
