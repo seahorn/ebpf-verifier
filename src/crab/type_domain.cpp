@@ -81,7 +81,17 @@ void print_annotated(Call const& call, const ptr_t& p, std::ostream& os_) {
 void print_annotated(Bin const& b, const ptr_t& p, std::ostream& os_) {
     os_ << "  ";
     print_type(b.dst.v, p);
-    os_ << " = r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+    // add better checks as we add more support
+    if (std::holds_alternative<Reg>(b.v)) {
+        if (b.op == Bin::Op::MOV)
+            os_ << " = r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+        else if (b.op == Bin::Op::ADD)
+            os_ << " += r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+    }
+    else {
+        if (b.op == Bin::Op::ADD)
+            os_ << " += " << static_cast<int>(std::get<Imm>(b.v).v) << ";";
+    }
 }
 
 namespace crab {
@@ -517,7 +527,8 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
     if (print > 0) {
         if (print == 2) {
-            if (std::holds_alternative<Reg>(bin.v) && bin.op == Bin::Op::MOV) {
+            if ((std::holds_alternative<Reg>(bin.v) && (bin.op == Bin::Op::MOV || bin.op == Bin::Op::ADD)) ||
+            (std::holds_alternative<Imm>(bin.v) && bin.op == Bin::Op::ADD)) {
                 auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
                 auto it = m_types.find(reg_with_loc);
                 if (it) {
@@ -530,30 +541,86 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         std::cout << "  " << bin << ";\n";
         return;
     }
+
+    ptr_t dst_reg;
+    if (bin.op == Bin::Op::ADD) {
+        auto it = m_types.find(bin.dst.v);
+        if (!it) {
+            m_types -= bin.dst.v;
+            return;
+        }
+        dst_reg = it.value();
+    }
+
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
         {
             case Bin::Op::MOV: {
-                auto it = m_types.find(src.v);
-                if (!it) {
+                auto it1 = m_types.find(src.v);
+                if (!it1) {
                     //std::cout << "type_error: assigning an unknown pointer or a number - r" << (int)src.v << "\n";
                     m_types -= bin.dst.v;
                     break;
                 }
-
                 auto reg = reg_with_loc_t(bin.dst.v, loc);
-                m_types.insert(bin.dst.v, reg, it.value());
+                m_types.insert(bin.dst.v, reg, it1.value());
                 break;
             }
-
+            case Bin::Op::ADD: {
+                auto it1 = m_types.find(src.v);
+                if (it1) {
+                    std::string s = std::to_string(static_cast<unsigned int>(src.v));
+                    std::string s1 = std::to_string(static_cast<unsigned int>(bin.dst.v));
+                    std::string desc = std::string("\taddition of two pointers, r") + s + " and r" + s1 + " not allowed\n";
+                    report_type_error(desc, loc);
+                    return;
+                }
+                else {
+                    if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
+                        /*
+                        std::string s = std::to_string(static_cast<unsigned int>(bin.dst.v));
+                        std::string desc = std::string("\toffset of the pointer r") + s + " unknown\n";
+                        report_type_error(desc, loc);
+                        return;
+                        */
+                        m_stack.set_to_top();
+                        m_stack -= std::get<ptr_with_off_t>(dst_reg).offset;
+                    }
+                    else {
+                        auto reg = reg_with_loc_t(bin.dst.v, loc);
+                        m_types.insert(bin.dst.v, reg, dst_reg);
+                    }
+                }
+                break;
+            }
             default:
                 m_types -= bin.dst.v;
                 break;
         }
     }
     else {
-        m_types -= bin.dst.v;
+        int imm = static_cast<int>(std::get<Imm>(bin.v).v);
+        switch (bin.op)
+        {
+            case Bin::Op::ADD: {
+                if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
+                    auto ptr_with_off = std::get<ptr_with_off_t>(dst_reg);
+                    ptr_with_off.offset = ptr_with_off.offset + imm;
+                    auto reg = reg_with_loc_t(bin.dst.v, loc);
+                    m_types.insert(bin.dst.v, reg, ptr_with_off);
+                }
+                else {
+                    auto reg = reg_with_loc_t(bin.dst.v, loc);
+                    m_types.insert(bin.dst.v, reg, dst_reg);
+                }
+                break;
+            }
+            default: {
+                m_types -= bin.dst.v;
+                break;
+            }
+        }
     }
 }
 
@@ -658,28 +725,30 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     auto it2 = m_types.find(target_reg.v);
 
     if (std::holds_alternative<ptr_with_off_t>(type_basereg)) {
-        // we know base register is either CTX_P or STACK_P
+        // base register is either CTX_P or STACK_P
         ptr_with_off_t type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
 
         int store_at = offset+type_basereg_with_off.offset;
         if (type_basereg_with_off.r == crab::region::T_STACK) {
             // type of basereg is STACK_P
             if (!it2) {
-                //std::cout << "type_error: storing either a number or an unknown pointer - r" << (int)target_reg.v << "\n";
+               // std::cout << "type_error: storing either a number or an unknown pointer - r" << (int)target_reg.v << "\n";
                 m_stack -= store_at;
                 return;
             }
             else {
                 auto type_to_store = it2.value();
+                /*
                 if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
                         std::get<ptr_with_off_t>(type_to_store).r == crab::region::T_STACK) {
                     std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
-                    std::string desc = std::string("\twe cannot store stack pointer, - r") + s + ", into stack\n";
-                    report_type_error(desc, loc);
+                    std::string desc = std::string("\twe cannot store stack pointer, r") + s + ", into stack\n";
+                    //report_type_error(desc, loc);
                     return;
                 }
                 else {
-                    for (auto i = store_at; i < store_at+width; i++) {
+                */
+                    for (auto i = store_at+1; i < store_at+width; i++) {
                         auto it3 = m_stack.find(i);
                         if (it3) {
                             std::string s = std::to_string(store_at);
@@ -689,6 +758,10 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                             return;
                         }
                     }
+                    m_stack.insert(store_at, type_to_store);
+                    // revise: code below checks if there is already something stored at same location, the type should be the same -- it is very restricted and not required.
+                    // However, when we support storing info like width of type, we need more checks
+                    /*
                     auto it4 = m_stack.find(store_at);
                     if (it4) {
                         auto type_in_stack = it4.value();
@@ -702,7 +775,8 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                     else {
                         m_stack.insert(store_at, type_to_store);
                     }
-                }
+                    */
+                //}
             }
         }
         else if (type_basereg_with_off.r == crab::region::T_CTX) {
@@ -718,8 +792,12 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
             assert(false);
     }
     else {
-        // base register type is either PACKET_P or SHARED_P
-        if (it2) {
+        // base register type is either PACKET_P, SHARED_P or STACK_P without known offset
+        ptr_no_off_t type_basereg_no_off = std::get<ptr_no_off_t>(type_basereg);
+
+        // if basereg is a stack_p with no offset, we do not store anything, and no type errors
+        // if we later load with that pointer, we read nothing -- load is no-op
+        if (it2 && type_basereg_no_off.r != crab::region::T_STACK) {
             std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
             std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet or shared\n";
             report_type_error(desc, loc);
