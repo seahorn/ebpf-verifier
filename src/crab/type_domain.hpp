@@ -19,49 +19,62 @@ enum class region {
 	T_SHARED
 };
 
-struct ptr_no_off_t {
-    region r;
 
+class ptr_no_off_t {
+    region m_r;
+
+  public:
     ptr_no_off_t() = default;
     ptr_no_off_t(const ptr_no_off_t &) = default;
     ptr_no_off_t(ptr_no_off_t &&) = default;
     ptr_no_off_t &operator=(const ptr_no_off_t &) = default;
     ptr_no_off_t &operator=(ptr_no_off_t &&) = default;
-    ptr_no_off_t(region _r) : r(_r) {}
+    ptr_no_off_t(region _r) : m_r(_r) {}
 
+    constexpr region get_region() const;
+    void set_region(region);
+    void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
-    friend bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2);
-    friend bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2);
+    bool operator==(const ptr_no_off_t& p2);
+    bool operator!=(const ptr_no_off_t& p2);
 };
 
-struct ptr_with_off_t {
-    region r;
-    int offset;
+class ptr_with_off_t {
+    region m_r;
+    int m_offset;
 
+  public:
     ptr_with_off_t() = default;
     ptr_with_off_t(const ptr_with_off_t &) = default;
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
+    ptr_with_off_t(region _r, int _off) : m_r(_r), m_offset(_off) {}
 
+    constexpr int get_offset() const;
+    void set_offset(int);
+    constexpr region get_region() const;
+    void set_region(region);
+    void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
-    friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2);
-    friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2);
+    bool operator==(const ptr_with_off_t& p2);
+    bool operator!=(const ptr_with_off_t& p2);
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 using register_t = uint8_t;
 using location_t = boost::optional<std::pair<label_t, uint32_t>>;
 
-struct reg_with_loc_t {
-    register_t r;
-    location_t loc;
+class reg_with_loc_t {
+    register_t m_reg;
+    location_t m_loc;
 
-    reg_with_loc_t(register_t _r, location_t _loc) : r(_r), loc(_loc) {}
+  public:
+    reg_with_loc_t(register_t _r, location_t _loc) : m_reg(_r), m_loc(_loc) {}
     bool operator==(const reg_with_loc_t& other) const;
     std::size_t hash() const;
     friend std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg);
+    void write(std::ostream& ) const;
 };
 
 class ctx_t {
@@ -104,14 +117,14 @@ using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
 using global_type_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
 class register_types_t {
-    live_registers_t m_vars;
-    std::shared_ptr<global_type_env_t> m_all_types;
+    live_registers_t m_cur_def;
+    std::shared_ptr<global_type_env_t> m_reg_type_env;
     bool m_is_bottom = false;
 
   public:
-    register_types_t(bool is_bottom = false) : m_all_types(nullptr), m_is_bottom(is_bottom) {}
-    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> all_types, bool is_bottom = false)
-        : m_vars(std::move(vars)), m_all_types(all_types), m_is_bottom(is_bottom) {}
+    register_types_t(bool is_bottom = false) : m_reg_type_env(nullptr), m_is_bottom(is_bottom) {}
+    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> reg_type_env, bool is_bottom = false)
+        : m_cur_def(std::move(vars)), m_reg_type_env(reg_type_env), m_is_bottom(is_bottom) {}
 
     register_types_t operator|(const register_types_t& other) const;
     void operator-=(register_t var);
@@ -122,7 +135,7 @@ class register_types_t {
     void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type);
     std::optional<ptr_t> find(reg_with_loc_t reg) const;
     std::optional<ptr_t> find(register_t key) const;
-    const live_registers_t &get_vars() { return m_vars; }
+    const live_registers_t &get_vars() { return m_cur_def; }
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
 };
 
@@ -133,7 +146,7 @@ class type_domain_t final {
     bool m_is_bottom = false;
     location_t error_location = boost::none;
     crab::stack_t m_stack;
-    crab::register_types_t m_types;
+    crab::register_types_t m_registers;
     std::shared_ptr<crab::ctx_t> m_ctx;
 
   public:
@@ -144,7 +157,7 @@ class type_domain_t final {
     type_domain_t& operator=(type_domain_t&& o) = default;
     type_domain_t& operator=(const type_domain_t& o) = default;
     type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, std::shared_ptr<crab::ctx_t> _ctx)
-            : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx) {}
+            : m_stack(std::move(_st)), m_registers(std::move(_types)), m_ctx(_ctx) {}
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
     static type_domain_t setup_entry();
     // bottom/top
