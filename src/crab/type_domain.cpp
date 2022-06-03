@@ -25,6 +25,7 @@ namespace std {
     };
 
     // does not seem to work for me
+    /*
     template <>
     struct equal_to<crab::ptr_t> {
         constexpr bool operator()(const crab::ptr_t& p1, const crab::ptr_t& p2) const {
@@ -32,19 +33,34 @@ namespace std {
             if (std::holds_alternative<crab::ptr_no_off_t>(p1)) {
                 auto ptr_no_off1 = std::get<crab::ptr_no_off_t>(p1);
                 auto ptr_no_off2 = std::get<crab::ptr_no_off_t>(p2);
-                return (ptr_no_off1.r == ptr_no_off2.r);
+                return (ptr_no_off1.get_region() == ptr_no_off2.get_region());
             }
             else {
                 auto ptr_with_off1 = std::get<crab::ptr_with_off_t>(p1);
                 auto ptr_with_off2 = std::get<crab::ptr_with_off_t>(p2);
-                return (ptr_with_off1.r == ptr_with_off2.r && ptr_with_off1.offset == ptr_with_off2.offset);
+                return (ptr_with_off1.get_region() == ptr_with_off2.get_region() && ptr_with_off1.get_offset() == ptr_with_off2.get_offset());
             }
         }
     };
+
+    template <>
+    struct equal_to<crab::ptr_with_off_t> {
+        constexpr bool operator()(const crab::ptr_with_off_t& p1, const crab::ptr_with_off_t& p2) const {
+            return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset());
+        }
+    };
+
+    template <>
+    struct equal_to<crab::ptr_no_off_t> {
+        constexpr bool operator()(const crab::ptr_no_off_t& p1, const crab::ptr_no_off_t& p2) const {
+            return (p1.get_region() == p2.get_region());
+        }
+    };
+    */
 }
 
 
-void print_ptr_type(const ptr_t& p) {
+static void print_ptr_type(const ptr_t& p) {
     if (std::holds_alternative<ptr_with_off_t>(p)) {
         auto t = std::get<ptr_with_off_t>(p);
         std::cout << t;
@@ -55,12 +71,12 @@ void print_ptr_type(const ptr_t& p) {
     }
 }
 
-void print_type(register_t r, const ptr_t& p) {
+static void print_type(register_t r, const ptr_t& p) {
     std::cout << "r" << static_cast<unsigned int>(r) << " : ";
     print_ptr_type(p);
 }
 
-void print_annotated(Mem const& b, const ptr_t& p, std::ostream& os_) {
+static void print_annotated(Mem const& b, const ptr_t& p, std::ostream& os_) {
     if (b.is_load) {
         os_ << "  ";
         print_type(std::get<Reg>(b.value).v, p);
@@ -72,13 +88,13 @@ void print_annotated(Mem const& b, const ptr_t& p, std::ostream& os_) {
     os_ << "(" << b.access.basereg << sign << offset << ")\n";
 }
 
-void print_annotated(Call const& call, const ptr_t& p, std::ostream& os_) {
+static void print_annotated(Call const& call, const ptr_t& p, std::ostream& os_) {
     os_ << "  ";
     print_type(0, p);
     os_ << " = " << call.name << ":" << call.func << "(...)\n";
 }
 
-void print_annotated(Bin const& b, const ptr_t& p, std::ostream& os_) {
+static void print_annotated(Bin const& b, const ptr_t& p, std::ostream& os_) {
     os_ << "  ";
     print_type(b.dst.v, p);
     // add better checks as we add more support
@@ -115,47 +131,72 @@ inline std::ostream& operator<<(std::ostream& o, const region& t) {
 }
 
 bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return (p1.r == p2.r && p1.offset == p2.offset);
+    return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset());
 }
 
-bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return !(p1 == p2);
+bool ptr_with_off_t::operator!=(const ptr_with_off_t& p2) {
+    return !(*this == p2);
+}
+
+void ptr_with_off_t::write(std::ostream& o) const {
+    o << get_reg_ptr(m_r) << "<" << m_offset << ">";
 }
 
 std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
-    o << get_reg_ptr(p.r) << "<" << p.offset << ">";
+    p.write(o);
     return o;
 }
 
+void ptr_with_off_t::set_offset(int off) { m_offset = off; }
+
+constexpr int ptr_with_off_t::get_offset() const { return m_offset; }
+
+void ptr_with_off_t::set_region(region r) { m_r = r; }
+
+constexpr region ptr_with_off_t::get_region() const { return m_r; }
+
 bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return (p1.r == p2.r);
+    return (p1.get_region() == p2.get_region());
 }
 
-bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return !(p1 == p2);
+bool ptr_no_off_t::operator!=(const ptr_no_off_t& p2) {
+    return !(*this == p2);
+}
+
+void ptr_no_off_t::write(std::ostream& o) const {
+    o << get_reg_ptr(get_region());
 }
 
 std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
-    return o << get_reg_ptr(p.r);
+    p.write(o);
+    return o;
+}
+
+void ptr_no_off_t::set_region(region r) { m_r = r; }
+
+constexpr region ptr_no_off_t::get_region() const { return m_r; }
+
+void reg_with_loc_t::write(std::ostream& o) const {
+    o << "r" << static_cast<unsigned int>(m_reg) << "@" << m_loc->second << " in " << m_loc->first << " ";
 }
 
 std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
-    o << "r" << static_cast<unsigned int>(reg.r) << "@" << reg.loc->second << " in " << reg.loc->first << " ";
+    reg.write(o);
     return o;
 }
 
 bool reg_with_loc_t::operator==(const reg_with_loc_t& other) const {
-    return (r == other.r && loc == other.loc);
+    return (m_reg == other.m_reg && m_loc == other.m_loc);
 }
 
 std::size_t reg_with_loc_t::hash() const {
     // Similar to boost::hash_combine
     using std::hash;
 
-    std::size_t seed = hash<register_t>()(r);
-    seed ^= hash<int>()(loc->first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash<int>()(loc->first.to) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash<int>()(loc->second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    std::size_t seed = hash<register_t>()(m_reg);
+    seed ^= hash<int>()(m_loc->first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(m_loc->first.to) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
+    seed ^= hash<int>()(m_loc->second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
 
     return seed;
 }
@@ -206,7 +247,7 @@ std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
     if (typ.is_bottom())
         o << "_|_\n";
     else {
-        for (const auto& v : *(typ.m_all_types)) {
+        for (const auto& v : *(typ.m_reg_type_env)) {
             o << v.first << ": ";
             print_ptr_type(v.second);
             o << "\n";
@@ -222,32 +263,32 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
         return *this;
     }
     live_registers_t out_vars;
-    for (size_t i = 0; i < m_vars.size(); i++) {
-        if (m_vars[i] == nullptr || other.m_vars[i] == nullptr) continue;
-        auto it1 = find(*(m_vars[i]));
-        auto it2 = other.find(*(other.m_vars[i]));
+    for (size_t i = 0; i < m_cur_def.size(); i++) {
+        if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
+        auto it1 = find(*(m_cur_def[i]));
+        auto it2 = other.find(*(other.m_cur_def[i]));
         if (it1 && it2 && it1.value() == it2.value()) {
-            out_vars[i] = m_vars[i];
+            out_vars[i] = m_cur_def[i];
         }
     }
 
-    return register_types_t(std::move(out_vars), m_all_types, false);
+    return register_types_t(std::move(out_vars), m_reg_type_env, false);
 }
 
 void register_types_t::operator-=(register_t var) {
     if (is_bottom()) {
         return;
     }
-    m_vars[var] = nullptr;
+    m_cur_def[var] = nullptr;
 }
 
 void register_types_t::set_to_bottom() {
-    m_vars = live_registers_t{nullptr};
+    m_cur_def = live_registers_t{nullptr};
     m_is_bottom = true;
 }
 
 void register_types_t::set_to_top() {
-    m_vars = live_registers_t{nullptr};
+    m_cur_def = live_registers_t{nullptr};
     m_is_bottom = false;
 }
 
@@ -255,27 +296,27 @@ bool register_types_t::is_bottom() const { return m_is_bottom; }
 
 bool register_types_t::is_top() const {
     if (m_is_bottom) { return false; }
-    if (m_all_types == nullptr) return true;
-    for (auto it : m_vars) {
+    if (m_reg_type_env == nullptr) return true;
+    for (auto it : m_cur_def) {
         if (it != nullptr) return false;
     }
     return true;
 }
 
 void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
-    (*m_all_types)[reg_with_loc] = type;
-    m_vars[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
+    (*m_reg_type_env)[reg_with_loc] = type;
+    m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
 
 std::optional<ptr_t> register_types_t::find(reg_with_loc_t reg) const {
-    auto it = m_all_types->find(reg);
-    if (it == m_all_types->end()) return {};
+    auto it = m_reg_type_env->find(reg);
+    if (it == m_reg_type_env->end()) return {};
     return it->second;
 }
 
 std::optional<ptr_t> register_types_t::find(register_t key) const {
-    if (m_vars[key] == nullptr) return {};
-    const reg_with_loc_t& reg = *(m_vars[key]);
+    if (m_cur_def[key] == nullptr) return {};
+    const reg_with_loc_t& reg = *(m_cur_def[key]);
     return find(reg);
 }
 
@@ -336,12 +377,12 @@ std::optional<ptr_t> stack_t::find(int key) const {
 
 bool type_domain_t::is_bottom() const {
     if (m_is_bottom) return true;
-    return (m_stack.is_bottom() || m_types.is_bottom());
+    return (m_stack.is_bottom() || m_registers.is_bottom());
 }
 
 bool type_domain_t::is_top() const {
     if (m_is_bottom) return false;
-    return (m_stack.is_top() && m_types.is_top());
+    return (m_stack.is_top() && m_registers.is_top());
 }
 
 type_domain_t type_domain_t::bottom() {
@@ -356,10 +397,11 @@ void type_domain_t::set_to_bottom() {
 
 void type_domain_t::set_to_top() {
     m_stack.set_to_top();
-    m_types.set_to_top();
+    m_registers.set_to_top();
 }
 
 bool type_domain_t::operator<=(const type_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return true;
 }
 
@@ -383,7 +425,7 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_types | other.m_types, m_stack | other.m_stack, other.m_ctx);
+    return type_domain_t(m_registers | other.m_registers, m_stack | other.m_stack, other.m_ctx);
 }
 
 type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
@@ -393,7 +435,7 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), other.m_ctx);
+    return type_domain_t(m_registers | std::move(other.m_registers), m_stack | std::move(other.m_stack), other.m_ctx);
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -409,7 +451,7 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
 }
 
 void type_domain_t::write(std::ostream& os) const { 
-    os << m_types;
+    os << m_registers;
     os << m_stack << "\n";
 }
 
@@ -441,7 +483,7 @@ void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
         std::cout << "  " << u << ";\n";
         return;
     }
-    m_types -= u.dst.v;
+    m_registers -= u.dst.v;
 }
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (is_bottom()) return;
@@ -449,7 +491,7 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     auto r0 = reg_with_loc_t(r0_reg, loc);
     if (print > 0) {
         if (u.is_map_lookup) {
-            auto it = m_types.find(r0);
+            auto it = m_registers.find(r0);
             if (it) {
                 print_annotated(u, it.value(), std::cout);
             }
@@ -460,10 +502,10 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     }
     if (u.is_map_lookup) {
         auto type = ptr_no_off_t(crab::region::T_SHARED);
-        m_types.insert(r0_reg, r0, type);
+        m_registers.insert(r0_reg, r0, type);
     }
     else {
-        m_types -= r0_reg;
+        m_registers -= r0_reg;
     }
 }
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
@@ -482,7 +524,7 @@ void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
         std::cout << "  " << u << ";\n";
         return;
     }
-    m_types -= register_t{0};
+    m_registers -= register_t{0};
 }
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
     if (is_bottom()) return;
@@ -532,7 +574,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
             if ((std::holds_alternative<Reg>(bin.v) && (bin.op == Bin::Op::MOV || bin.op == Bin::Op::ADD)) ||
             (std::holds_alternative<Imm>(bin.v) && bin.op == Bin::Op::ADD)) {
                 auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-                auto it = m_types.find(reg_with_loc);
+                auto it = m_registers.find(reg_with_loc);
                 if (it) {
                     print_annotated(bin, it.value(), std::cout);
                     std::cout << "\n";
@@ -546,9 +588,9 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
 
     ptr_t dst_reg;
     if (bin.op == Bin::Op::ADD) {
-        auto it = m_types.find(bin.dst.v);
+        auto it = m_registers.find(bin.dst.v);
         if (!it) {
-            m_types -= bin.dst.v;
+            m_registers -= bin.dst.v;
             return;
         }
         dst_reg = it.value();
@@ -559,18 +601,18 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         switch (bin.op)
         {
             case Bin::Op::MOV: {
-                auto it1 = m_types.find(src.v);
+                auto it1 = m_registers.find(src.v);
                 if (!it1) {
                     //std::cout << "type_error: assigning an unknown pointer or a number - r" << (int)src.v << "\n";
-                    m_types -= bin.dst.v;
+                    m_registers -= bin.dst.v;
                     break;
                 }
                 auto reg = reg_with_loc_t(bin.dst.v, loc);
-                m_types.insert(bin.dst.v, reg, it1.value());
+                m_registers.insert(bin.dst.v, reg, it1.value());
                 break;
             }
             case Bin::Op::ADD: {
-                auto it1 = m_types.find(src.v);
+                auto it1 = m_registers.find(src.v);
                 if (it1) {
                     std::string s = std::to_string(static_cast<unsigned int>(src.v));
                     std::string s1 = std::to_string(static_cast<unsigned int>(bin.dst.v));
@@ -587,17 +629,17 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
                         return;
                         */
                         m_stack.set_to_top();
-                        m_stack -= std::get<ptr_with_off_t>(dst_reg).offset;
+                        m_stack -= std::get<ptr_with_off_t>(dst_reg).get_offset();
                     }
                     else {
                         auto reg = reg_with_loc_t(bin.dst.v, loc);
-                        m_types.insert(bin.dst.v, reg, dst_reg);
+                        m_registers.insert(bin.dst.v, reg, dst_reg);
                     }
                 }
                 break;
             }
             default:
-                m_types -= bin.dst.v;
+                m_registers -= bin.dst.v;
                 break;
         }
     }
@@ -608,18 +650,18 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
             case Bin::Op::ADD: {
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
                     auto ptr_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    ptr_with_off.offset = ptr_with_off.offset + imm;
+                    ptr_with_off.set_offset(ptr_with_off.get_offset() + imm);
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_types.insert(bin.dst.v, reg, ptr_with_off);
+                    m_registers.insert(bin.dst.v, reg, ptr_with_off);
                 }
                 else {
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_types.insert(bin.dst.v, reg, dst_reg);
+                    m_registers.insert(bin.dst.v, reg, dst_reg);
                 }
                 break;
             }
             default: {
-                m_types -= bin.dst.v;
+                m_registers -= bin.dst.v;
                 break;
             }
         }
@@ -630,7 +672,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
     if (print > 0) {
         auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
-        auto it = m_types.find(target_reg_loc);
+        auto it = m_registers.find(target_reg_loc);
         if (it)
             print_annotated(b, it.value(), std::cout);
         else
@@ -640,7 +682,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
-    auto it = m_types.find(basereg.v);
+    auto it = m_registers.find(basereg.v);
     if (!it) {
         std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
         std::string desc = std::string("\tloading from an unknown pointer, or from number - r") + s + "\n";
@@ -651,21 +693,21 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
     if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
         //std::cout << "type_error: loading from either packet or shared region not allowed - r" << (int)basereg.v << "\n";
-        m_types -= target_reg.v;
+        m_registers -= target_reg.v;
         return;
     }
 
     ptr_with_off_t type_with_off = std::get<ptr_with_off_t>(type_basereg);
-    int load_at = offset+type_with_off.offset;
+    int load_at = offset+type_with_off.get_offset();
 
-    switch (type_with_off.r) {
+    switch (type_with_off.get_region()) {
         case crab::region::T_STACK: {
 
             auto it = m_stack.find(load_at);
 
             if (!it) {
                 //std::cout << "type_error: no field at loaded offset " << load_at << " in stack\n";
-                m_types -= target_reg.v;
+                m_registers -= target_reg.v;
                 return;
             }
             ptr_t type_loaded = it.value();
@@ -673,12 +715,12 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
             if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_types.insert(target_reg.v, reg, type_loaded_with_off);
+                m_registers.insert(target_reg.v, reg, type_loaded_with_off);
             }
             else {
                 ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_types.insert(target_reg.v, reg, type_loaded_no_off);
+                m_registers.insert(target_reg.v, reg, type_loaded_no_off);
             }
 
             break;
@@ -689,13 +731,13 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
             if (!it) {
                 //std::cout << "type_error: no field at loaded offset " << load_at << " in context\n";
-                m_types -= target_reg.v;
+                m_registers -= target_reg.v;
                 return;
             }
             ptr_no_off_t type_loaded = it.value();
 
             auto reg = reg_with_loc_t(target_reg.v, loc);
-            m_types.insert(target_reg.v, reg, type_loaded);
+            m_registers.insert(target_reg.v, reg, type_loaded);
             break;
         }
 
@@ -715,7 +757,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
-    auto it = m_types.find(basereg.v);
+    auto it = m_registers.find(basereg.v);
     if (!it) {
         std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
         std::string desc = std::string("\tstoring at an unknown pointer, or from number - r") + s + "\n";
@@ -724,14 +766,14 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     }
     ptr_t type_basereg = it.value();
 
-    auto it2 = m_types.find(target_reg.v);
+    auto it2 = m_registers.find(target_reg.v);
 
     if (std::holds_alternative<ptr_with_off_t>(type_basereg)) {
         // base register is either CTX_P or STACK_P
         ptr_with_off_t type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
 
-        int store_at = offset+type_basereg_with_off.offset;
-        if (type_basereg_with_off.r == crab::region::T_STACK) {
+        int store_at = offset+type_basereg_with_off.get_offset();
+        if (type_basereg_with_off.get_region() == crab::region::T_STACK) {
             // type of basereg is STACK_P
             if (!it2) {
                // std::cout << "type_error: storing either a number or an unknown pointer - r" << (int)target_reg.v << "\n";
@@ -781,7 +823,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
                 //}
             }
         }
-        else if (type_basereg_with_off.r == crab::region::T_CTX) {
+        else if (type_basereg_with_off.get_region() == crab::region::T_CTX) {
             // type of basereg is CTX_P
             if (it2) {
                 std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
@@ -799,7 +841,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 
         // if basereg is a stack_p with no offset, we do not store anything, and no type errors
         // if we later load with that pointer, we read nothing -- load is no-op
-        if (it2 && type_basereg_no_off.r != crab::region::T_STACK) {
+        if (it2 && type_basereg_no_off.get_region() != crab::region::T_STACK) {
             std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
             std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet or shared\n";
             report_type_error(desc, loc);
@@ -833,14 +875,14 @@ void type_domain_t::print_initial_types() {
 
     std::cout << "Initial register types:\n";
     auto r1_with_loc = reg_with_loc_t(R1_ARG, loc);
-    auto it = m_types.find(r1_with_loc);
+    auto it = m_registers.find(r1_with_loc);
     if (it) {
         std::cout << "  ";
         print_type(R1_ARG, it.value());
         std::cout << "\n";
     }
     auto r10_with_loc = reg_with_loc_t(R10_STACK_POINTER, loc);
-    auto it2 = m_types.find(r10_with_loc);
+    auto it2 = m_registers.find(r10_with_loc);
     if (it2) {
         std::cout << "  ";
         print_type(R10_STACK_POINTER, it2.value());
