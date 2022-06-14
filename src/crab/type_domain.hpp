@@ -35,8 +35,8 @@ class ptr_no_off_t {
     void set_region(region);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
-    bool operator==(const ptr_no_off_t& p2);
-    bool operator!=(const ptr_no_off_t& p2);
+    //bool operator==(const ptr_no_off_t& p2);
+    //bool operator!=(const ptr_no_off_t& p2);
 };
 
 class ptr_with_off_t {
@@ -57,8 +57,8 @@ class ptr_with_off_t {
     void set_region(region);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
-    bool operator==(const ptr_with_off_t& p2);
-    bool operator!=(const ptr_with_off_t& p2);
+    //bool operator==(const ptr_with_off_t& p2);
+    //bool operator!=(const ptr_with_off_t& p2);
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
