@@ -134,8 +134,8 @@ bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
     return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset());
 }
 
-bool ptr_with_off_t::operator!=(const ptr_with_off_t& p2) {
-    return !(*this == p2);
+bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+    return !(p1 == p2);
 }
 
 void ptr_with_off_t::write(std::ostream& o) const {
@@ -159,8 +159,8 @@ bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
     return (p1.get_region() == p2.get_region());
 }
 
-bool ptr_no_off_t::operator!=(const ptr_no_off_t& p2) {
-    return !(*this == p2);
+bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+    return !(p1 == p2);
 }
 
 void ptr_no_off_t::write(std::ostream& o) const {
