@@ -622,14 +622,23 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
                 }
                 else {
                     if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
+                        // register to be added is not a pointer, but a number. its value is unknown
                         /*
                         std::string s = std::to_string(static_cast<unsigned int>(bin.dst.v));
                         std::string desc = std::string("\toffset of the pointer r") + s + " unknown\n";
                         report_type_error(desc, loc);
                         return;
                         */
-                        m_stack.set_to_top();
-                        m_stack -= std::get<ptr_with_off_t>(dst_reg).get_offset();
+                        ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
+                        if (dst_reg_with_off.get_region() == crab::region::T_STACK) {
+                            m_stack.set_to_top();
+                            m_stack -= dst_reg_with_off.get_offset();
+                            return;
+                        }
+                        else {
+                            // currently, we do not read any other pointers from CTX except the ones already stored
+                            // in case we add the functionality, we will have to implement forgetting of CTX offsets
+                        }
                     }
                     else {
                         auto reg = reg_with_loc_t(bin.dst.v, loc);
