@@ -2,7 +2,7 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-enum class abstract_domain_kind { EBPF_DOMAIN, TYPE_DOMAIN };
+enum class abstract_domain_kind { EBPF_DOMAIN, TYPE_DOMAIN, OFFSET_DOMAIN };
 
 struct ebpf_verifier_options_t {
     bool check_termination;
