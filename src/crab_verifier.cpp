@@ -18,6 +18,7 @@
 #include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
 #include "crab/type_domain.hpp"
+#include "crab/region_domain.hpp"
 #include "crab/offset_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 
@@ -126,12 +127,16 @@ static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
         ebpf_domain_t entry_inv = ebpf_domain_t::setup_entry(options->check_termination);
         return abstract_domain_t(entry_inv);
     }
-    case abstract_domain_kind::TYPE_DOMAIN: {
-        type_domain_t entry_inv = type_domain_t::setup_entry();
+    case abstract_domain_kind::REGION_DOMAIN: {
+        region_domain_t entry_inv = region_domain_t::setup_entry();
         return abstract_domain_t(entry_inv);
     }
     case abstract_domain_kind::OFFSET_DOMAIN: {
         offset_domain_t entry_inv = offset_domain_t::setup_entry();
+        return abstract_domain_t(entry_inv);
+    }
+    case abstract_domain_kind::TYPE_DOMAIN: {
+        type_domain_t entry_inv = type_domain_t::setup_entry();
         return abstract_domain_t(entry_inv);
     }
     default:
@@ -179,7 +184,7 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
 
         // Analyze the control-flow graph.
         checks_db db = generate_report(cfg, pre_invariants, post_invariants);
-        if (thread_local_options.abstract_domain == abstract_domain_kind::TYPE_DOMAIN) {
+        if (thread_local_options.abstract_domain == abstract_domain_kind::REGION_DOMAIN) {
             auto state = post_invariants.at(label_t::exit);
             for (const label_t& label : cfg.sorted_labels()) {
                 state(cfg.get_node(label), options->check_termination, thread_local_options.print_invariants ? 2 : 1);
