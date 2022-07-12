@@ -2,6 +2,7 @@
 
 #include <unordered_map>
 
+#include <boost/optional/optional_io.hpp>
 #include "crab/abstract_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
@@ -50,6 +51,7 @@ using register_dists_t = std::array<std::shared_ptr<dist_t>, 11>;        // repr
 
 class registers_state_t {
 
+    public:
     register_dists_t m_reg_dists;
     bool m_is_bottom = false;
 
@@ -91,6 +93,7 @@ class extra_constraints_t {
 class ctx_t {
     using ctx_dists_t = std::unordered_map<unsigned int, dist_t>;    // represents `cp[n] = dist;`
 
+    public:
     ctx_dists_t m_dists;
 
     public:

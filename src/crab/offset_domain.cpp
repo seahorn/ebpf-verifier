@@ -138,7 +138,49 @@ void offset_domain_t::set_require_check(check_require_func_t f) {}
 
 void offset_domain_t::operator()(const Assume &, location_t loc, int print) {}
 
-void offset_domain_t::operator()(const Bin &, location_t loc, int print) {}
+void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
+    std::cout << "bin: " << bin << "\n";
+    if (is_bottom()) return;
+    if (std::holds_alternative<Reg>(bin.v)) {
+        Reg src = std::get<Reg>(bin.v);
+        switch (bin.op)
+        {
+            case Bin::Op::MOV: {
+                // not necessary to check for nullptr, as it src reg is nullptr, the same will be copied to dst reg
+                //if (m_reg_state.m_reg_dists[src.v] != nullptr) {
+                    m_reg_state.m_reg_dists[bin.dst.v] = m_reg_state.m_reg_dists[src.v];
+                //}
+                break;
+            }
+
+            default: {
+                m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                break;
+            }
+        }
+    }
+    else {
+        int imm = static_cast<int>(std::get<Imm>(bin.v).v);
+        auto dst_reg_dist = m_reg_state.m_reg_dists[bin.dst.v];
+        switch (bin.op)
+        {
+            case Bin::Op::ADD: {
+                if (dst_reg_dist == nullptr) {
+                    m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                    return;
+                }
+                int updated_dist = dst_reg_dist->m_dist+imm;
+                m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist, boost::none);
+                break;
+            }
+
+            default: {
+                m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                break;
+            }
+        }
+    }
+}
 
 void offset_domain_t::operator()(const Undefined &, location_t loc, int print) {}
 
@@ -158,13 +200,30 @@ void offset_domain_t::operator()(const LockAdd &, location_t loc, int print) {}
 
 void offset_domain_t::operator()(const Assert &, location_t loc, int print) {}
 
-void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {}
+void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
+    for (const Instruction& statement : bb) {
+        location_t loc = boost::none;
+        std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
+    }
+}
 
 void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t, int print) {}
 
 void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
+    std::cout << "mem: " << b << "\n";
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
+    
+    if (m_reg_state.m_reg_dists[basereg.v] != nullptr || basereg.v != 1) {
+        m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+        return;
+    }
+    
+    //auto it = m_ctx_dists->m_dists.find(offset);
+    //if (it != null) {
+        m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>((*m_ctx_dists).m_dists[offset]);
+        std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
+    //}
 }
 
 void offset_domain_t::operator()(const Mem &b, location_t loc, int print) {
