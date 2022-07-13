@@ -114,6 +114,8 @@ void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
 }
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
+    std::cout << "Assume: " << u << "\n";
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
 }

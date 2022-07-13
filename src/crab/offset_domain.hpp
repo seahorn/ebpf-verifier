@@ -19,7 +19,7 @@ using crab::ptr_no_off_t;
 using constant_t = int;   // define a domain for constants
 //using symbol_t = register_t;    // a register with unknown value
 using weight_t = constant_t; // should be constants + symbols
-using slack_var_t = boost::optional<std::string>;
+using slack_var_t = int;
 
 enum class rop_t {
     R_GT,
@@ -32,8 +32,8 @@ struct dist_t {
     slack_var_t m_slack;
     weight_t m_dist;
 
-    dist_t(weight_t d, slack_var_t s = boost::none) : m_slack(s), m_dist(d) {}
-    dist_t() : m_slack(boost::none), m_dist(0) {}
+    dist_t(weight_t d, slack_var_t s = -1) : m_slack(s), m_dist(d) {}
+    dist_t() : m_slack(-1), m_dist(0) {}
     bool operator==(const dist_t& d) const;
 };      // if dist is +ve, represents `begin+dist+slack;`, if dist is -ve, represents `end+dist+1`
 
@@ -126,6 +126,7 @@ class offset_domain_t final {
     stack_state_t m_stack_state;
     extra_constraints_t m_extra_constraints;
     std::shared_ptr<ctx_t> m_ctx_dists;
+    slack_var_t m_slack = 0;
 
   public:
 

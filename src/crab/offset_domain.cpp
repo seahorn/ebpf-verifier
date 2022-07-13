@@ -93,7 +93,7 @@ void extra_constraints_t::set_to_bottom() {
 
 bool extra_constraints_t::is_top() const {
     if (m_is_bottom) return false;
-    return (m_eq.m_forw.m_slack == boost::none && m_ineq.m_slack == boost::none);
+    return (m_eq.m_forw.m_slack == -1 && m_ineq.m_slack == -1);
 }
 
 bool extra_constraints_t::is_bottom() const {
@@ -101,28 +101,20 @@ bool extra_constraints_t::is_bottom() const {
 }
 
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
-    std::cout << "extra constraints join\n";
     weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 1;
-    std::cout << "after first dist calc\n";
     weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 1;
-    std::cout << "weights calculation\n";
 
     dist1 += m_ineq.m_value;
     dist2 += other.m_ineq.m_value;
-    std::cout << "weights calculation 2\n";
-
-//    if (m_eq.m_forw.m_slack != boost::none && other.m_eq.m_forw.m_slack != boost::none) {
+//    if (m_eq.m_forw.m_slack != -1 && other.m_eq.m_forw.m_slack != -1) {
         slack_var_t s = m_eq.m_forw.m_slack;
 
         dist_t f = dist_t(min(dist1, dist2), s);
         dist_t b = dist_t(-1);
-    std::cout << "calculated dists\n";
 
         forward_and_backward_eq_t out_eq(f, b);
-    std::cout << "calculated fw and bw eq\n";
         inequality_t out_ineq(s, m_ineq.m_rel, 0);
 
-        std::cout << "done with extra constraints\n";
         return extra_constraints_t(std::move(out_eq), std::move(out_ineq), false);
         // have to handle case for different slack vars
 //    }
@@ -234,6 +226,21 @@ string_invariant offset_domain_t::to_set() { return string_invariant{}; }
 void offset_domain_t::set_require_check(check_require_func_t f) {}
 
 void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
+    Condition cond;
+    if (cond.op == Condition::Op::LE) {
+        dist_t left_reg_dist = *m_reg_state.m_reg_dists[cond.left.v];
+        if (std::holds_alternative<Reg>(cond.right)) {
+            dist_t right_reg_dist = *m_reg_state.m_reg_dists[std::get<Reg>(cond.right).v];
+            slack_var_t s = m_slack++;
+            dist_t f = dist_t(left_reg_dist.m_dist, s);
+            dist_t b = dist_t(right_reg_dist.m_dist, -1);
+            m_extra_constraints.m_eq = forward_and_backward_eq_t(f, b);
+            m_extra_constraints.m_ineq = inequality_t(s, rop_t::R_GE, 0);
+        }
+    }
+    else {
+        std::cout << "we do not need to deal with other cases\n";
+    }
 }
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
@@ -271,7 +278,7 @@ void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
                     return;
                 }
                 int updated_dist = dst_reg_dist->m_dist+imm;
-                m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist, boost::none);
+                m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist);
                 std::cout << "after adding to pointer, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
                 break;
             }
