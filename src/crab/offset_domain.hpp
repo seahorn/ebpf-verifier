@@ -1,3 +1,6 @@
+// Copyright (c) Prevail Verifier contributors.
+// SPDX-License-Identifier: MIT
+
 #pragma once
 
 #include <unordered_map>
@@ -121,7 +124,7 @@ class offset_domain_t final {
     bool m_is_bottom = false;
     registers_state_t m_reg_state;
     stack_state_t m_stack_state;
-    std::shared_ptr<extra_constraints_t> m_extra_constraints;
+    extra_constraints_t m_extra_constraints;
     std::shared_ptr<ctx_t> m_ctx_dists;
 
   public:
@@ -132,7 +135,7 @@ class offset_domain_t final {
     offset_domain_t& operator=(offset_domain_t&& o) = default;
     offset_domain_t& operator=(const offset_domain_t& o) = default;
     offset_domain_t(std::shared_ptr<ctx_t> _ctx) : m_ctx_dists(_ctx) {}
-    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, std::shared_ptr<extra_constraints_t> extra, std::shared_ptr<ctx_t> ctx) : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(extra), m_ctx_dists(ctx) {}
+    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, extra_constraints_t extra, std::shared_ptr<ctx_t> ctx) : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(std::move(extra)), m_ctx_dists(ctx) {}
     static offset_domain_t setup_entry();
     // bottom/top
     static offset_domain_t bottom();

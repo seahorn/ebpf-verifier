@@ -126,6 +126,7 @@ type_domain_t type_domain_t::setup_entry() {
 }
 
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
+    std::cout << "bin: " << bin << "\n";
     if (is_bottom()) return;
 
     m_region(bin, loc, print);
@@ -133,6 +134,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
+    std::cout << "load: " << b << "\n";
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
@@ -144,6 +146,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
+    std::cout << "store: " << b << "\n";
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
     int width = b.access.width;

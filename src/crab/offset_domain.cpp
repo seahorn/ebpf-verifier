@@ -1,3 +1,6 @@
+// Copyright (c) Prevail Verifier contributors.
+// SPDX-License-Identifier: MIT
+
 #include "crab/offset_domain.hpp"
 
 #define min(a, b) (a < b ? a : b)
@@ -29,6 +32,7 @@ bool registers_state_t::is_bottom() const {
 }
 
 registers_state_t registers_state_t::operator|(const registers_state_t& other) const {
+    std::cout << "registers join\n";
     if (is_bottom() || other.is_top()) {
         return other;
     } else if (other.is_bottom() || is_top()) {
@@ -63,6 +67,7 @@ bool stack_state_t::is_bottom() const {
 }
 
 stack_state_t stack_state_t::operator|(const stack_state_t& other) const {
+    std::cout << "stack join\n";
     if (is_bottom() || other.is_top()) {
         return other;
     } else if (other.is_bottom() || is_top()) {
@@ -96,21 +101,28 @@ bool extra_constraints_t::is_bottom() const {
 }
 
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
+    std::cout << "extra constraints join\n";
     weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 1;
+    std::cout << "after first dist calc\n";
     weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 1;
+    std::cout << "weights calculation\n";
 
     dist1 += m_ineq.m_value;
     dist2 += other.m_ineq.m_value;
+    std::cout << "weights calculation 2\n";
 
 //    if (m_eq.m_forw.m_slack != boost::none && other.m_eq.m_forw.m_slack != boost::none) {
         slack_var_t s = m_eq.m_forw.m_slack;
 
         dist_t f = dist_t(min(dist1, dist2), s);
         dist_t b = dist_t(-1);
+    std::cout << "calculated dists\n";
 
         forward_and_backward_eq_t out_eq(f, b);
+    std::cout << "calculated fw and bw eq\n";
         inequality_t out_ineq(s, m_ineq.m_rel, 0);
 
+        std::cout << "done with extra constraints\n";
         return extra_constraints_t(std::move(out_eq), std::move(out_ineq), false);
         // have to handle case for different slack vars
 //    }
@@ -141,7 +153,7 @@ offset_domain_t offset_domain_t::bottom() {
 void offset_domain_t::set_to_top() {
     m_reg_state.set_to_top();
     m_stack_state.set_to_top();
-    m_extra_constraints->set_to_top();
+    m_extra_constraints.set_to_top();
 }
 
 void offset_domain_t::set_to_bottom() {
@@ -154,7 +166,7 @@ bool offset_domain_t::is_bottom() const {
 
 bool offset_domain_t::is_top() const {
     if (m_is_bottom) return false;
-    return (m_reg_state.is_top() && m_stack_state.is_top() && m_extra_constraints->is_top());
+    return (m_reg_state.is_top() && m_stack_state.is_top() && m_extra_constraints.is_top());
 }
 
 // inclusion
@@ -175,23 +187,26 @@ void offset_domain_t::operator|=(offset_domain_t&& abs) {
 }
 
 offset_domain_t offset_domain_t::operator|(const offset_domain_t& other) const {
+    std::cout << "joining in offset_domain 1\n";
     if (is_bottom() || other.is_top()) {
         return other;
     }
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, std::make_shared<extra_constraints_t>(*m_extra_constraints | *other.m_extra_constraints), m_ctx_dists);
+    std::cout << "trivial checks done\n";
+    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, m_extra_constraints | other.m_extra_constraints, m_ctx_dists);
 }
 
 offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
+    std::cout << "joining in offset_domain 2\n";
     if (is_bottom() || other.is_top()) {
         return std::move(other);
     }
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), std::make_shared<extra_constraints_t>(*m_extra_constraints | std::move(*other.m_extra_constraints)), m_ctx_dists);
+    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), m_extra_constraints | std::move(other.m_extra_constraints), m_ctx_dists);
 }
 
 // meet
@@ -222,7 +237,6 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
 }
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
-    std::cout << "bin: " << bin << "\n";
     if (is_bottom()) return;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
