@@ -135,8 +135,9 @@ class offset_domain_t final {
     offset_domain_t(const offset_domain_t& o) = default;
     offset_domain_t& operator=(offset_domain_t&& o) = default;
     offset_domain_t& operator=(const offset_domain_t& o) = default;
-    offset_domain_t(std::shared_ptr<ctx_t> _ctx) : m_ctx_dists(_ctx) {}
-    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, extra_constraints_t extra, std::shared_ptr<ctx_t> ctx) : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(std::move(extra)), m_ctx_dists(ctx) {}
+    offset_domain_t(std::shared_ptr<ctx_t> _ctx) : m_ctx_dists(_ctx), m_slack(0) {}
+    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, extra_constraints_t extra, std::shared_ptr<ctx_t> ctx, slack_var_t s = 0)
+        : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(std::move(extra)), m_ctx_dists(ctx), m_slack(s) {}
     static offset_domain_t setup_entry();
     // bottom/top
     static offset_domain_t bottom();
@@ -180,6 +181,6 @@ class offset_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
 
-    void do_load(const Mem&, const Reg&, ptr_t&);
-    void do_mem_store(const Mem&, const Reg&, ptr_t&);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&);
+    void do_mem_store(const Mem&, const Reg&, ptr_t&, ptr_t&);
 }; // end offset_domain_t

@@ -98,26 +98,54 @@ string_invariant type_domain_t::to_set() {
 }
 
 void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
-    std::cout << "Assume: " << u << "\n";
+    if (is_bottom()) return;
+    m_region(u, loc, print);
     m_offset(u, loc, print);
 }
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
+    if (is_bottom()) return;
+    m_region(u, loc, print);
+    m_offset(u, loc, print);
 }
 
 type_domain_t type_domain_t::setup_entry() {
@@ -128,7 +156,6 @@ type_domain_t type_domain_t::setup_entry() {
 }
 
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    std::cout << "bin: " << bin << "\n";
     if (is_bottom()) return;
 
     m_region(bin, loc, print);
@@ -136,19 +163,16 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    std::cout << "load: " << b << "\n";
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
     auto it = m_region.m_registers.find(basereg.v);
-    ptr_t type_basereg = it.value();
     
     m_region.do_load(b, target_reg, loc, print);
-    m_offset.do_load(b, target_reg, type_basereg);
+    m_offset.do_load(b, target_reg, it);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    std::cout << "store: " << b << "\n";
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
     int width = b.access.width;
@@ -158,8 +182,9 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 
     auto it2 = m_region.m_registers.find(target_reg.v);
     if (it2) {
+        auto p = it2.value();
         m_region.do_mem_store(b, target_reg, loc, print);
-        m_offset.do_mem_store(b, target_reg, type_basereg);
+        m_offset.do_mem_store(b, target_reg, type_basereg, p);
     }
 }
 
@@ -180,6 +205,7 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
     uint32_t curr_pos = 0;
     location_t loc;
     for (const Instruction& statement : bb) {
+        std::cout << statement << "\n";
         loc = location_t(std::make_pair(label, ++curr_pos));
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
     }

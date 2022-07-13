@@ -413,7 +413,6 @@ void region_domain_t::operator|=(region_domain_t&& abs) {
 }
 
 region_domain_t region_domain_t::operator|(const region_domain_t& other) const {
-    std::cout << "joining in region domain 1\n";
     if (is_bottom() || other.is_top()) {
         return other;
     }
@@ -424,7 +423,6 @@ region_domain_t region_domain_t::operator|(const region_domain_t& other) const {
 }
 
 region_domain_t region_domain_t::operator|(region_domain_t&& other) const {
-    std::cout << "joining in region domain 2\n";
     if (is_bottom() || other.is_top()) {
         return std::move(other);
     }

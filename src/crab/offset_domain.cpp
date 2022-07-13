@@ -4,6 +4,7 @@
 #include "crab/offset_domain.hpp"
 
 #define min(a, b) (a < b ? a : b)
+#define max(a, b) (a > b ? a : b)
 
 bool dist_t::operator==(const dist_t& d) const {
     return (m_dist == d.m_dist && m_slack == d.m_slack);
@@ -32,7 +33,6 @@ bool registers_state_t::is_bottom() const {
 }
 
 registers_state_t registers_state_t::operator|(const registers_state_t& other) const {
-    std::cout << "registers join\n";
     if (is_bottom() || other.is_top()) {
         return other;
     } else if (other.is_bottom() || is_top()) {
@@ -67,7 +67,6 @@ bool stack_state_t::is_bottom() const {
 }
 
 stack_state_t stack_state_t::operator|(const stack_state_t& other) const {
-    std::cout << "stack join\n";
     if (is_bottom() || other.is_top()) {
         return other;
     } else if (other.is_bottom() || is_top()) {
@@ -179,26 +178,23 @@ void offset_domain_t::operator|=(offset_domain_t&& abs) {
 }
 
 offset_domain_t offset_domain_t::operator|(const offset_domain_t& other) const {
-    std::cout << "joining in offset_domain 1\n";
     if (is_bottom() || other.is_top()) {
         return other;
     }
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    std::cout << "trivial checks done\n";
-    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, m_extra_constraints | other.m_extra_constraints, m_ctx_dists);
+    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, m_extra_constraints | other.m_extra_constraints, m_ctx_dists, max(m_slack, other.m_slack));
 }
 
 offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
-    std::cout << "joining in offset_domain 2\n";
     if (is_bottom() || other.is_top()) {
         return std::move(other);
     }
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), m_extra_constraints | std::move(other.m_extra_constraints), m_ctx_dists);
+    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), m_extra_constraints | std::move(other.m_extra_constraints), m_ctx_dists, max(m_slack, other.m_slack));
 }
 
 // meet
@@ -226,11 +222,17 @@ string_invariant offset_domain_t::to_set() { return string_invariant{}; }
 void offset_domain_t::set_require_check(check_require_func_t f) {}
 
 void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
-    Condition cond;
+    Condition cond = b.cond;
     if (cond.op == Condition::Op::LE) {
-        dist_t left_reg_dist = *m_reg_state.m_reg_dists[cond.left.v];
         if (std::holds_alternative<Reg>(cond.right)) {
-            dist_t right_reg_dist = *m_reg_state.m_reg_dists[std::get<Reg>(cond.right).v];
+            auto right_reg = std::get<Reg>(cond.right).v;
+            if (m_reg_state.m_reg_dists[cond.left.v] == nullptr
+                    || m_reg_state.m_reg_dists[right_reg] == nullptr) {
+                // handle each case separately
+                return;
+            }
+            dist_t left_reg_dist = *m_reg_state.m_reg_dists[cond.left.v];
+            dist_t right_reg_dist = *m_reg_state.m_reg_dists[right_reg];
             slack_var_t s = m_slack++;
             dist_t f = dist_t(left_reg_dist.m_dist, s);
             dist_t b = dist_t(right_reg_dist.m_dist, -1);
@@ -239,7 +241,7 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
         }
     }
     else {
-        std::cout << "we do not need to deal with other cases\n";
+        //std::cout << "we do not need to deal with other cases\n";
     }
 }
 
@@ -253,7 +255,8 @@ void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
                 // not necessary to check for nullptr, as it src reg is nullptr, the same will be copied to dst reg
                 if (m_reg_state.m_reg_dists[src.v] != nullptr) {
                     m_reg_state.m_reg_dists[bin.dst.v] = m_reg_state.m_reg_dists[src.v];
-                    std::cout << "after move, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
+                    std::cout << "offset: " << (*m_reg_state.m_reg_dists[bin.dst.v]).m_dist << "\n";
+                    //std::cout << "after move, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
                 }
                 else {
                     m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
@@ -279,7 +282,8 @@ void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
                 }
                 int updated_dist = dst_reg_dist->m_dist+imm;
                 m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist);
-                std::cout << "after adding to pointer, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
+                std::cout << "offset: " << (*m_reg_state.m_reg_dists[bin.dst.v]).m_dist << "\n";
+                //std::cout << "after adding to pointer, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
                 break;
             }
 
@@ -316,41 +320,34 @@ void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination
     }
 }
 
-void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, ptr_t& basereg_type) {
-    std::cout << "baseptr type is: ";
-    if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
-        auto t = std::get<ptr_with_off_t>(basereg_type);
-        std::cout << t;
-    }
-    else {
-        auto t = std::get<ptr_no_off_t>(basereg_type);
-        std::cout << t;
-    }
-    std::cout << "\n";
+void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, ptr_t& basereg_type, ptr_t& target_reg_type) {
     int offset = b.access.offset;
     if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
         auto basereg_with_off = std::get<ptr_with_off_t>(basereg_type);
         int store_at = basereg_with_off.get_offset() + offset;
-        m_stack_state.m_stack_slot_dists[store_at] = *m_reg_state.m_reg_dists[target_reg.v];
+        if (basereg_with_off.get_region() == crab::region::T_STACK) {
+            if (std::holds_alternative<ptr_no_off_t>(target_reg_type) &&
+                    std::get<ptr_no_off_t>(target_reg_type).get_region() == crab::region::T_PACKET) {
+                m_stack_state.m_stack_slot_dists[store_at] = *m_reg_state.m_reg_dists[target_reg.v];
+            }
+            // else when storing anything other than packet, we do not care
+        }
+        // else ctx
     }
+    // else packet or shared
 }
 
-void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, ptr_t& p) {
-    std::cout << "ptr type is: ";
-    if (std::holds_alternative<ptr_with_off_t>(p)) {
-        auto t = std::get<ptr_with_off_t>(p);
-        std::cout << t;
+void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& p) {
+    if (!p) {
+        m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+        return;
     }
-    else {
-        auto t = std::get<ptr_no_off_t>(p);
-        std::cout << t;
-    }
-    std::cout << "\n";
+    ptr_t type_basereg = p.value();
     
     int offset = b.access.offset;
     
-    if (std::holds_alternative<ptr_with_off_t>(p)) {
-        auto p_with_off = std::get<ptr_with_off_t>(p);
+    if (std::holds_alternative<ptr_with_off_t>(type_basereg)) {
+        auto p_with_off = std::get<ptr_with_off_t>(type_basereg);
         int to_load = p_with_off.get_offset() + offset;
         dist_t d;
         if (p_with_off.get_region() == crab::region::T_CTX) {
@@ -358,7 +355,8 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, ptr_t& p) {
             if (it != m_ctx_dists->m_dists.end()) {
                 d = it->second;
                 m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
-        std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
+                std::cout << "offset: " << (*m_reg_state.m_reg_dists[target_reg.v]).m_dist << "\n";
+        //std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
             }
             else {
                 m_reg_state.m_reg_dists[target_reg.v] = nullptr;
@@ -369,7 +367,8 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, ptr_t& p) {
             if (it != m_stack_state.m_stack_slot_dists.end()) {
                 d = it->second;
                 m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
-        std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
+                std::cout << "offset: " << (*m_reg_state.m_reg_dists[target_reg.v]).m_dist << "\n";
+        //std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
             }
             else {
                 m_reg_state.m_reg_dists[target_reg.v] = nullptr;
@@ -377,7 +376,7 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, ptr_t& p) {
         }
     }
     else {
-        std::cout << "we are loading from packet/shared, which should give numbers\n";
+        //std::cout << "we are loading from packet/shared, which should give numbers\n";
     }
 }
 
