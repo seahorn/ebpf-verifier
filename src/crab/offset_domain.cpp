@@ -1,5 +1,11 @@
 #include "crab/offset_domain.hpp"
 
+#define min(a, b) (a < b ? a : b)
+
+bool dist_t::operator==(const dist_t& d) const {
+    return (m_dist == d.m_dist && m_slack == d.m_slack);
+}
+
 void registers_state_t::set_to_top() {
     m_reg_dists = register_dists_t{nullptr};
     m_is_bottom = false;
@@ -22,6 +28,21 @@ bool registers_state_t::is_bottom() const {
     return m_is_bottom;
 }
 
+registers_state_t registers_state_t::operator|(const registers_state_t& other) const {
+    if (is_bottom() || other.is_top()) {
+        return other;
+    } else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    register_dists_t out_reg_dists;
+    for (size_t i = 0; i < m_reg_dists.size(); i++) {
+        if (m_reg_dists[i] == other.m_reg_dists[i]) {
+            out_reg_dists[i] = m_reg_dists[i];
+        }
+    }
+    return registers_state_t(std::move(out_reg_dists), false);
+}
+
 void stack_state_t::set_to_top() {
     m_stack_slot_dists.clear();
     m_is_bottom = false;
@@ -41,6 +62,21 @@ bool stack_state_t::is_bottom() const {
     return m_is_bottom;
 }
 
+stack_state_t stack_state_t::operator|(const stack_state_t& other) const {
+    if (is_bottom() || other.is_top()) {
+        return other;
+    } else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    stack_slot_dists_t out_stack_dists;
+    for (auto const&kv: m_stack_slot_dists) {
+        auto it = other.m_stack_slot_dists.find(kv.first);
+        if (it != m_stack_slot_dists.end() && kv.second == it->second)
+            out_stack_dists.insert(kv);
+    }
+    return stack_state_t(std::move(out_stack_dists), false);
+}
+
 void extra_constraints_t::set_to_top() {
     m_eq = forward_and_backward_eq_t();
     m_ineq = inequality_t();
@@ -57,6 +93,27 @@ bool extra_constraints_t::is_top() const {
 
 bool extra_constraints_t::is_bottom() const {
     return m_is_bottom;
+}
+
+extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
+    weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 1;
+    weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 1;
+
+    dist1 += m_ineq.m_value;
+    dist2 += other.m_ineq.m_value;
+
+//    if (m_eq.m_forw.m_slack != boost::none && other.m_eq.m_forw.m_slack != boost::none) {
+        slack_var_t s = m_eq.m_forw.m_slack;
+
+        dist_t f = dist_t(min(dist1, dist2), s);
+        dist_t b = dist_t(-1);
+
+        forward_and_backward_eq_t out_eq(f, b);
+        inequality_t out_ineq(s, m_ineq.m_rel, 0);
+
+        return extra_constraints_t(std::move(out_eq), std::move(out_ineq), false);
+        // have to handle case for different slack vars
+//    }
 }
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
@@ -104,13 +161,38 @@ bool offset_domain_t::is_top() const {
 bool offset_domain_t::operator<=(const offset_domain_t& other) const { return true; }
 
 // join
-void offset_domain_t::operator|=(const offset_domain_t& abs) {}
+void offset_domain_t::operator|=(const offset_domain_t& abs) {
+    offset_domain_t tmp{abs};
+    operator|=(std::move(tmp));
+}
 
-void offset_domain_t::operator|=(offset_domain_t&& abs) {}
+void offset_domain_t::operator|=(offset_domain_t&& abs) {
+    if (is_bottom()) {
+        *this = abs;
+        return;
+    }
+    *this = *this | std::move(abs);
+}
 
-offset_domain_t offset_domain_t::operator|(const offset_domain_t& other) const { return other; }
+offset_domain_t offset_domain_t::operator|(const offset_domain_t& other) const {
+    if (is_bottom() || other.is_top()) {
+        return other;
+    }
+    else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, std::make_shared<extra_constraints_t>(*m_extra_constraints | *other.m_extra_constraints), m_ctx_dists);
+}
 
-offset_domain_t offset_domain_t::operator|(offset_domain_t&& abs) const { return abs; }
+offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
+    if (is_bottom() || other.is_top()) {
+        return std::move(other);
+    }
+    else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), std::make_shared<extra_constraints_t>(*m_extra_constraints | std::move(*other.m_extra_constraints)), m_ctx_dists);
+}
 
 // meet
 offset_domain_t offset_domain_t::operator&(const offset_domain_t& other) const { return other; }

@@ -31,6 +31,7 @@ struct dist_t {
 
     dist_t(weight_t d, slack_var_t s = boost::none) : m_slack(s), m_dist(d) {}
     dist_t() : m_slack(boost::none), m_dist(0) {}
+    bool operator==(const dist_t& d) const;
 };      // if dist is +ve, represents `begin+dist+slack;`, if dist is -ve, represents `end+dist+1`
 
 struct inequality_t {
@@ -66,6 +67,9 @@ class registers_state_t {
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        registers_state_t operator|(const registers_state_t&) const;
+        explicit registers_state_t(register_dists_t&& reg_dists, bool is_bottom = false)
+            : m_reg_dists(std::move(reg_dists)), m_is_bottom(is_bottom) {}
 };
 
 class stack_state_t {
@@ -81,6 +85,9 @@ class stack_state_t {
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        stack_state_t operator|(const stack_state_t&) const;
+        explicit stack_state_t(stack_slot_dists_t&& stack_dists, bool is_bottom = false)
+            : m_stack_slot_dists(std::move(stack_dists)), m_is_bottom(is_bottom) {}
 };
 
 class extra_constraints_t {
@@ -95,6 +102,8 @@ class extra_constraints_t {
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        extra_constraints_t operator|(const extra_constraints_t&) const;
+        explicit extra_constraints_t(forward_and_backward_eq_t&& fabeq, inequality_t ineq, bool is_bottom = false) : m_eq(fabeq), m_ineq(ineq), m_is_bottom(is_bottom) {}
 };
 
 class ctx_t {
@@ -123,6 +132,7 @@ class offset_domain_t final {
     offset_domain_t& operator=(offset_domain_t&& o) = default;
     offset_domain_t& operator=(const offset_domain_t& o) = default;
     offset_domain_t(std::shared_ptr<ctx_t> _ctx) : m_ctx_dists(_ctx) {}
+    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, std::shared_ptr<extra_constraints_t> extra, std::shared_ptr<ctx_t> ctx) : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(extra), m_ctx_dists(ctx) {}
     static offset_domain_t setup_entry();
     // bottom/top
     static offset_domain_t bottom();

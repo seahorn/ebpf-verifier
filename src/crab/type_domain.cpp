@@ -38,17 +38,36 @@ bool type_domain_t::operator<=(const type_domain_t& abs) const {
 }
 
 void type_domain_t::operator|=(const type_domain_t& abs) {
+    type_domain_t tmp{abs};
+    operator|=(std::move(tmp));
 }
 
 void type_domain_t::operator|=(type_domain_t&& abs) {
+    if (is_bottom()) {
+        *this = abs;
+        return;
+    }
+    *this = *this | std::move(abs);
 }
 
 type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
-    return other;
+    if (is_bottom() || other.is_top()) {
+        return other;
+    }
+    else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    return type_domain_t(m_region | other.m_region, m_offset | other.m_offset);
 }
 
 type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
-    return other;
+    if (is_bottom() || other.is_top()) {
+        return std::move(other);
+    }
+    else if (other.is_bottom() || is_top()) {
+        return *this;
+    }
+    return type_domain_t(m_region | std::move(other.m_region), m_offset | std::move(m_offset));
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
