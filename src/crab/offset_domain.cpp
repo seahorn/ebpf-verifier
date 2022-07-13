@@ -136,7 +136,8 @@ string_invariant offset_domain_t::to_set() { return string_invariant{}; }
 
 void offset_domain_t::set_require_check(check_require_func_t f) {}
 
-void offset_domain_t::operator()(const Assume &, location_t loc, int print) {}
+void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
+}
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
     std::cout << "bin: " << bin << "\n";
@@ -147,9 +148,13 @@ void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
         {
             case Bin::Op::MOV: {
                 // not necessary to check for nullptr, as it src reg is nullptr, the same will be copied to dst reg
-                //if (m_reg_state.m_reg_dists[src.v] != nullptr) {
+                if (m_reg_state.m_reg_dists[src.v] != nullptr) {
                     m_reg_state.m_reg_dists[bin.dst.v] = m_reg_state.m_reg_dists[src.v];
-                //}
+                    std::cout << "after move, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
+                }
+                else {
+                    m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                }
                 break;
             }
 
@@ -171,6 +176,7 @@ void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
                 }
                 int updated_dist = dst_reg_dist->m_dist+imm;
                 m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist, boost::none);
+                std::cout << "after adding to pointer, the distance is: " << m_reg_state.m_reg_dists[bin.dst.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[bin.dst.v]->m_slack << "\n";
                 break;
             }
 
@@ -207,31 +213,70 @@ void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination
     }
 }
 
-void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t, int print) {}
-
-void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    std::cout << "mem: " << b << "\n";
-    int offset = b.access.offset;
-    Reg basereg = b.access.basereg;
-    
-    if (m_reg_state.m_reg_dists[basereg.v] != nullptr || basereg.v != 1) {
-        m_reg_state.m_reg_dists[target_reg.v] = nullptr;
-        return;
+void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, ptr_t& basereg_type) {
+    std::cout << "baseptr type is: ";
+    if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
+        auto t = std::get<ptr_with_off_t>(basereg_type);
+        std::cout << t;
     }
+    else {
+        auto t = std::get<ptr_no_off_t>(basereg_type);
+        std::cout << t;
+    }
+    std::cout << "\n";
+    int offset = b.access.offset;
+    if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
+        auto basereg_with_off = std::get<ptr_with_off_t>(basereg_type);
+        int store_at = basereg_with_off.get_offset() + offset;
+        m_stack_state.m_stack_slot_dists[store_at] = *m_reg_state.m_reg_dists[target_reg.v];
+    }
+}
+
+void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, ptr_t& p) {
+    std::cout << "ptr type is: ";
+    if (std::holds_alternative<ptr_with_off_t>(p)) {
+        auto t = std::get<ptr_with_off_t>(p);
+        std::cout << t;
+    }
+    else {
+        auto t = std::get<ptr_no_off_t>(p);
+        std::cout << t;
+    }
+    std::cout << "\n";
     
-    //auto it = m_ctx_dists->m_dists.find(offset);
-    //if (it != null) {
-        m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>((*m_ctx_dists).m_dists[offset]);
+    int offset = b.access.offset;
+    
+    if (std::holds_alternative<ptr_with_off_t>(p)) {
+        auto p_with_off = std::get<ptr_with_off_t>(p);
+        int to_load = p_with_off.get_offset() + offset;
+        dist_t d;
+        if (p_with_off.get_region() == crab::region::T_CTX) {
+            auto it = m_ctx_dists->m_dists.find(to_load);
+            if (it != m_ctx_dists->m_dists.end()) {
+                d = it->second;
+                m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
         std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
-    //}
+            }
+            else {
+                m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+            }
+        }
+        else if (p_with_off.get_region() == crab::region::T_STACK) {
+            auto it = m_stack_state.m_stack_slot_dists.find(to_load);
+            if (it != m_stack_state.m_stack_slot_dists.end()) {
+                d = it->second;
+                m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
+        std::cout << "after load, the distance is: " << m_reg_state.m_reg_dists[target_reg.v]->m_dist << ", and slack var: " << m_reg_state.m_reg_dists[target_reg.v]->m_slack << "\n";
+            }
+            else {
+                m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+            }
+        }
+    }
+    else {
+        std::cout << "we are loading from packet/shared, which should give numbers\n";
+    }
 }
 
 void offset_domain_t::operator()(const Mem &b, location_t loc, int print) {
-    if (std::holds_alternative<Reg>(b.value)) {
-        if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), loc, print);
-        } else {
-            do_mem_store(b, std::get<Reg>(b.value), loc, print);
-        }
-    }
 }

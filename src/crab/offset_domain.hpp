@@ -4,9 +4,14 @@
 
 #include <boost/optional/optional_io.hpp>
 #include "crab/abstract_domain.hpp"
+#include "crab/region_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
+
+using crab::ptr_t;
+using crab::ptr_with_off_t;
+using crab::ptr_no_off_t;
 
 using constant_t = int;   // define a domain for constants
 //using symbol_t = register_t;    // a register with unknown value
@@ -66,6 +71,7 @@ class registers_state_t {
 class stack_state_t {
     using stack_slot_dists_t = std::unordered_map<unsigned int, dist_t>;    // represents `sp[n] = dist;`, where n \belongs [0,511], e.g., `sp[508] = begin+16`
 
+    public:
     stack_slot_dists_t m_stack_slot_dists;
     bool m_is_bottom = false;
 
@@ -78,6 +84,7 @@ class stack_state_t {
 };
 
 class extra_constraints_t {
+    public:
     forward_and_backward_eq_t m_eq;
     inequality_t m_ineq;
     bool m_is_bottom = false;
@@ -159,7 +166,6 @@ class offset_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
 
-  private:
-    void do_load(const Mem&, const Reg&, location_t, int print = 0);
-    void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
+    void do_load(const Mem&, const Reg&, ptr_t&);
+    void do_mem_store(const Mem&, const Reg&, ptr_t&);
 }; // end offset_domain_t

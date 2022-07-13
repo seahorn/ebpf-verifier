@@ -6,12 +6,15 @@
 #include <unordered_map>
 
 #include "crab/abstract_domain.hpp"
+#include "crab/region_domain.hpp"
+#include "crab/offset_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
 class type_domain_t final {
-
+    region_domain_t m_region;
+    offset_domain_t m_offset;
     bool m_is_bottom = false;
 
   public:
@@ -19,6 +22,8 @@ class type_domain_t final {
     type_domain_t() = default;
     type_domain_t(type_domain_t&& o) = default;
     type_domain_t(const type_domain_t& o) = default;
+    type_domain_t(region_domain_t&& reg, offset_domain_t&& off) : 
+        m_region(reg), m_offset(off) {}
     type_domain_t& operator=(type_domain_t&& o) = default;
     type_domain_t& operator=(const type_domain_t& o) = default;
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.

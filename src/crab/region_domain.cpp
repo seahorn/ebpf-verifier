@@ -149,11 +149,7 @@ std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
 
 void ptr_with_off_t::set_offset(int off) { m_offset = off; }
 
-constexpr int ptr_with_off_t::get_offset() const { return m_offset; }
-
 void ptr_with_off_t::set_region(region r) { m_r = r; }
-
-constexpr region ptr_with_off_t::get_region() const { return m_r; }
 
 bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
     return (p1.get_region() == p2.get_region());
@@ -173,8 +169,6 @@ std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
 }
 
 void ptr_no_off_t::set_region(region r) { m_r = r; }
-
-constexpr region ptr_no_off_t::get_region() const { return m_r; }
 
 void reg_with_loc_t::write(std::ostream& o) const {
     o << "r" << static_cast<unsigned int>(m_reg) << "@" << m_loc->second << " in " << m_loc->first << " ";
@@ -456,7 +450,7 @@ void region_domain_t::write(std::ostream& os) const {
 }
 
 std::string region_domain_t::domain_name() const {
-    return "type_domain";
+    return "region_domain";
 }
 
 int region_domain_t::get_instruction_count_upper_bound() {

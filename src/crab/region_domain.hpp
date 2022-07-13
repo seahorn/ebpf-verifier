@@ -9,6 +9,7 @@
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
+#include <boost/optional/optional_io.hpp>
 
 namespace crab {
 
@@ -31,7 +32,7 @@ class ptr_no_off_t {
     ptr_no_off_t &operator=(ptr_no_off_t &&) = default;
     ptr_no_off_t(region _r) : m_r(_r) {}
 
-    constexpr region get_region() const;
+    constexpr region get_region() const { return m_r; }
     void set_region(region);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
@@ -51,9 +52,9 @@ class ptr_with_off_t {
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
     ptr_with_off_t(region _r, int _off) : m_r(_r), m_offset(_off) {}
 
-    constexpr int get_offset() const;
+    constexpr int get_offset() const { return m_offset; }
     void set_offset(int);
-    constexpr region get_region() const;
+    constexpr region get_region() const { return m_r; }
     void set_region(region);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
@@ -142,7 +143,7 @@ class register_types_t {
 }
 
 class region_domain_t final {
-
+    public:
     bool m_is_bottom = false;
     location_t error_location = boost::none;
     crab::stack_t m_stack;
@@ -201,8 +202,6 @@ class region_domain_t final {
     int get_instruction_count_upper_bound();
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
-
-  private:
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
