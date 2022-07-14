@@ -536,8 +536,12 @@ void region_domain_t::operator()(const Assume &u, location_t loc, int print) {
 }
 void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
     if (is_bottom()) return;
-    if (print > 0)
+    if (print > 0) {
         std::cout << "  " << u << ";\n";
+        return;
+    }
+    std::cout << "assert: " << u << "\n";
+    std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
 region_domain_t region_domain_t::setup_entry() {
@@ -563,6 +567,83 @@ void region_domain_t::report_type_error(std::string s, location_t loc) {
     std::cout << s;
     error_location = loc;
     set_to_bottom();
+}
+
+static std::string to_string(TypeGroup ts) {
+    switch (ts) {
+    case TypeGroup::number: return "number";
+    case TypeGroup::map_fd: return "map_fd";
+    case TypeGroup::map_fd_programs: return "map_fd_programs";
+    case TypeGroup::ctx: return "ctx";
+    case TypeGroup::packet: return "packet";
+    case TypeGroup::stack: return "stack";
+    case TypeGroup::shared: return "shared";
+    case TypeGroup::mem: return "{stack, packet, shared}";
+    case TypeGroup::pointer: return "{ctx, stack, packet, shared}";
+    case TypeGroup::non_map_fd: return "non_map_fd";
+    case TypeGroup::ptr_or_num: return "{number, ctx, stack, packet, shared}";
+    case TypeGroup::stack_or_packet: return "{stack, packet}";
+    case TypeGroup::mem_or_num: return "{number, stack, packet, shared}";
+    default: assert(false);
+    }
+    return {};
+}
+
+void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
+    auto it = find_ptr_type(s.reg.v);
+    if (it) {
+        if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num
+                || s.types == TypeGroup::non_map_fd) return;
+        ptr_t p_type = it.value();
+        print_ptr_type(p_type);
+        if (std::holds_alternative<ptr_with_off_t>(p_type)) {
+            ptr_with_off_t p_type_with_off = std::get<ptr_with_off_t>(p_type);
+            if (p_type_with_off.get_region() == crab::region::T_CTX) {
+                if (s.types == TypeGroup::ctx) return;
+            }
+            else {
+                std::cout << "stack pointer here\n";
+                if (s.types == TypeGroup::stack || s.types == TypeGroup::mem
+                        || s.types == TypeGroup::stack_or_packet || s.types == TypeGroup::mem_or_num) {
+                    return;
+                }
+            }
+        }
+        else {
+            ptr_no_off_t p_type_no_off = std::get<ptr_no_off_t>(p_type);
+            if (p_type_no_off.get_region() == crab::region::T_PACKET) {
+                if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
+                        || s.types == TypeGroup::mem_or_num) return;
+            }
+            else if (p_type_no_off.get_region() == crab::region::T_SHARED) {
+                if (s.types == TypeGroup::shared || s.types == TypeGroup::mem
+                        || s.types == TypeGroup::mem_or_num) return;
+            }
+            else {
+                // we might have the case where we add an unknown number to stack or ctx's offset and we do not know the offset now
+                if (p_type_no_off.get_region() == crab::region::T_STACK) {
+                    if (s.types == TypeGroup::stack || s.types == TypeGroup::stack_or_packet
+                            || s.types == TypeGroup::mem || s.types == TypeGroup::mem_or_num)
+                        return;
+                }
+                else {
+                    if (s.types == TypeGroup::ctx) return;
+                }
+            }
+        }
+    }
+    else {
+        // map_fd, non_map_fd, map_fd_programs, and numbers, all should come here
+        // right now, pass any such cases, add more strict checks later
+        // TODO
+        if (s.types == TypeGroup::number || s.types == TypeGroup::ptr_or_num
+                || s.types == TypeGroup::map_fd_programs || s.types == TypeGroup::non_map_fd
+                || s.types == TypeGroup::ptr_or_num || s.types == TypeGroup::mem_or_num
+                || s.types == TypeGroup::map_fd)
+            return;
+    }
+    std::cout << "Assert fail: " << s << "\n";
+    exit(1);
 }
 
 void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
