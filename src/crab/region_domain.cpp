@@ -369,6 +369,10 @@ std::optional<ptr_t> stack_t::find(int key) const {
 
 }
 
+std::optional<ptr_t> region_domain_t::find_ptr_type(register_t reg) {
+    return m_registers.find(reg);
+}
+
 bool region_domain_t::is_bottom() const {
     if (m_is_bottom) return true;
     return (m_stack.is_bottom() || m_registers.is_bottom());

@@ -134,8 +134,8 @@ void extra_constraints_t::add_inequality(inequality_t ineq) {
 }
 
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
-    weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 1;
-    weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 1;
+    weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 2;
+    weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 2;
 
     dist1 += m_ineq.m_value;
     dist2 += other.m_ineq.m_value;
@@ -143,7 +143,7 @@ extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& ot
         slack_var_t s = m_eq.m_forw.m_slack;
 
         dist_t f = dist_t(min(dist1, dist2), s);
-        dist_t b = dist_t(-1);
+        dist_t b = dist_t(-2);
 
         forward_and_backward_eq_t out_eq(f, b);
         inequality_t out_ineq(s, m_ineq.m_rel, 0);
@@ -154,12 +154,15 @@ extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& ot
 }
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
-    if (desc->data != -1)
+    if (desc->data != -1) {
         m_dists[desc->data] = dist_t(0);
-    if (desc->end != -1)
-        m_dists[desc->end] = dist_t(-1);
-    //if (desc->meta != -1)
-        //m_offsets[desc->meta] = node_t();
+    }
+    if (desc->end != -1) {
+        m_dists[desc->end] = dist_t(-2);
+    }
+    if (desc->meta != -1) {
+        m_dists[desc->meta] = dist_t(-1);
+    }
 }
 
 std::optional<dist_t> ctx_t::find(int key) const {
@@ -274,14 +277,15 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
                     || m_reg_state.get(right_reg) == nullptr) {
                 // this should not happen, comparison between a packet pointer and either
                 // other region's pointers or numbers; possibly raise type error
-                exit(1);
+                //exit(1);
+                std::cout << "type_error: one of the pointers being compared isn't packet pointer\n";
                 return;
             }
             dist_t left_reg_dist = *m_reg_state.get(cond.left.v);
             dist_t right_reg_dist = *m_reg_state.get(right_reg);
             slack_var_t s = m_slack++;
             dist_t f = dist_t(left_reg_dist.m_dist, s);
-            dist_t b = dist_t(right_reg_dist.m_dist, -1);
+            dist_t b = dist_t(right_reg_dist.m_dist, slack_var_t{-1});
             m_extra_constraints.add_equality(forward_and_backward_eq_t(f, b));
             m_extra_constraints.add_inequality(inequality_t(s, rop_t::R_GE, 0));
         }
@@ -328,7 +332,8 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
                 }
                 if (m_reg_state.get(src.v) == nullptr) {
                     std::cout << "type_error: src is a packet_pointer and no offset info found\n";
-                    exit(1);
+                    //exit(1);
+                    return;
                 }
                 m_reg_state.set(bin.dst.v, m_reg_state.get(src.v));
                 std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
@@ -353,7 +358,8 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
                 }
                 if (dst_reg_dist == nullptr) {
                     std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
-                    exit(1);
+                    //exit(1);
+                    return;
                 }
                 int updated_dist = dst_reg_dist->m_dist+imm;
                 m_reg_state.set(bin.dst.v, std::make_shared<dist_t>(updated_dist));

@@ -143,7 +143,7 @@ class register_types_t {
 }
 
 class region_domain_t final {
-    public:
+
     bool m_is_bottom = false;
     location_t error_location = boost::none;
     crab::stack_t m_stack;
@@ -207,5 +207,6 @@ class region_domain_t final {
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
     void print_initial_types();
     void report_type_error(std::string, location_t);
+    std::optional<crab::ptr_t> find_ptr_type(register_t);
 
 }; // end region_domain_t
