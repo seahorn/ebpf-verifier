@@ -182,5 +182,6 @@ class offset_domain_t final {
     void set_require_check(check_require_func_t f);
 
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>&);
-    void do_mem_store(const Mem&, const Reg&, ptr_t&, ptr_t&);
+    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
+    void do_bin(const Bin&, std::optional<ptr_t>, std::optional<ptr_t>);
 }; // end offset_domain_t

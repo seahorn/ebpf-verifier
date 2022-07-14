@@ -158,34 +158,32 @@ type_domain_t type_domain_t::setup_entry() {
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
 
+    std::optional<ptr_t> src_type, dst_type;
+    if (std::holds_alternative<Reg>(bin.v)) {   // for va = vb, type of vb
+        src_type = m_region.m_registers.find(std::get<Reg>(bin.v).v);
+    }
+    else {  // for va += vb, type of va
+        dst_type = m_region.m_registers.find(bin.dst.v);
+    }
     m_region(bin, loc, print);
-    m_offset(bin, loc, print);
+    m_offset.do_bin(bin, src_type, dst_type);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    int offset = b.access.offset;
     Reg basereg = b.access.basereg;
+    auto basereg_type = m_region.m_registers.find(basereg.v);
 
-    auto it = m_region.m_registers.find(basereg.v);
-    
     m_region.do_load(b, target_reg, loc, print);
-    m_offset.do_load(b, target_reg, it);
+    m_offset.do_load(b, target_reg, basereg_type);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    int offset = b.access.offset;
     Reg basereg = b.access.basereg;
-    int width = b.access.width;
+    auto basereg_type = m_region.m_registers.find(basereg.v);
+    auto targetreg_type = m_region.m_registers.find(target_reg.v);
 
-    auto it = m_region.m_registers.find(basereg.v);
-    ptr_t type_basereg = it.value();
-
-    auto it2 = m_region.m_registers.find(target_reg.v);
-    if (it2) {
-        auto p = it2.value();
-        m_region.do_mem_store(b, target_reg, loc, print);
-        m_offset.do_mem_store(b, target_reg, type_basereg, p);
-    }
+    m_region.do_mem_store(b, target_reg, loc, print);
+    m_offset.do_mem_store(b, target_reg, basereg_type, targetreg_type);
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
