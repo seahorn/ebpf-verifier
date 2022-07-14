@@ -60,41 +60,45 @@ using register_dists_t = std::array<std::shared_ptr<dist_t>, 11>;        // repr
 
 class registers_state_t {
 
-    public:
-    register_dists_t m_reg_dists;
+    register_dists_t m_dists;
     bool m_is_bottom = false;
 
     public:
         registers_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
+        std::shared_ptr<dist_t> get(register_t) const;
+        void set(register_t, std::shared_ptr<dist_t>);
         void set_to_top();
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        void operator-=(register_t);
         registers_state_t operator|(const registers_state_t&) const;
         explicit registers_state_t(register_dists_t&& reg_dists, bool is_bottom = false)
-            : m_reg_dists(std::move(reg_dists)), m_is_bottom(is_bottom) {}
+            : m_dists(std::move(reg_dists)), m_is_bottom(is_bottom) {}
 };
 
 class stack_state_t {
-    using stack_slot_dists_t = std::unordered_map<unsigned int, dist_t>;    // represents `sp[n] = dist;`, where n \belongs [0,511], e.g., `sp[508] = begin+16`
+    using stack_slot_dists_t = std::unordered_map<int, dist_t>;    // represents `sp[n] = dist;`, where n \belongs [0,511], e.g., `sp[508] = begin+16`
 
-    public:
-    stack_slot_dists_t m_stack_slot_dists;
+    stack_slot_dists_t m_slot_dists;
     bool m_is_bottom = false;
 
     public:
         stack_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
+        std::optional<dist_t> find(int) const;
+        void store(int, dist_t);
+        void operator-=(int);
         void set_to_top();
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
         stack_state_t operator|(const stack_state_t&) const;
         explicit stack_state_t(stack_slot_dists_t&& stack_dists, bool is_bottom = false)
-            : m_stack_slot_dists(std::move(stack_dists)), m_is_bottom(is_bottom) {}
+            : m_slot_dists(std::move(stack_dists)), m_is_bottom(is_bottom) {}
 };
 
 class extra_constraints_t {
-    public:
+
     forward_and_backward_eq_t m_eq;
     inequality_t m_ineq;
     bool m_is_bottom = false;
@@ -105,19 +109,21 @@ class extra_constraints_t {
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        void add_equality(forward_and_backward_eq_t);
+        void add_inequality(inequality_t);
         extra_constraints_t operator|(const extra_constraints_t&) const;
         explicit extra_constraints_t(forward_and_backward_eq_t&& fabeq, inequality_t ineq, bool is_bottom = false) : m_eq(fabeq), m_ineq(ineq), m_is_bottom(is_bottom) {}
 };
 
 class ctx_t {
-    using ctx_dists_t = std::unordered_map<unsigned int, dist_t>;    // represents `cp[n] = dist;`
-
-    public:
+    using ctx_dists_t = std::unordered_map<int, dist_t>;    // represents `cp[n] = dist;`
     ctx_dists_t m_dists;
 
     public:
         ctx_t(const ebpf_context_descriptor_t* desc);
+        std::optional<dist_t> find(int) const;
 };
+
 
 class offset_domain_t final {
 
@@ -129,7 +135,6 @@ class offset_domain_t final {
     slack_var_t m_slack = 0;
 
   public:
-
     offset_domain_t() = default;
     offset_domain_t(offset_domain_t&& o) = default;
     offset_domain_t(const offset_domain_t& o) = default;

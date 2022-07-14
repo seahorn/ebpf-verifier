@@ -10,19 +10,27 @@ bool dist_t::operator==(const dist_t& d) const {
     return (m_dist == d.m_dist && m_slack == d.m_slack);
 }
 
+std::shared_ptr<dist_t> registers_state_t::get(register_t reg) const {
+    return m_dists[reg];
+}
+
+void registers_state_t::set(register_t reg, std::shared_ptr<dist_t> d) {
+    m_dists[reg] = d;
+}
+
 void registers_state_t::set_to_top() {
-    m_reg_dists = register_dists_t{nullptr};
+    m_dists = register_dists_t{nullptr};
     m_is_bottom = false;
 }
 
 void registers_state_t::set_to_bottom() {
-    m_reg_dists = register_dists_t{nullptr};
+    m_dists = register_dists_t{nullptr};
     m_is_bottom = true;
 }
 
 bool registers_state_t::is_top() const {
     if (m_is_bottom) return false;
-    for (auto &it : m_reg_dists) {
+    for (auto &it : m_dists) {
         if (it != nullptr) return false;
     }
     return true;
@@ -32,38 +40,56 @@ bool registers_state_t::is_bottom() const {
     return m_is_bottom;
 }
 
+void registers_state_t::operator-=(register_t to_forget) {
+    set(to_forget, nullptr);
+}
+
 registers_state_t registers_state_t::operator|(const registers_state_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
     } else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    register_dists_t out_reg_dists;
-    for (size_t i = 0; i < m_reg_dists.size(); i++) {
-        if (m_reg_dists[i] == other.m_reg_dists[i]) {
-            out_reg_dists[i] = m_reg_dists[i];
+    register_dists_t out_dists;
+    for (size_t i = 0; i < m_dists.size(); i++) {
+        if (m_dists[i] == other.m_dists[i]) {
+            out_dists[i] = m_dists[i];
         }
     }
-    return registers_state_t(std::move(out_reg_dists), false);
+    return registers_state_t(std::move(out_dists), false);
 }
 
 void stack_state_t::set_to_top() {
-    m_stack_slot_dists.clear();
+    m_slot_dists.clear();
     m_is_bottom = false;
 }
 
 void stack_state_t::set_to_bottom() {
-    m_stack_slot_dists.clear();
+    m_slot_dists.clear();
     m_is_bottom = true;
 }
 
 bool stack_state_t::is_top() const {
     if (m_is_bottom) return false;
-    return m_stack_slot_dists.empty();
+    return m_slot_dists.empty();
 }
 
 bool stack_state_t::is_bottom() const {
     return m_is_bottom;
+}
+
+std::optional<dist_t> stack_state_t::find(int key) const {
+    auto it = m_slot_dists.find(key);
+    if (it == m_slot_dists.end()) return {};
+    return it->second;
+}
+
+void stack_state_t::store(int key, dist_t d) {
+    m_slot_dists[key] = d;
+}
+
+void stack_state_t::operator-=(int to_erase) {
+    m_slot_dists.erase(to_erase);
 }
 
 stack_state_t stack_state_t::operator|(const stack_state_t& other) const {
@@ -73,17 +99,17 @@ stack_state_t stack_state_t::operator|(const stack_state_t& other) const {
         return *this;
     }
     stack_slot_dists_t out_stack_dists;
-    for (auto const&kv: m_stack_slot_dists) {
-        auto it = other.m_stack_slot_dists.find(kv.first);
-        if (it != m_stack_slot_dists.end() && kv.second == it->second)
+    for (auto const&kv: m_slot_dists) {
+        auto it = other.m_slot_dists.find(kv.first);
+        if (it != m_slot_dists.end() && kv.second == it->second)
             out_stack_dists.insert(kv);
     }
     return stack_state_t(std::move(out_stack_dists), false);
 }
 
 void extra_constraints_t::set_to_top() {
-    m_eq = forward_and_backward_eq_t();
-    m_ineq = inequality_t();
+    add_equality(forward_and_backward_eq_t());
+    add_inequality(inequality_t());
 }
 
 void extra_constraints_t::set_to_bottom() {
@@ -97,6 +123,14 @@ bool extra_constraints_t::is_top() const {
 
 bool extra_constraints_t::is_bottom() const {
     return m_is_bottom;
+}
+
+void extra_constraints_t::add_equality(forward_and_backward_eq_t fabeq) {
+    m_eq = std::move(fabeq);
+}
+
+void extra_constraints_t::add_inequality(inequality_t ineq) {
+    m_ineq = std::move(ineq);
 }
 
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
@@ -126,6 +160,12 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
         m_dists[desc->end] = dist_t(-1);
     //if (desc->meta != -1)
         //m_offsets[desc->meta] = node_t();
+}
+
+std::optional<dist_t> ctx_t::find(int key) const {
+    auto it = m_dists.find(key);
+    if (it == m_dists.end()) return {};
+    return it->second;
 }
 
 offset_domain_t offset_domain_t::setup_entry() {
@@ -226,24 +266,24 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
     if (cond.op == Condition::Op::LE) {
         if (std::holds_alternative<Reg>(cond.right)) {
             auto right_reg = std::get<Reg>(cond.right).v;
-            if (m_reg_state.m_reg_dists[cond.left.v] == nullptr
-                    && m_reg_state.m_reg_dists[right_reg] == nullptr) {
+            if (m_reg_state.get(cond.left.v) == nullptr
+                    && m_reg_state.get(right_reg) == nullptr) {
                 return;
             }
-            else if (m_reg_state.m_reg_dists[cond.left.v] == nullptr
-                    || m_reg_state.m_reg_dists[right_reg] == nullptr) {
+            else if (m_reg_state.get(cond.left.v) == nullptr
+                    || m_reg_state.get(right_reg) == nullptr) {
                 // this should not happen, comparison between a packet pointer and either
                 // other region's pointers or numbers; possibly raise type error
                 exit(1);
                 return;
             }
-            dist_t left_reg_dist = *m_reg_state.m_reg_dists[cond.left.v];
-            dist_t right_reg_dist = *m_reg_state.m_reg_dists[right_reg];
+            dist_t left_reg_dist = *m_reg_state.get(cond.left.v);
+            dist_t right_reg_dist = *m_reg_state.get(right_reg);
             slack_var_t s = m_slack++;
             dist_t f = dist_t(left_reg_dist.m_dist, s);
             dist_t b = dist_t(right_reg_dist.m_dist, -1);
-            m_extra_constraints.m_eq = forward_and_backward_eq_t(f, b);
-            m_extra_constraints.m_ineq = inequality_t(s, rop_t::R_GE, 0);
+            m_extra_constraints.add_equality(forward_and_backward_eq_t(f, b));
+            m_extra_constraints.add_inequality(inequality_t(s, rop_t::R_GE, 0));
         }
     }
     else {}     //we do not need to deal with other cases
@@ -283,32 +323,32 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
             // ra = rb;
             case Bin::Op::MOV: {
                 if (!is_packet_pointer(src_type)) {
-                    m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                    m_reg_state.set(bin.dst.v, nullptr);
                     return;
                 }
-                if (m_reg_state.m_reg_dists[src.v] == nullptr) {
+                if (m_reg_state.get(src.v) == nullptr) {
                     std::cout << "type_error: src is a packet_pointer and no offset info found\n";
                     exit(1);
                 }
-                m_reg_state.m_reg_dists[bin.dst.v] = m_reg_state.m_reg_dists[src.v];
-                std::cout << "offset: " << (*m_reg_state.m_reg_dists[bin.dst.v]).m_dist << "\n";
+                m_reg_state.set(bin.dst.v, m_reg_state.get(src.v));
+                std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
             }
 
             default: {
-                m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                m_reg_state -= bin.dst.v;
                 break;
             }
         }
     }
     else {
         int imm = static_cast<int>(std::get<Imm>(bin.v).v);
-        auto dst_reg_dist = m_reg_state.m_reg_dists[bin.dst.v];
+        auto dst_reg_dist = m_reg_state.get(bin.dst.v);
         switch (bin.op)
         {
             case Bin::Op::ADD: {
                 if (!is_packet_pointer(dst_type)) {
-                    m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                    m_reg_state -= bin.dst.v;
                     return;
                 }
                 if (dst_reg_dist == nullptr) {
@@ -316,13 +356,13 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
                     exit(1);
                 }
                 int updated_dist = dst_reg_dist->m_dist+imm;
-                m_reg_state.m_reg_dists[bin.dst.v] = std::make_shared<dist_t>(updated_dist);
-                std::cout << "offset: " << (*m_reg_state.m_reg_dists[bin.dst.v]).m_dist << "\n";
+                m_reg_state.set(bin.dst.v, std::make_shared<dist_t>(updated_dist));
+                std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
             }
 
             default: {
-                m_reg_state.m_reg_dists[bin.dst.v] = nullptr;
+                m_reg_state -= bin.dst.v;
                 break;
             }
         }
@@ -366,10 +406,10 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::opt
         int store_at = basereg_with_off.get_offset() + offset;
         if (is_packet_pointer(targetreg_type)) {
             ptr_t targetreg_ptr_type = targetreg_type.value();
-            m_stack_state.m_stack_slot_dists[store_at] = *m_reg_state.m_reg_dists[target_reg.v];
+            m_stack_state.store(store_at, *m_reg_state.get(target_reg.v));
         }
         else {
-            m_stack_state.m_stack_slot_dists.erase(store_at);
+            m_stack_state -= store_at;
         }
     }
     else {}  // in the rest cases, we do not store
@@ -377,7 +417,7 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::opt
 
 void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& basereg_type) {
     if (!basereg_type) {
-        m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+        m_reg_state -= target_reg.v;
         return;
     }
     ptr_t basereg_ptr_type = basereg_type.value();
@@ -388,29 +428,29 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
         int to_load = p_with_off.get_offset() + offset;
 
         if (p_with_off.get_region() == crab::region::T_CTX) {
-            auto it = m_ctx_dists->m_dists.find(to_load);
-            if (it == m_ctx_dists->m_dists.end()) {
-                m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+            auto it = m_ctx_dists->find(to_load);
+            if (!it) {
+                m_reg_state -= target_reg.v;
                 return;
             }
-            dist_t d = it->second;
-            m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
-            std::cout << "offset: " << (*m_reg_state.m_reg_dists[target_reg.v]).m_dist << "\n";
+            dist_t d = it.value();
+            m_reg_state.set(target_reg.v, std::make_shared<dist_t>(d));
+            std::cout << "offset: " << (*m_reg_state.get(target_reg.v)).m_dist << "\n";
         }
         else if (p_with_off.get_region() == crab::region::T_STACK) {
-            auto it = m_stack_state.m_stack_slot_dists.find(to_load);
+            auto it = m_stack_state.find(to_load);
 
-            if (it == m_stack_state.m_stack_slot_dists.end()) {
-                m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+            if (!it) {
+                m_reg_state -= target_reg.v;
                 return;
             }
-            dist_t d = it->second;
-            m_reg_state.m_reg_dists[target_reg.v] = std::make_shared<dist_t>(d);
-            std::cout << "offset: " << (*m_reg_state.m_reg_dists[target_reg.v]).m_dist << "\n";
+            dist_t d = it.value();
+            m_reg_state.set(target_reg.v, std::make_shared<dist_t>(d));
+            std::cout << "offset: " << (*m_reg_state.get(target_reg.v)).m_dist << "\n";
         }
     }
     else {  // we are loading from packet or shared
-        m_reg_state.m_reg_dists[target_reg.v] = nullptr;
+        m_reg_state -= target_reg.v;
     }
 }
 
