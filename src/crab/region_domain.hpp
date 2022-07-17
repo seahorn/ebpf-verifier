@@ -217,5 +217,6 @@ class region_domain_t final {
     void print_initial_types();
     void report_type_error(std::string, location_t);
     std::optional<crab::ptr_t> find_ptr_type(register_t);
+    void check_type_constraint(const TypeConstraint&);
 
 }; // end region_domain_t

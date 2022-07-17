@@ -222,12 +222,18 @@ std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
 {
-    if (desc->data != -1)
+    if (desc->data != -1) {
         m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
-    if (desc->end != -1)
+        //std::cout << "data at: " << desc->data << "\n";
+    }
+    if (desc->end != -1) {
         m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
-    if (desc->meta != -1)
+        //std::cout << "end at: " << desc->end << "\n";
+    }
+    if (desc->meta != -1) {
         m_packet_ptrs[desc->meta] = crab::ptr_no_off_t(crab::region::T_PACKET);
+        //std::cout << "meta at: " << desc->meta << "\n";
+    }
 }
 
 std::optional<ptr_no_off_t> ctx_t::find(int key) const {
@@ -261,8 +267,19 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
         if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
         auto it1 = find(*(m_cur_def[i]));
         auto it2 = other.find(*(other.m_cur_def[i]));
-        if (it1 && it2 && it1.value() == it2.value()) {
-            out_vars[i] = m_cur_def[i];
+        if (it1 && it2) {
+            ptr_t pt1 = it1.value(), pt2 = it2.value();
+            if (pt1 == pt2) {
+                out_vars[i] = m_cur_def[i];
+            }
+            //else if (std::holds_alternative<ptr_with_off_t>(pt1)
+            //        && std::holds_alternative<ptr_with_off_t>(pt2)) {
+            //    auto pt_with_off1 = std::get<ptr_with_off_t>(pt1);
+            //    auto pt_with_off2 = std::get<ptr_with_off_t>(pt2);
+            //    if (pt_with_off1.get_region() == pt_with_off2.get_region()) {
+            //        //out_vars[i] = std::make_shared<ptr_no_off_t(pt_with_off1.get_region());
+            //    }
+            //}
         }
     }
 
@@ -534,13 +551,18 @@ void region_domain_t::operator()(const Assume &u, location_t loc, int print) {
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
+
+void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
+    check_type_constraint(s);
+}
+
 void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
     if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << ";\n";
         return;
     }
-    std::cout << "assert: " << u << "\n";
+    //std::cout << "assert: " << u << "\n";
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
@@ -569,27 +591,7 @@ void region_domain_t::report_type_error(std::string s, location_t loc) {
     set_to_bottom();
 }
 
-static std::string to_string(TypeGroup ts) {
-    switch (ts) {
-    case TypeGroup::number: return "number";
-    case TypeGroup::map_fd: return "map_fd";
-    case TypeGroup::map_fd_programs: return "map_fd_programs";
-    case TypeGroup::ctx: return "ctx";
-    case TypeGroup::packet: return "packet";
-    case TypeGroup::stack: return "stack";
-    case TypeGroup::shared: return "shared";
-    case TypeGroup::mem: return "{stack, packet, shared}";
-    case TypeGroup::pointer: return "{ctx, stack, packet, shared}";
-    case TypeGroup::non_map_fd: return "non_map_fd";
-    case TypeGroup::ptr_or_num: return "{number, ctx, stack, packet, shared}";
-    case TypeGroup::stack_or_packet: return "{stack, packet}";
-    case TypeGroup::mem_or_num: return "{number, stack, packet, shared}";
-    default: assert(false);
-    }
-    return {};
-}
-
-void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
+void region_domain_t::check_type_constraint(const TypeConstraint& s) {
     auto it = find_ptr_type(s.reg.v);
     if (it) {
         if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num
@@ -602,7 +604,6 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
                 if (s.types == TypeGroup::ctx) return;
             }
             else {
-                std::cout << "stack pointer here\n";
                 if (s.types == TypeGroup::stack || s.types == TypeGroup::mem
                         || s.types == TypeGroup::stack_or_packet || s.types == TypeGroup::mem_or_num) {
                     return;
@@ -642,8 +643,8 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
                 || s.types == TypeGroup::map_fd)
             return;
     }
-    std::cout << "Assert fail: " << s << "\n";
-    exit(1);
+    std::cout << "type constraint assert fail: " << s << "\n";
+    //exit(1);
 }
 
 void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {

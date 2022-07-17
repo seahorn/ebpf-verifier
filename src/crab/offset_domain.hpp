@@ -111,6 +111,8 @@ class extra_constraints_t {
         bool is_top() const;
         void add_equality(forward_and_backward_eq_t);
         void add_inequality(inequality_t);
+        void normalize();
+        weight_t get_limit() const;
         extra_constraints_t operator|(const extra_constraints_t&) const;
         explicit extra_constraints_t(forward_and_backward_eq_t&& fabeq, inequality_t ineq, bool is_bottom = false) : m_eq(fabeq), m_ineq(ineq), m_is_bottom(is_bottom) {}
 };
@@ -118,10 +120,12 @@ class extra_constraints_t {
 class ctx_t {
     using ctx_dists_t = std::unordered_map<int, dist_t>;    // represents `cp[n] = dist;`
     ctx_dists_t m_dists;
+    int m_size;
 
     public:
         ctx_t(const ebpf_context_descriptor_t* desc);
         std::optional<dist_t> find(int) const;
+        int get_size() const;
 };
 
 
@@ -179,6 +183,14 @@ class offset_domain_t final {
     void operator()(const LockAdd &, location_t loc = boost::none, int print = 0);
     void operator()(const Assume &, location_t loc = boost::none, int print = 0);
     void operator()(const Assert &, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Addable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
     std::string domain_name() const;
@@ -189,4 +201,5 @@ class offset_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>&);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
     void do_bin(const Bin&, std::optional<ptr_t>, std::optional<ptr_t>);
+    void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
 }; // end offset_domain_t

@@ -133,24 +133,38 @@ void extra_constraints_t::add_inequality(inequality_t ineq) {
     m_ineq = std::move(ineq);
 }
 
+weight_t extra_constraints_t::get_limit() const {
+    return m_eq.m_forw.m_dist;
+}
+
+void extra_constraints_t::normalize() {
+    weight_t dist_forw = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 2;
+    weight_t dist_backw = -2;
+    slack_var_t s = m_eq.m_forw.m_slack;
+    dist_forw += m_ineq.m_value;
+    weight_t ineq_val = 0;
+    rop_t ineq_rel = m_ineq.m_rel;
+
+    m_eq = forward_and_backward_eq_t(dist_t(dist_forw, s), dist_t(dist_backw));
+    m_ineq = inequality_t(s, ineq_rel, ineq_val);
+}
+
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
-    weight_t dist1 = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 2;
-    weight_t dist2 = other.m_eq.m_forw.m_dist - other.m_eq.m_backw.m_dist - 2;
+    //normalize();
+    //other.normalize();
 
-    dist1 += m_ineq.m_value;
-    dist2 += other.m_ineq.m_value;
-    //if (m_eq.m_forw.m_slack != -1 && other.m_eq.m_forw.m_slack != -1) {
-        slack_var_t s = m_eq.m_forw.m_slack;
+    weight_t dist1 = m_eq.m_forw.m_dist;
+    weight_t dist2 = other.m_eq.m_forw.m_dist;
+    slack_var_t s = m_eq.m_forw.m_slack;
 
-        dist_t f = dist_t(min(dist1, dist2), s);
-        dist_t b = dist_t(-2);
+    dist_t f = dist_t(min(dist1, dist2), s);
+    dist_t b = dist_t(-2);
 
-        forward_and_backward_eq_t out_eq(f, b);
-        inequality_t out_ineq(s, m_ineq.m_rel, 0);
+    forward_and_backward_eq_t out_eq(f, b);
+    inequality_t out_ineq(s, m_ineq.m_rel, 0);
 
-        return extra_constraints_t(std::move(out_eq), std::move(out_ineq), false);
+    return extra_constraints_t(std::move(out_eq), std::move(out_ineq), false);
         // have to handle case for different slack vars
-    //}
 }
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
@@ -163,6 +177,11 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
     if (desc->meta != -1) {
         m_dists[desc->meta] = dist_t(-1);
     }
+    m_size = desc->size;
+}
+
+int ctx_t::get_size() const {
+    return m_size;
 }
 
 std::optional<dist_t> ctx_t::find(int key) const {
@@ -395,7 +414,47 @@ void offset_domain_t::operator()(const Packet &, location_t loc, int print) {}
 
 void offset_domain_t::operator()(const LockAdd &, location_t loc, int print) {}
 
-void offset_domain_t::operator()(const Assert &, location_t loc, int print) {}
+void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr_t>& reg_type) {
+    if (std::holds_alternative<Imm>(s.width)) {
+        int w = std::get<Imm>(s.width).v;
+        if (w == 0 || !reg_type) return;
+
+        m_extra_constraints.normalize();
+        ptr_t reg_ptr_type = reg_type.value();
+        if (std::holds_alternative<ptr_with_off_t>(reg_ptr_type)) {
+            auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_type);
+            int offset = reg_with_off_ptr_type.get_offset();
+            int offset_to_check = offset+s.offset;
+            if (reg_with_off_ptr_type.get_region() == crab::region::T_STACK) {
+                if (offset_to_check >= 0 && offset_to_check+w <= 512) return;
+            }
+            else {
+                if (offset_to_check >= 0 && offset_to_check+w <= m_ctx_dists->get_size())
+                    return;
+            }
+        }
+        else {
+            auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_type);
+            if (reg_no_off_ptr_type.get_region() == crab::region::T_PACKET) {
+                auto dist = m_reg_state.get(s.reg.v);
+                int limit = m_extra_constraints.get_limit();
+                if (dist && dist->m_dist >= 0 && dist->m_dist+w <= limit) return;
+            }
+            else {
+                return;
+            }
+        }
+    }
+    else {
+        return;
+    }
+    std::cout << "valid access assert fail\n";
+    //exit(1);
+}
+
+void offset_domain_t::operator()(const Assert &u, location_t loc, int print) {
+    std::visit(*this, u.cst);
+}
 
 void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     for (const Instruction& statement : bb) {

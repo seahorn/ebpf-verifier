@@ -5,9 +5,6 @@
 
 #include "crab/type_domain.hpp"
 
-static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
-
-
 bool type_domain_t::is_bottom() const {
     return m_is_bottom;
 }
@@ -142,10 +139,19 @@ void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
     m_region(u, loc, print);
     m_offset(u, loc, print);
 }
+
+void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
+    auto reg_type = m_region.find_ptr_type(s.reg.v);
+    m_offset.check_valid_access(s, reg_type);
+}
+
+void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
+    m_region.check_type_constraint(s);
+}
+
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
+    std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
 type_domain_t type_domain_t::setup_entry() {

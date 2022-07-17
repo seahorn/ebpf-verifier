@@ -63,6 +63,14 @@ class type_domain_t final {
     void operator()(const LockAdd &, location_t loc = boost::none, int print = 0);
     void operator()(const Assume &, location_t loc = boost::none, int print = 0);
     void operator()(const Assert &, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0);
+    void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Addable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
     std::string domain_name() const;
