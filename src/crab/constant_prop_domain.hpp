@@ -6,48 +6,82 @@
 #include <unordered_map>
 
 #include "crab/abstract_domain.hpp"
-#include "crab/region_domain.hpp"
-#include "crab/constant_prop_domain.hpp"
-#include "crab/offset_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
-class type_domain_t final {
-    region_domain_t m_region;
-    offset_domain_t m_offset;
+
+class registers_cp_state_t {
+    using const_values_registers_t = std::array<std::shared_ptr<int>, 11>;
+
+    const_values_registers_t m_const_values;
+    bool m_is_bottom = false;
+
+    public:
+        bool is_bottom() const;
+        bool is_top() const;
+        void set_to_bottom();
+        void set_to_top();
+        registers_cp_state_t operator|(const registers_cp_state_t& other) const;
+        registers_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
+        explicit registers_cp_state_t(const_values_registers_t&& const_values, bool is_bottom = false)
+            : m_const_values(std::move(const_values)), m_is_bottom(is_bottom) {}
+};
+
+class stack_cp_state_t {
+    using const_values_stack_t = std::unordered_map<unsigned int, int>;
+
+    const_values_stack_t m_const_values;
+    bool m_is_bottom = false;
+
+    public:
+        bool is_bottom() const;
+        bool is_top() const;
+        void set_to_bottom();
+        void set_to_top();
+        stack_cp_state_t operator|(const stack_cp_state_t& other) const;
+        stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
+        explicit stack_cp_state_t(const_values_stack_t&& const_values, bool is_bottom = false)
+            : m_const_values(std::move(const_values)), m_is_bottom(is_bottom) {}
+};
+
+class constant_prop_domain_t final {
+    registers_cp_state_t m_registers_const_values;
+    stack_cp_state_t m_stack_slots_const_values;
     bool m_is_bottom = false;
 
   public:
 
-    type_domain_t() = default;
-    type_domain_t(type_domain_t&& o) = default;
-    type_domain_t(const type_domain_t& o) = default;
-    explicit type_domain_t(region_domain_t&& reg, offset_domain_t&& off, bool is_bottom = false) :
-        m_region(reg), m_offset(off), m_is_bottom(is_bottom) {}
-    type_domain_t& operator=(type_domain_t&& o) = default;
-    type_domain_t& operator=(const type_domain_t& o) = default;
+    constant_prop_domain_t() = default;
+    constant_prop_domain_t(constant_prop_domain_t&& o) = default;
+    constant_prop_domain_t(const constant_prop_domain_t& o) = default;
+    explicit constant_prop_domain_t(registers_cp_state_t&& consts_regs,
+            stack_cp_state_t&& const_stack_slots, bool is_bottom = false) :
+        m_registers_const_values(std::move(consts_regs)), m_stack_slots_const_values(std::move(const_stack_slots)),
+        m_is_bottom(is_bottom) {}
+    constant_prop_domain_t& operator=(constant_prop_domain_t&& o) = default;
+    constant_prop_domain_t& operator=(const constant_prop_domain_t& o) = default;
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-    static type_domain_t setup_entry();
+    static constant_prop_domain_t setup_entry();
     // bottom/top
-    static type_domain_t bottom();
+    static constant_prop_domain_t bottom();
     void set_to_top();
     void set_to_bottom();
     bool is_bottom() const;
     bool is_top() const;
     // inclusion
-    bool operator<=(const type_domain_t& other) const;
+    bool operator<=(const constant_prop_domain_t& other) const;
     // join
-    void operator|=(const type_domain_t& abs);
-    void operator|=(type_domain_t&& abs);
-    type_domain_t operator|(const type_domain_t& other) const;
-    type_domain_t operator|(type_domain_t&& abs) const;
+    void operator|=(const constant_prop_domain_t& abs);
+    void operator|=(constant_prop_domain_t&& abs);
+    constant_prop_domain_t operator|(const constant_prop_domain_t& other) const;
+    constant_prop_domain_t operator|(constant_prop_domain_t&& abs) const;
     // meet
-    type_domain_t operator&(const type_domain_t& other) const;
+    constant_prop_domain_t operator&(const constant_prop_domain_t& other) const;
     // widening
-    type_domain_t widen(const type_domain_t& other) const;
+    constant_prop_domain_t widen(const constant_prop_domain_t& other) const;
     // narrowing
-    type_domain_t narrow(const type_domain_t& other) const;
+    constant_prop_domain_t narrow(const constant_prop_domain_t& other) const;
     //forget
     void operator-=(variable_t var);
 
@@ -86,4 +120,4 @@ class type_domain_t final {
     void print_initial_types();
     void report_type_error(std::string, location_t);
 
-}; // end type_domain_t
+}; // end constant_prop_domain_t

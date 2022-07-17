@@ -1,7 +1,11 @@
+// Copyright (c) Prevail Verifier contributors.
+// SPDX-License-Identifier: MIT
+
 #include "abstract_domain.hpp"
 #include "ebpf_domain.hpp"
 #include "type_domain.hpp"
 #include "region_domain.hpp"
+#include "constant_prop_domain.hpp"
 #include "offset_domain.hpp"
 
 template <typename Domain>
@@ -296,3 +300,4 @@ template abstract_domain_t::abstract_domain_t(ebpf_domain_t);
 template abstract_domain_t::abstract_domain_t(type_domain_t);
 template abstract_domain_t::abstract_domain_t(offset_domain_t);
 template abstract_domain_t::abstract_domain_t(region_domain_t);
+template abstract_domain_t::abstract_domain_t(constant_prop_domain_t);
