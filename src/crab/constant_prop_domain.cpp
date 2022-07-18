@@ -131,6 +131,11 @@ void constant_prop_domain_t::set_to_top() {
     m_stack_slots_const_values.set_to_top();
 }
 
+
+std::shared_ptr<int> constant_prop_domain_t::find_const_value(register_t reg) const {
+    return m_registers_const_values.get(reg);
+}
+
 bool constant_prop_domain_t::operator<=(const constant_prop_domain_t& abs) const {
     /* WARNING: The operation is not implemented yet.*/
     return true;

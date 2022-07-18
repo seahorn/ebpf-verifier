@@ -178,15 +178,18 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
 
     std::optional<ptr_t> src_type, dst_type;
-    if (std::holds_alternative<Reg>(bin.v)) {   // for va = vb, type of vb
-        src_type = m_region.find_ptr_type(std::get<Reg>(bin.v).v);
+    std::shared_ptr<int> src_const_value;
+    if (std::holds_alternative<Reg>(bin.v)) {
+        Reg r = std::get<Reg>(bin.v);
+        src_type = m_region.find_ptr_type(r.v);
+        src_const_value = m_constant.find_const_value(r.v);
     }
-    else {  // for va += vb, type of va
+    else {
         dst_type = m_region.find_ptr_type(bin.dst.v);
     }
-    m_region(bin, loc, print);
+    m_region.do_bin(bin, src_const_value, loc, print);
     m_constant.do_bin(bin);
-    m_offset.do_bin(bin, src_type, dst_type);
+    m_offset.do_bin(bin, src_const_value, src_type, dst_type);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {

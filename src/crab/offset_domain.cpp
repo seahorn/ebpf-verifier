@@ -336,7 +336,8 @@ bool is_stack_pointer(std::optional<ptr_t>& type) {
     return false;
 }
 
-void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type) {
+void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_value,
+        std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type) {
     if (is_bottom()) return;
 
     if (std::holds_alternative<Reg>(bin.v)) {
@@ -358,6 +359,38 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
                 std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
             }
+            // ra += rb
+            case Bin::Op::ADD: {
+                auto dst_dist = m_reg_state.get(bin.dst.v);
+                if (!is_packet_pointer(dst_type)) {
+                    m_reg_state.set(bin.dst.v, nullptr);
+                    return;
+                }
+                if (dst_dist == nullptr) {
+                    std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
+                    //exit(1);
+                    return;
+                }
+                if (src_const_value) {
+                    weight_t updated_dist;
+                    if (dst_dist->m_dist >= 0) {
+                        updated_dist = dst_dist->m_dist + (*src_const_value);
+                    }
+                    else if (dst_dist->m_dist == -1) {
+                        // TODO: special handling of meta pointer required
+                        updated_dist = dst_dist->m_dist + (*src_const_value);
+                    }
+                    else {
+                        updated_dist = dst_dist->m_dist - (*src_const_value);
+                    }
+                    m_reg_state.set(bin.dst.v, std::make_shared<dist_t>(updated_dist));
+                    std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
+                }
+                else {
+                    m_reg_state -= bin.dst.v;
+                }
+                break;
+            }
 
             default: {
                 m_reg_state -= bin.dst.v;
@@ -367,7 +400,7 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
     }
     else {
         int imm = static_cast<int>(std::get<Imm>(bin.v).v);
-        auto dst_reg_dist = m_reg_state.get(bin.dst.v);
+        auto dst_dist = m_reg_state.get(bin.dst.v);
         switch (bin.op)
         {
             case Bin::Op::ADD: {
@@ -375,12 +408,23 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
                     m_reg_state -= bin.dst.v;
                     return;
                 }
-                if (dst_reg_dist == nullptr) {
+                if (dst_dist == nullptr) {
                     std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
                     //exit(1);
                     return;
                 }
-                int updated_dist = dst_reg_dist->m_dist+imm;
+
+                weight_t updated_dist;
+                if (dst_dist->m_dist >= 0) {
+                    updated_dist = dst_dist->m_dist + imm;
+                }
+                else if (dst_dist->m_dist == -1) {
+                    // TODO: special handling of meta pointer required
+                    updated_dist = dst_dist->m_dist + imm;
+                }
+                else {
+                    updated_dist = dst_dist->m_dist - imm;
+                }
                 m_reg_state.set(bin.dst.v, std::make_shared<dist_t>(updated_dist));
                 std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
@@ -395,7 +439,7 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<ptr_t> src_type, std:
 }
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
-    do_bin(bin, {}, {});
+    do_bin(bin, nullptr, {}, {});
 }
 
 void offset_domain_t::operator()(const Undefined &, location_t loc, int print) {}

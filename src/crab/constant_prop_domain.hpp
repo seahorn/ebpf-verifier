@@ -126,6 +126,7 @@ class constant_prop_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
     void do_bin(const Bin&);
+    std::shared_ptr<int> find_const_value(register_t) const;
     void print_initial_types();
 
 }; // end constant_prop_domain_t

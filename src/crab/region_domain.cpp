@@ -597,7 +597,6 @@ void region_domain_t::check_type_constraint(const TypeConstraint& s) {
         if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num
                 || s.types == TypeGroup::non_map_fd) return;
         ptr_t p_type = it.value();
-        print_ptr_type(p_type);
         if (std::holds_alternative<ptr_with_off_t>(p_type)) {
             ptr_with_off_t p_type_with_off = std::get<ptr_with_off_t>(p_type);
             if (p_type_with_off.get_region() == crab::region::T_CTX) {
@@ -647,7 +646,7 @@ void region_domain_t::check_type_constraint(const TypeConstraint& s) {
     //exit(1);
 }
 
-void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
+void region_domain_t::do_bin(const Bin& bin, std::shared_ptr<int> src_const_value, location_t loc, int print) {
     if (is_bottom()) return;
     if (print > 0) {
         if (print == 2) {
@@ -680,10 +679,10 @@ void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
         {
+            // ra = rb
             case Bin::Op::MOV: {
                 auto it1 = m_registers.find(src.v);
                 if (!it1) {
-                    //std::cout << "type_error: assigning an unknown pointer or a number - r" << (int)src.v << "\n";
                     m_registers -= bin.dst.v;
                     break;
                 }
@@ -691,6 +690,7 @@ void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
                 m_registers.insert(bin.dst.v, reg, it1.value());
                 break;
             }
+            // ra += rb
             case Bin::Op::ADD: {
                 auto it1 = m_registers.find(src.v);
                 if (it1) {
@@ -700,30 +700,30 @@ void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
                     report_type_error(desc, loc);
                     return;
                 }
-                else {
-                    if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
-                        // register to be added is not a pointer, but a number. its value is unknown
-                        /*
-                        std::string s = std::to_string(static_cast<unsigned int>(bin.dst.v));
-                        std::string desc = std::string("\toffset of the pointer r") + s + " unknown\n";
-                        report_type_error(desc, loc);
-                        return;
-                        */
-                        ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-                        if (dst_reg_with_off.get_region() == crab::region::T_STACK) {
+                if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
+                    ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
+                    if (dst_reg_with_off.get_region() == crab::region::T_STACK) {
+                        if (src_const_value) {
+                            int updated_offset = dst_reg_with_off.get_offset()+(*src_const_value);
+                            dst_reg_with_off.set_offset(updated_offset);
+                            auto reg = reg_with_loc_t(bin.dst.v, loc);
+                            m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
+
+                        }
+                        else {
                             m_stack.set_to_top();
                             m_stack -= dst_reg_with_off.get_offset();
                             return;
                         }
-                        else {
-                            // currently, we do not read any other pointers from CTX except the ones already stored
-                            // in case we add the functionality, we will have to implement forgetting of CTX offsets
-                        }
                     }
                     else {
-                        auto reg = reg_with_loc_t(bin.dst.v, loc);
-                        m_registers.insert(bin.dst.v, reg, dst_reg);
+                        // currently, we do not read any other pointers from CTX except the ones already stored
+                        // in case we add the functionality, we will have to implement forgetting of CTX offsets
                     }
+                }
+                else {
+                    auto reg = reg_with_loc_t(bin.dst.v, loc);
+                    m_registers.insert(bin.dst.v, reg, dst_reg);
                 }
                 break;
             }
@@ -755,6 +755,10 @@ void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
             }
         }
     }
+}
+
+void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
+    do_bin(bin, nullptr, loc, print);
 }
 
 void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {

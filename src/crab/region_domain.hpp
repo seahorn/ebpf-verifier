@@ -214,6 +214,7 @@ class region_domain_t final {
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
+    void do_bin(const Bin&, std::shared_ptr<int>, location_t, int print = 0);
     void print_initial_types();
     void report_type_error(std::string, location_t);
     std::optional<crab::ptr_t> find_ptr_type(register_t);
