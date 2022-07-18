@@ -6,10 +6,14 @@
 #include <unordered_map>
 
 #include "crab/abstract_domain.hpp"
+#include "crab/region_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
+using crab::ptr_t;
+using crab::ptr_with_off_t;
+using crab::ptr_no_off_t;
 
 class registers_cp_state_t {
     using const_values_registers_t = std::array<std::shared_ptr<int>, 11>;
@@ -22,10 +26,14 @@ class registers_cp_state_t {
         bool is_top() const;
         void set_to_bottom();
         void set_to_top();
+        std::shared_ptr<int> get(register_t) const;
+        void set(register_t, std::shared_ptr<int>);
+        void operator-=(register_t);
         registers_cp_state_t operator|(const registers_cp_state_t& other) const;
         registers_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit registers_cp_state_t(const_values_registers_t&& const_values, bool is_bottom = false)
             : m_const_values(std::move(const_values)), m_is_bottom(is_bottom) {}
+        void print_all_consts();
 };
 
 class stack_cp_state_t {
@@ -39,6 +47,8 @@ class stack_cp_state_t {
         bool is_top() const;
         void set_to_bottom();
         void set_to_top();
+        std::optional<int> find(int) const;
+        void store(int, int);
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(const_values_stack_t&& const_values, bool is_bottom = false)
@@ -115,8 +125,9 @@ class constant_prop_domain_t final {
 
   private:
 
-    void do_load(const Mem&, const Reg&, location_t, int print = 0);
-    void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_t>);
+    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
+    void do_bin(const Bin&);
     void print_initial_types();
     void report_type_error(std::string, location_t);
 
