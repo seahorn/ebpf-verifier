@@ -16,6 +16,7 @@
 class type_domain_t final {
     region_domain_t m_region;
     offset_domain_t m_offset;
+    constant_prop_domain_t m_constant;
     bool m_is_bottom = false;
 
   public:
@@ -23,8 +24,9 @@ class type_domain_t final {
     type_domain_t() = default;
     type_domain_t(type_domain_t&& o) = default;
     type_domain_t(const type_domain_t& o) = default;
-    explicit type_domain_t(region_domain_t&& reg, offset_domain_t&& off, bool is_bottom = false) :
-        m_region(reg), m_offset(off), m_is_bottom(is_bottom) {}
+    explicit type_domain_t(region_domain_t&& reg, offset_domain_t&& off, constant_prop_domain_t&&
+            constant, bool is_bottom = false) :
+        m_region(reg), m_offset(off), m_constant(constant), m_is_bottom(is_bottom) {}
     type_domain_t& operator=(type_domain_t&& o) = default;
     type_domain_t& operator=(const type_domain_t& o) = default;
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.

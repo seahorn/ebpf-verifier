@@ -11,7 +11,7 @@ bool type_domain_t::is_bottom() const {
 
 bool type_domain_t::is_top() const {
     if (m_is_bottom) return false;
-    return (m_region.is_top() && m_offset.is_top());
+    return (m_region.is_top() && m_offset.is_top() && m_constant.is_top());
 }
 
 type_domain_t type_domain_t::bottom() {
@@ -27,6 +27,7 @@ void type_domain_t::set_to_bottom() {
 void type_domain_t::set_to_top() {
     m_region.set_to_top();
     m_offset.set_to_top();
+    m_constant.set_to_top();
 }
 
 bool type_domain_t::operator<=(const type_domain_t& abs) const {
@@ -54,7 +55,8 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_region | other.m_region, m_offset | other.m_offset);
+    return type_domain_t(m_region | other.m_region, m_offset | other.m_offset,
+            m_constant | other.m_constant);
 }
 
 type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
@@ -64,7 +66,8 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_region | std::move(other.m_region), m_offset | std::move(m_offset));
+    return type_domain_t(m_region | std::move(other.m_region), m_offset | std::move(m_offset),
+            m_constant | std::move(other.m_constant));
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -98,46 +101,55 @@ void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
     if (is_bottom()) return;
     m_region(u, loc, print);
     m_offset(u, loc, print);
+    m_constant(u, loc, print);
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
@@ -157,7 +169,8 @@ void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
 type_domain_t type_domain_t::setup_entry() {
     region_domain_t reg = region_domain_t::setup_entry();
     offset_domain_t off = offset_domain_t::setup_entry();
-    type_domain_t typ(std::move(reg), std::move(off));
+    constant_prop_domain_t cp = constant_prop_domain_t::setup_entry();
+    type_domain_t typ(std::move(reg), std::move(off), std::move(cp));
     return typ;
 }
 
@@ -172,6 +185,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         dst_type = m_region.find_ptr_type(bin.dst.v);
     }
     m_region(bin, loc, print);
+    m_constant.do_bin(bin);
     m_offset.do_bin(bin, src_type, dst_type);
 }
 
@@ -180,6 +194,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     auto basereg_type = m_region.find_ptr_type(basereg.v);
 
     m_region.do_load(b, target_reg, loc, print);
+    m_constant.do_load(b, target_reg, basereg_type);
     m_offset.do_load(b, target_reg, basereg_type);
 }
 
@@ -189,6 +204,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     auto targetreg_type = m_region.find_ptr_type(target_reg.v);
 
     m_region.do_mem_store(b, target_reg, loc, print);
+    m_constant.do_mem_store(b, target_reg, basereg_type);
     m_offset.do_mem_store(b, target_reg, basereg_type, targetreg_type);
 }
 

@@ -123,12 +123,9 @@ class constant_prop_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
 
-  private:
-
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
     void do_bin(const Bin&);
     void print_initial_types();
-    void report_type_error(std::string, location_t);
 
 }; // end constant_prop_domain_t
