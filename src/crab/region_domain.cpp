@@ -10,7 +10,7 @@ using crab::ptr_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::ctx_t;
-using crab::global_type_env_t;
+using crab::global_region_env_t;
 using crab::reg_with_loc_t;
 using crab::live_registers_t;
 using crab::register_types_t;
@@ -224,15 +224,12 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
 {
     if (desc->data != -1) {
         m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region::T_PACKET);
-        //std::cout << "data at: " << desc->data << "\n";
     }
     if (desc->end != -1) {
         m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region::T_PACKET);
-        //std::cout << "end at: " << desc->end << "\n";
     }
     if (desc->meta != -1) {
         m_packet_ptrs[desc->meta] = crab::ptr_no_off_t(crab::region::T_PACKET);
-        //std::cout << "meta at: " << desc->meta << "\n";
     }
 }
 
@@ -261,7 +258,7 @@ std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
     if (typ.is_bottom())
         o << "_|_\n";
     else {
-        for (const auto& v : *(typ.m_reg_type_env)) {
+        for (const auto& v : *(typ.m_region_env)) {
             o << v.first << ": ";
             print_ptr_type(v.second);
             o << "\n";
@@ -286,6 +283,7 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
             if (pt1 == pt2) {
                 out_vars[i] = m_cur_def[i];
             }
+            // TODO
             //else if (std::holds_alternative<ptr_with_off_t>(pt1)
             //        && std::holds_alternative<ptr_with_off_t>(pt2)) {
             //    auto pt_with_off1 = std::get<ptr_with_off_t>(pt1);
@@ -294,10 +292,11 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
             //        //out_vars[i] = std::make_shared<ptr_no_off_t(pt_with_off1.get_region());
             //    }
             //}
+            //implement above the same for offset_domain
         }
     }
 
-    return register_types_t(std::move(out_vars), m_reg_type_env, false);
+    return register_types_t(std::move(out_vars), m_region_env, false);
 }
 
 void register_types_t::operator-=(register_t var) {
@@ -321,7 +320,7 @@ bool register_types_t::is_bottom() const { return m_is_bottom; }
 
 bool register_types_t::is_top() const {
     if (m_is_bottom) { return false; }
-    if (m_reg_type_env == nullptr) return true;
+    if (m_region_env == nullptr) return true;
     for (auto it : m_cur_def) {
         if (it != nullptr) return false;
     }
@@ -329,13 +328,13 @@ bool register_types_t::is_top() const {
 }
 
 void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
-    (*m_reg_type_env)[reg_with_loc] = type;
+    (*m_region_env)[reg_with_loc] = type;
     m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
 
 std::optional<ptr_t> register_types_t::find(reg_with_loc_t reg) const {
-    auto it = m_reg_type_env->find(reg);
-    if (it == m_reg_type_env->end()) return {};
+    auto it = m_region_env->find(reg);
+    if (it == m_region_env->end()) return {};
     return it->second;
 }
 
@@ -631,10 +630,9 @@ void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
 region_domain_t region_domain_t::setup_entry() {
 
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
-    std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
+    std::shared_ptr<global_region_env_t> all_types = std::make_shared<global_region_env_t>();
 
-    live_registers_t vars;
-    register_types_t typ(std::move(vars), all_types);
+    register_types_t typ(all_types);
 
     auto r1 = reg_with_loc_t(R1_ARG, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
     auto r10 = reg_with_loc_t(R10_STACK_POINTER, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));

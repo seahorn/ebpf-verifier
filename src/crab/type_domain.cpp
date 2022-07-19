@@ -189,7 +189,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     }
     m_region.do_bin(bin, src_const_value, loc, print);
     m_constant.do_bin(bin);
-    m_offset.do_bin(bin, src_const_value, src_type, dst_type);
+    m_offset.do_bin(bin, src_const_value, src_type, dst_type, loc, print);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
@@ -198,7 +198,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
     m_region.do_load(b, target_reg, loc, print);
     m_constant.do_load(b, target_reg, basereg_type);
-    m_offset.do_load(b, target_reg, basereg_type);
+    m_offset.do_load(b, target_reg, basereg_type, loc, print);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {

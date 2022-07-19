@@ -15,6 +15,7 @@
 using crab::ptr_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
+using crab::reg_with_loc_t;
 
 using constant_t = int;   // define a domain for constants
 //using symbol_t = register_t;    // a register with unknown value
@@ -57,26 +58,32 @@ struct forward_and_backward_eq_t {
     forward_and_backward_eq_t() = default;
 };  // represents constraint `p[0] = p[1];`, e.g., `begin+8+s = end`
 
-
-using register_dists_t = std::array<std::shared_ptr<dist_t>, 11>;        // represents `rn = dist;`, where n \belongs [0,10], e.g., `r1 = begin+8`
+using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
+using global_offset_env_t = std::unordered_map<reg_with_loc_t, dist_t>;
 
 class registers_state_t {
 
-    register_dists_t m_dists;
+    live_registers_t m_cur_def;
+    std::shared_ptr<global_offset_env_t> m_offset_env;
     bool m_is_bottom = false;
 
     public:
-        registers_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
-        std::shared_ptr<dist_t> get(register_t) const;
-        void set(register_t, std::shared_ptr<dist_t>);
+        registers_state_t(bool is_bottom = false) : m_offset_env(nullptr), m_is_bottom(is_bottom) {}
+        registers_state_t(std::shared_ptr<global_offset_env_t> offset_env, bool is_bottom = false) : m_offset_env(offset_env), m_is_bottom(is_bottom) {}
+        explicit registers_state_t(live_registers_t&& vars, std::shared_ptr<global_offset_env_t>
+                offset_env, bool is_bottom = false)
+            : m_cur_def(std::move(vars)), m_offset_env(std::move(offset_env)), m_is_bottom(is_bottom) {}
+
+        registers_state_t operator|(const registers_state_t&) const;
+        void operator-=(register_t);
         void set_to_top();
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
-        void operator-=(register_t);
-        registers_state_t operator|(const registers_state_t&) const;
-        explicit registers_state_t(register_dists_t&& reg_dists, bool is_bottom = false)
-            : m_dists(std::move(reg_dists)), m_is_bottom(is_bottom) {}
+        void insert(register_t, const reg_with_loc_t&, const dist_t&);
+        std::optional<dist_t> find(reg_with_loc_t reg) const;
+        std::optional<dist_t> find(register_t key) const;
+        friend std::ostream& operator<<(std::ostream& o, const registers_state_t& p);
 };
 
 class stack_state_t {
@@ -94,6 +101,7 @@ class stack_state_t {
         void set_to_bottom();
         bool is_bottom() const;
         bool is_top() const;
+        static stack_state_t top();
         stack_state_t operator|(const stack_state_t&) const;
         explicit stack_state_t(stack_slot_dists_t&& stack_dists, bool is_bottom = false)
             : m_slot_dists(std::move(stack_dists)), m_is_bottom(is_bottom) {}
@@ -146,9 +154,15 @@ class offset_domain_t final {
     offset_domain_t(const offset_domain_t& o) = default;
     offset_domain_t& operator=(offset_domain_t&& o) = default;
     offset_domain_t& operator=(const offset_domain_t& o) = default;
-    offset_domain_t(std::shared_ptr<ctx_t> _ctx) : m_ctx_dists(_ctx), m_slack(0) {}
-    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack, extra_constraints_t extra, std::shared_ptr<ctx_t> ctx, slack_var_t s = 0)
-        : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)), m_extra_constraints(std::move(extra)), m_ctx_dists(ctx), m_slack(s) {}
+    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack,
+            extra_constraints_t extra, std::shared_ptr<ctx_t> ctx, slack_var_t s = 0)
+        : m_reg_state(std::move(reg)), m_stack_state(std::move(stack)),
+        m_extra_constraints(std::move(extra)), m_ctx_dists(ctx), m_slack(s) {}
+
+    explicit offset_domain_t(registers_state_t&& reg, stack_state_t&& stack,
+            std::shared_ptr<ctx_t> ctx, slack_var_t s = 0) : m_reg_state(std::move(reg)),
+    m_stack_state(std::move(stack)), m_ctx_dists(ctx), m_slack(s) {}
+
     static offset_domain_t setup_entry();
     // bottom/top
     static offset_domain_t bottom();
@@ -200,9 +214,10 @@ class offset_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&, location_t loc, int print = 0);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
-    void do_bin(const Bin&, std::shared_ptr<int>, std::optional<ptr_t>, std::optional<ptr_t>);
+    void do_bin(const Bin&, std::shared_ptr<int>, std::optional<ptr_t>, std::optional<ptr_t>,
+            location_t, int print = 0);
     void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
 
     std::optional<dist_t> find_in_ctx(int) const;

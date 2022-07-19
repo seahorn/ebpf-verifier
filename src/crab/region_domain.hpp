@@ -119,17 +119,21 @@ class stack_t {
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using global_type_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
+using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
 class register_types_t {
+
     live_registers_t m_cur_def;
-    std::shared_ptr<global_type_env_t> m_reg_type_env;
+    std::shared_ptr<global_region_env_t> m_region_env;
     bool m_is_bottom = false;
 
   public:
-    register_types_t(bool is_bottom = false) : m_reg_type_env(nullptr), m_is_bottom(is_bottom) {}
-    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> reg_type_env, bool is_bottom = false)
-        : m_cur_def(std::move(vars)), m_reg_type_env(reg_type_env), m_is_bottom(is_bottom) {}
+    register_types_t(bool is_bottom = false) : m_region_env(nullptr), m_is_bottom(is_bottom) {}
+    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_region_env_t> reg_type_env, bool is_bottom = false)
+        : m_cur_def(std::move(vars)), m_region_env(reg_type_env), m_is_bottom(is_bottom) {}
+
+    explicit register_types_t(std::shared_ptr<global_region_env_t> reg_type_env, bool is_bottom = false)
+        : m_region_env(reg_type_env), m_is_bottom(is_bottom) {}
 
     register_types_t operator|(const register_types_t& other) const;
     void operator-=(register_t var);
