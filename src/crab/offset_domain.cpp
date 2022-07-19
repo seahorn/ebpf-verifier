@@ -10,6 +10,22 @@ bool dist_t::operator==(const dist_t& d) const {
     return (m_dist == d.m_dist && m_slack == d.m_slack);
 }
 
+void dist_t::write(std::ostream& o) const {
+    if (m_slack != -1)
+        o << "s" << m_slack << "+";
+    if (m_dist >= 0)
+        o << "begin+" << m_dist;
+    else if (m_dist == -1)
+        o << "meta";
+    else
+        o << "end-" << (-1)*m_dist-2;
+}
+
+std::ostream& operator<<(std::ostream& o, const dist_t& d) {
+    d.write(o);
+    return o;
+}
+
 std::shared_ptr<dist_t> registers_state_t::get(register_t reg) const {
     return m_dists[reg];
 }
@@ -280,8 +296,6 @@ std::string offset_domain_t::domain_name() const {
 int offset_domain_t::get_instruction_count_upper_bound() { return 0; }
 
 string_invariant offset_domain_t::to_set() { return string_invariant{}; }
-
-void offset_domain_t::set_require_check(check_require_func_t f) {}
 
 void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
     Condition cond = b.cond;
@@ -564,4 +578,12 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
 }
 
 void offset_domain_t::operator()(const Mem &b, location_t loc, int print) {
+}
+
+std::optional<dist_t> offset_domain_t::find_in_ctx(int key) const {
+    return m_ctx_dists->find(key);
+}
+
+std::optional<dist_t> offset_domain_t::find_in_stack(int key) const {
+    return m_stack_state.find(key);
 }

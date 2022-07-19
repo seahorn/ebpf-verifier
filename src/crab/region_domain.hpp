@@ -85,6 +85,8 @@ class ctx_t {
 
   public:
     ctx_t(const ebpf_context_descriptor_t* desc);
+    size_t size() const;
+    std::vector<int> get_keys() const;
     std::optional<ptr_no_off_t> find(int key) const;
     friend std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx);
 };
@@ -111,6 +113,8 @@ class stack_t {
     const offset_to_ptr_t &get_ptrs() { return m_ptrs; }
     void insert(int key, ptr_t value);
     std::optional<ptr_t> find(int key) const;
+    std::vector<int> get_keys() const;
+    size_t size() const;
     friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
 };
 
@@ -138,6 +142,7 @@ class register_types_t {
     std::optional<ptr_t> find(register_t key) const;
     const live_registers_t &get_vars() { return m_cur_def; }
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
+    void print_types_at(location_t) const;
 };
 
 }
@@ -204,20 +209,25 @@ class region_domain_t final {
     void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
-
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
-    void set_require_check(check_require_func_t f);
+    void set_require_check(check_require_func_t f) {}
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
     void do_bin(const Bin&, std::shared_ptr<int>, location_t, int print = 0);
-    void print_initial_types();
-    void report_type_error(std::string, location_t);
-    std::optional<crab::ptr_t> find_ptr_type(register_t);
     void check_type_constraint(const TypeConstraint&);
 
+    void report_type_error(std::string, location_t);
+    std::optional<crab::ptr_t> find_ptr_type(register_t);
+    size_t ctx_size() const;
+    std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
+    std::vector<int> get_ctx_keys() const;
+    std::optional<crab::ptr_t> find_in_stack(int key) const;
+    std::vector<int> get_stack_keys() const;
+    void print_registers_at(location_t) const;
+    void print_initial_types() const;
 }; // end region_domain_t

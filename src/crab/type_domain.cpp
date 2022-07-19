@@ -223,15 +223,100 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
     }
 }
 
+static void print_ptr_no_off_type(ptr_no_off_t ptr, std::optional<dist_t> dist) {
+    std::cout << ptr;
+    if (dist) {
+        std::cout << "<" << dist.value() << ">";
+    }
+}
+
+static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
+        std::cout << ptr_with_off;
+    }
+    else {
+        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
+        print_ptr_no_off_type(ptr_no_off, dist);
+    }
+}
+
+void type_domain_t::print_ctx() const {
+    std::vector<int> ctx_keys = m_region.get_ctx_keys();
+    std::cout << "ctx: {\n";
+    for (auto const k : ctx_keys) {
+        std::optional<ptr_t> ptr = m_region.find_in_ctx(k);
+        std::optional<dist_t> dist = m_offset.find_in_ctx(k);
+        if (ptr) {
+            std::cout << "  " << k << ": ";
+            print_ptr_type(ptr.value(), dist);
+            std::cout << ",\n";
+        }
+    }
+    std::cout << "}\n\n";
+}
+
+void type_domain_t::print_stack() const {
+    std::vector<int> stack_keys = m_region.get_stack_keys();
+    std::cout << "stack: {\n";
+    for (auto const k : stack_keys) {
+        std::optional<ptr_t> ptr = m_region.find_in_stack(k);
+        std::optional<dist_t> dist = m_offset.find_in_stack(k);
+        if (ptr) {
+            std::cout << "  " << k << ": ";
+            print_ptr_type(ptr.value(), dist);
+            std::cout << ",\n";
+        }
+    }
+    std::cout << "}\n\n";
+}
+
+void type_domain_t::print_initial_registers() const {
+    auto label = label_t::entry;
+    location_t loc = location_t(std::make_pair(label, 0));
+    std::cout << "Initial register types:\n";
+    m_region.print_registers_at(loc);
+}
+
+void type_domain_t::print_initial_types() const {
+    print_ctx();
+    print_stack();
+    print_initial_registers();
+}
+
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     auto label = bb.label();
     uint32_t curr_pos = 0;
     location_t loc;
+    if (print > 0) {
+        if (label == label_t::entry) {
+            print_initial_types();
+            m_is_bottom = false;
+        }
+        std::cout << label << ":\n";
+    }
+
     for (const Instruction& statement : bb) {
-        std::cout << statement << "\n";
         loc = location_t(std::make_pair(label, ++curr_pos));
+        if (print > 0) std::cout << " " << curr_pos << ".";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
     }
-}
 
-void type_domain_t::set_require_check(check_require_func_t f) {}
+    if (print > 0) {
+        auto [it, et] = bb.next_blocks();
+        if (it != et) {
+            std::cout << "  "
+            << "goto ";
+            for (; it != et;) {
+                std::cout << *it;
+                ++it;
+                if (it == et) {
+                    std::cout << ";";
+                } else {
+                    std::cout << ",";
+                }
+            }
+        }
+        std::cout << "\n\n";
+    }
+}

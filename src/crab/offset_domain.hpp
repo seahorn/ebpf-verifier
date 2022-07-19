@@ -35,6 +35,8 @@ struct dist_t {
     dist_t(weight_t d, slack_var_t s = -1) : m_slack(s), m_dist(d) {}
     dist_t() : m_slack(-1), m_dist(0) {}
     bool operator==(const dist_t& d) const;
+    void write(std::ostream&) const;
+    friend std::ostream& operator<<(std::ostream& o, const dist_t& d);
 };      // if dist is +ve, represents `begin+dist+slack;`, if dist is -ve, represents `end+dist+1`
 
 struct inequality_t {
@@ -196,10 +198,14 @@ class offset_domain_t final {
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
-    void set_require_check(check_require_func_t f);
+    void set_require_check(check_require_func_t f) {}
 
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>&);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
     void do_bin(const Bin&, std::shared_ptr<int>, std::optional<ptr_t>, std::optional<ptr_t>);
     void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
+
+    std::optional<dist_t> find_in_ctx(int) const;
+    std::optional<dist_t> find_in_stack(int) const;
+
 }; // end offset_domain_t

@@ -236,6 +236,20 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
     }
 }
 
+size_t ctx_t::size() const {
+    return m_packet_ptrs.size();
+}
+
+std::vector<int> ctx_t::get_keys() const {
+    std::vector<int> keys;
+    keys.reserve(size());
+
+    for (auto const&kv : m_packet_ptrs) {
+        keys.push_back(kv.first);
+    }
+    return keys;
+}
+
 std::optional<ptr_no_off_t> ctx_t::find(int key) const {
     auto it = m_packet_ptrs.find(key);
     if (it == m_packet_ptrs.end()) return {};
@@ -331,6 +345,19 @@ std::optional<ptr_t> register_types_t::find(register_t key) const {
     return find(reg);
 }
 
+void register_types_t::print_types_at(location_t loc) const {
+    for (size_t i = 0; i < m_cur_def.size(); i++) {
+        auto reg_with_loc = reg_with_loc_t(i, loc);
+        auto it = find(reg_with_loc);
+        if (it) {
+            std::cout << "  ";
+            print_type(i, it.value());
+            std::cout << "\n";
+        }
+    }
+    std::cout << "\n";
+}
+
 stack_t stack_t::operator|(const stack_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
@@ -378,6 +405,21 @@ void stack_t::insert(int key, ptr_t value) {
     m_ptrs[key] = value;
 }
 
+size_t stack_t::size() const {
+    return m_ptrs.size();
+}
+
+std::vector<int> stack_t::get_keys() const {
+    std::vector<int> keys;
+    keys.reserve(size());
+
+    for (auto const&kv : m_ptrs) {
+        keys.push_back(kv.first);
+    }
+    return keys;
+}
+
+
 std::optional<ptr_t> stack_t::find(int key) const {
     auto it = m_ptrs.find(key);
     if (it == m_ptrs.end()) return {};
@@ -413,6 +455,26 @@ void region_domain_t::set_to_bottom() {
 void region_domain_t::set_to_top() {
     m_stack.set_to_top();
     m_registers.set_to_top();
+}
+
+size_t region_domain_t::ctx_size() const {
+    return m_ctx->size();
+}
+
+std::vector<int> region_domain_t::get_ctx_keys() const {
+    return m_ctx->get_keys();
+}
+
+std::vector<int> region_domain_t::get_stack_keys() const {
+    return m_stack.get_keys();
+}
+
+std::optional<ptr_no_off_t> region_domain_t::find_in_ctx(int key) const {
+    return m_ctx->find(key);
+}
+
+std::optional<ptr_t> region_domain_t::find_in_stack(int key) const {
+    return m_stack.find(key);
 }
 
 bool region_domain_t::operator<=(const region_domain_t& abs) const {
@@ -960,28 +1022,17 @@ void region_domain_t::operator()(const Mem& b, location_t loc, int print) {
     }
 }
 
-void region_domain_t::print_initial_types() {
+void region_domain_t::print_registers_at(location_t loc) const {
+    m_registers.print_types_at(loc);
+}
+
+void region_domain_t::print_initial_types() const {
     auto label = label_t::entry;
     location_t loc = location_t(std::make_pair(label, 0));
     std::cout << "\n" << *m_ctx << "\n";
     std::cout << m_stack << "\n";
-
     std::cout << "Initial register types:\n";
-    auto r1_with_loc = reg_with_loc_t(R1_ARG, loc);
-    auto it = m_registers.find(r1_with_loc);
-    if (it) {
-        std::cout << "  ";
-        print_type(R1_ARG, it.value());
-        std::cout << "\n";
-    }
-    auto r10_with_loc = reg_with_loc_t(R10_STACK_POINTER, loc);
-    auto it2 = m_registers.find(r10_with_loc);
-    if (it2) {
-        std::cout << "  ";
-        print_type(R10_STACK_POINTER, it2.value());
-        std::cout << "\n";
-    }
-    std::cout << "\n";
+    print_registers_at(loc);
 }
 
 void region_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
@@ -1021,5 +1072,3 @@ void region_domain_t::operator()(const basic_block_t& bb, bool check_termination
         std::cout << "\n\n";
     }
 }
-
-void region_domain_t::set_require_check(check_require_func_t f) {}

@@ -79,13 +79,16 @@ class type_domain_t final {
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
-    void set_require_check(check_require_func_t f);
+    void set_require_check(check_require_func_t f) {}
 
   private:
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
-    void print_initial_types();
+    void print_initial_types() const;
     void report_type_error(std::string, location_t);
+    void print_ctx() const;
+    void print_stack() const;
+    void print_initial_registers() const;
 
 }; // end type_domain_t
