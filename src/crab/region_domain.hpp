@@ -89,6 +89,7 @@ class ctx_t {
     std::vector<int> get_keys() const;
     std::optional<ptr_no_off_t> find(int key) const;
     friend std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx);
+    void write(std::ostream&) const;
 };
 
 class stack_t {
@@ -116,6 +117,7 @@ class stack_t {
     std::vector<int> get_keys() const;
     size_t size() const;
     friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
+    void write(std::ostream&) const;
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
@@ -147,6 +149,7 @@ class register_types_t {
     const live_registers_t &get_vars() { return m_cur_def; }
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
     void print_types_at(location_t) const;
+    void write(std::ostream&) const;
 };
 
 }
@@ -220,9 +223,9 @@ class region_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, location_t, int print = 0);
-    void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
-    void do_bin(const Bin&, std::shared_ptr<int>, location_t, int print = 0);
+    void do_load(const Mem&, const Reg&, location_t);
+    void do_mem_store(const Mem&, const Reg&, location_t);
+    void do_bin(const Bin&, std::shared_ptr<int>, location_t);
     void check_type_constraint(const TypeConstraint&);
 
     void report_type_error(std::string, location_t);
@@ -231,6 +234,7 @@ class region_domain_t final {
     std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
     std::vector<int> get_ctx_keys() const;
     std::optional<crab::ptr_t> find_in_stack(int key) const;
+    std::optional<crab::ptr_t> find_in_registers(const crab::reg_with_loc_t&) const;
     std::vector<int> get_stack_keys() const;
     void print_registers_at(location_t) const;
     void print_initial_types() const;

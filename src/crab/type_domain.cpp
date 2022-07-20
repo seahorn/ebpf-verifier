@@ -5,6 +5,68 @@
 
 #include "crab/type_domain.hpp"
 
+static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
+
+static void print_ptr_no_off_type(ptr_no_off_t ptr, std::optional<dist_t> dist) {
+    std::cout << ptr;
+    if (dist) {
+        std::cout << "<" << dist.value() << ">";
+    }
+}
+
+static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
+        std::cout << ptr_with_off;
+    }
+    else {
+        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
+        print_ptr_no_off_type(ptr_no_off, dist);
+    }
+}
+
+static void print_register(register_t r, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+    std::cout << "r" << static_cast<unsigned int>(r);
+    if (p) {
+        std::cout << " : ";
+        print_ptr_type(p.value(), d);
+    }
+}
+
+static void print_annotated(Call const& call, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+    std::cout << "  ";
+    print_register(R0_RETURN_VALUE, p, d);
+    std::cout << " = " << call.name << ":" << call.func << "(...)\n";
+}
+
+static void print_annotated(Bin const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+    std::cout << "  ";
+    print_register(b.dst.v, p, d);
+    if (std::holds_alternative<Reg>(b.v)) {
+        if (b.op == Bin::Op::MOV)
+            std::cout << " = r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+        else if (b.op == Bin::Op::ADD)
+            std::cout << " += r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
+    }
+    else {
+        if (b.op == Bin::Op::ADD)
+            std::cout << " += " << static_cast<int>(std::get<Imm>(b.v).v) << ";";
+    }
+    std::cout << "\n";
+}
+
+static void print_annotated(Mem const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+    if (b.is_load) {
+        std::cout << "  ";
+        print_register(std::get<Reg>(b.value).v, p, d);
+        std::cout << " = ";
+    }
+    std::string sign = b.access.offset < 0 ? " - " : " + ";
+    int offset = std::abs(b.access.offset);
+    std::cout << "*(" << size(b.access.width) << " *)";
+    std::cout << "(" << b.access.basereg << sign << offset << ")\n";
+}
+
 bool type_domain_t::is_bottom() const {
     return m_is_bottom;
 }
@@ -71,14 +133,17 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 type_domain_t type_domain_t::widen(const type_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
     return other;
 }
 
@@ -90,6 +155,7 @@ std::string type_domain_t::domain_name() const {
 }
 
 int type_domain_t::get_instruction_count_upper_bound() {
+    /* WARNING: The operation is not implemented yet.*/
     return 0;
 }
 
@@ -99,57 +165,109 @@ string_invariant type_domain_t::to_set() {
 
 void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        register_t r0_reg{R0_RETURN_VALUE};
+        auto r0 = reg_with_loc_t(r0_reg, loc);
+        if (u.is_map_lookup) {
+            auto region = m_region.find_in_registers(r0);
+            auto offset = m_offset.find_in_registers(r0);
+            print_annotated(u, region, offset);
+        }
+        else
+            std::cout << "  " << u << ";\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
+
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
     if (is_bottom()) return;
-    m_region(u, loc, print);
-    m_offset(u, loc, print);
-    m_constant(u, loc, print);
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+    m_offset(u, loc);
+    m_constant(u, loc);
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
@@ -163,6 +281,10 @@ void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int prin
 
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
     if (is_bottom()) return;
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
@@ -177,6 +299,22 @@ type_domain_t type_domain_t::setup_entry() {
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
 
+    if (print > 0) {
+        auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
+        if ((std::holds_alternative<Reg>(bin.v)
+                    && (bin.op == Bin::Op::MOV || bin.op == Bin::Op::ADD))
+                || (std::holds_alternative<Imm>(bin.v) && bin.op == Bin::Op::ADD)) {
+
+                auto region = m_region.find_in_registers(reg_with_loc);
+                auto offset = m_offset.find_in_registers(reg_with_loc);
+                print_annotated(bin, region, offset);
+        }
+        else {
+            std::cout << "  " << bin << "\n";
+        }
+        return;
+    }
+
     std::optional<ptr_t> src_type, dst_type;
     std::shared_ptr<int> src_const_value;
     if (std::holds_alternative<Reg>(bin.v)) {
@@ -184,29 +322,42 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         src_type = m_region.find_ptr_type(r.v);
         src_const_value = m_constant.find_const_value(r.v);
     }
-    else {
-        dst_type = m_region.find_ptr_type(bin.dst.v);
-    }
-    m_region.do_bin(bin, src_const_value, loc, print);
+    dst_type = m_region.find_ptr_type(bin.dst.v);
+    m_region.do_bin(bin, {}, loc);
     m_constant.do_bin(bin);
-    m_offset.do_bin(bin, src_const_value, src_type, dst_type, loc, print);
+    m_offset.do_bin(bin, {}, src_type, dst_type, loc);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
+
+    if (print > 0) {
+        auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
+        auto region = m_region.find_in_registers(target_reg_loc);
+        auto offset = m_offset.find_in_registers(target_reg_loc);
+        print_annotated(b, region, offset);
+        return;
+    }
+
     Reg basereg = b.access.basereg;
     auto basereg_type = m_region.find_ptr_type(basereg.v);
 
-    m_region.do_load(b, target_reg, loc, print);
+    m_region.do_load(b, target_reg, loc);
     m_constant.do_load(b, target_reg, basereg_type);
-    m_offset.do_load(b, target_reg, basereg_type, loc, print);
+    m_offset.do_load(b, target_reg, basereg_type, loc);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
+
+    if (print > 0) {
+        std::cout << "  " << b << ";\n";
+        return;
+    }
+
     Reg basereg = b.access.basereg;
     auto basereg_type = m_region.find_ptr_type(basereg.v);
     auto targetreg_type = m_region.find_ptr_type(target_reg.v);
 
-    m_region.do_mem_store(b, target_reg, loc, print);
+    m_region.do_mem_store(b, target_reg, loc);
     m_constant.do_mem_store(b, target_reg, basereg_type);
     m_offset.do_mem_store(b, target_reg, basereg_type, targetreg_type);
 }
@@ -220,24 +371,12 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
         } else {
             do_mem_store(b, std::get<Reg>(b.value), loc, print);
         }
-    }
-}
-
-static void print_ptr_no_off_type(ptr_no_off_t ptr, std::optional<dist_t> dist) {
-    std::cout << ptr;
-    if (dist) {
-        std::cout << "<" << dist.value() << ">";
-    }
-}
-
-static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
-        std::cout << ptr_with_off;
-    }
-    else {
-        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
-        print_ptr_no_off_type(ptr_no_off, dist);
+    } else {
+        std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
+        std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
+        //report_type_error(desc, loc);
+        std::cout << desc;
+        return;
     }
 }
 
@@ -258,14 +397,15 @@ void type_domain_t::print_ctx() const {
 
 void type_domain_t::print_stack() const {
     std::vector<int> stack_keys = m_region.get_stack_keys();
-    std::cout << "stack: {\n";
+    std::cout << "stack: ";
+    std::cout << "{\n";
     for (auto const k : stack_keys) {
         std::optional<ptr_t> ptr = m_region.find_in_stack(k);
         std::optional<dist_t> dist = m_offset.find_in_stack(k);
         if (ptr) {
             std::cout << "  " << k << ": ";
             print_ptr_type(ptr.value(), dist);
-            std::cout << ",\n";
+            std::cout << ",";
         }
     }
     std::cout << "}\n\n";
@@ -298,15 +438,16 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
-        if (print > 0) std::cout << " " << curr_pos << ".";
+       if (print > 0)
+            std::cout << "   " << curr_pos << ".";
+            //if (print <= 0) std::cout << statement << "\n";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
     }
 
     if (print > 0) {
         auto [it, et] = bb.next_blocks();
         if (it != et) {
-            std::cout << "  "
-            << "goto ";
+            std::cout << "  " << "goto ";
             for (; it != et;) {
                 std::cout << *it;
                 ++it;

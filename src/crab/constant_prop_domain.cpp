@@ -46,7 +46,8 @@ registers_cp_state_t registers_cp_state_t::operator|(const registers_cp_state_t&
     }
     const_values_registers_t const_values_joined;
     for (size_t i = 0; i < m_const_values.size(); i++) {
-        if (m_const_values[i] == other.m_const_values[i]) {
+        if (m_const_values[i] && other.m_const_values[i] &&
+                m_const_values[i] == other.m_const_values[i]) {
             const_values_joined[i] = m_const_values[i];
         }
     }
@@ -177,14 +178,17 @@ constant_prop_domain_t constant_prop_domain_t::operator|(constant_prop_domain_t&
 }
 
 constant_prop_domain_t constant_prop_domain_t::operator&(const constant_prop_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 constant_prop_domain_t constant_prop_domain_t::widen(const constant_prop_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 constant_prop_domain_t constant_prop_domain_t::narrow(const constant_prop_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
     return other;
 }
 
@@ -195,6 +199,7 @@ std::string constant_prop_domain_t::domain_name() const {
 }
 
 int constant_prop_domain_t::get_instruction_count_upper_bound() {
+    /* WARNING: The operation is not implemented yet.*/
     return 0;
 }
 

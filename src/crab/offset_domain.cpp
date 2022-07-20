@@ -27,10 +27,10 @@ void dist_t::write(std::ostream& o) const {
         o << "s" << m_slack << "+";
     if (m_dist >= 0)
         o << "begin+" << m_dist;
-    else if (m_dist == -1)
+    else if (m_dist >= -4098)
         o << "meta";
     else
-        o << "end-" << (-1)*m_dist-2;
+        o << "end-" << (-1)*m_dist-4099;
 }
 
 std::ostream& operator<<(std::ostream& o, const dist_t& d) {
@@ -193,8 +193,8 @@ weight_t extra_constraints_t::get_limit() const {
 }
 
 void extra_constraints_t::normalize() {
-    weight_t dist_forw = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 2;
-    weight_t dist_backw = -2;
+    weight_t dist_forw = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 4099;
+    weight_t dist_backw = -4099;
     slack_var_t s = m_eq.m_forw.m_slack;
     dist_forw += m_ineq.m_value;
     weight_t ineq_val = 0;
@@ -213,7 +213,7 @@ extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& ot
     slack_var_t s = m_eq.m_forw.m_slack;
 
     dist_t f = dist_t(min(dist1, dist2), s);
-    dist_t b = dist_t(-2);
+    dist_t b = dist_t(-4099);
 
     forward_and_backward_eq_t out_eq(f, b);
     inequality_t out_ineq(s, m_ineq.m_rel, 0);
@@ -227,7 +227,7 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
         m_dists[desc->data] = dist_t(0);
     }
     if (desc->end != -1) {
-        m_dists[desc->end] = dist_t(-2);
+        m_dists[desc->end] = dist_t(-4099);
     }
     if (desc->meta != -1) {
         m_dists[desc->meta] = dist_t(-1);
@@ -317,13 +317,22 @@ offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
 }
 
 // meet
-offset_domain_t offset_domain_t::operator&(const offset_domain_t& other) const { return other; }
+offset_domain_t offset_domain_t::operator&(const offset_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
+    return other;
+}
 
 // widening
-offset_domain_t offset_domain_t::widen(const offset_domain_t& other) const { return other; }
+offset_domain_t offset_domain_t::widen(const offset_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
+    return other;
+}
 
 // narrowing
-offset_domain_t offset_domain_t::narrow(const offset_domain_t& other) const { return other; }
+offset_domain_t offset_domain_t::narrow(const offset_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
+    return other;
+}
 
 //forget
 void offset_domain_t::operator-=(variable_t var) {}
@@ -334,7 +343,10 @@ std::string offset_domain_t::domain_name() const {
     return "offset_domain";
 }
 
-int offset_domain_t::get_instruction_count_upper_bound() { return 0; }
+int offset_domain_t::get_instruction_count_upper_bound() {
+    /* WARNING: The operation is not implemented yet.*/
+    return 0;
+}
 
 string_invariant offset_domain_t::to_set() { return string_invariant{}; }
 
@@ -392,8 +404,7 @@ bool is_stack_pointer(std::optional<ptr_t>& type) {
 }
 
 void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_value,
-        std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type, location_t loc,
-        int print) {
+        std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type, location_t loc) {
     if (is_bottom()) return;
 
     auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
@@ -435,9 +446,9 @@ void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_valu
                     if (dst_dist.m_dist >= 0) {
                         updated_dist = dst_dist.m_dist + (*src_const_value);
                     }
-                    else if (dst_dist.m_dist == -1) {
+                    else if (dst_dist.m_dist >= -4098) {
                         // TODO: special handling of meta pointer required
-                        updated_dist = dst_dist.m_dist + (*src_const_value);
+                        updated_dist = dst_dist.m_dist - (*src_const_value);
                     }
                     else {
                         updated_dist = dst_dist.m_dist - (*src_const_value);
@@ -478,9 +489,9 @@ void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_valu
                 if (dst_dist.m_dist >= 0) {
                     updated_dist = dst_dist.m_dist + imm;
                 }
-                else if (dst_dist.m_dist == -1) {
+                else if (dst_dist.m_dist >= -4098) {
                     // TODO: special handling of meta pointer required
-                    updated_dist = dst_dist.m_dist + imm;
+                    updated_dist = dst_dist.m_dist - imm;
                 }
                 else {
                     updated_dist = dst_dist.m_dist - imm;
@@ -499,7 +510,7 @@ void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_valu
 }
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
-    do_bin(bin, nullptr, {}, {}, loc, print);
+    do_bin(bin, nullptr, {}, {}, loc);
 }
 
 void offset_domain_t::operator()(const Undefined &, location_t loc, int print) {}
@@ -544,6 +555,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
                 int limit = m_extra_constraints.get_limit();
                 if (it) {
                     dist_t dist = it.value();
+                    // TODO: handle meta and end pointers separately
                     if (dist.m_dist >= PACKET_BEGIN && dist.m_dist+w <= limit) return;
                 }
             }
@@ -592,7 +604,7 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::opt
     else {}  // in the rest cases, we do not store
 }
 
-void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& basereg_type, location_t loc, int print) {
+void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& basereg_type, location_t loc) {
     if (!basereg_type) {
         m_reg_state -= target_reg.v;
         return;
@@ -634,6 +646,10 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
 }
 
 void offset_domain_t::operator()(const Mem &b, location_t loc, int print) {
+}
+
+std::optional<dist_t> offset_domain_t::find_in_registers(const reg_with_loc_t reg) const {
+    return m_reg_state.find(reg);
 }
 
 std::optional<dist_t> offset_domain_t::find_in_ctx(int key) const {

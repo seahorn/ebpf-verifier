@@ -214,13 +214,14 @@ class offset_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&, location_t loc, int print = 0);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&, location_t loc);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
     void do_bin(const Bin&, std::shared_ptr<int>, std::optional<ptr_t>, std::optional<ptr_t>,
-            location_t, int print = 0);
+            location_t);
     void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
 
     std::optional<dist_t> find_in_ctx(int) const;
     std::optional<dist_t> find_in_stack(int) const;
+    std::optional<dist_t> find_in_registers(const reg_with_loc_t) const;
 
 }; // end offset_domain_t
