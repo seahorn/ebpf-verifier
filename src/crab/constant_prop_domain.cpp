@@ -167,6 +167,10 @@ std::optional<int> constant_prop_domain_t::find_const_value(register_t reg) cons
     return m_registers_const_values.find(reg);
 }
 
+std::optional<int> constant_prop_domain_t::find_in_registers(const reg_with_loc_t reg) const {
+    return m_registers_const_values.find(reg);
+}
+
 bool constant_prop_domain_t::operator<=(const constant_prop_domain_t& abs) const {
     /* WARNING: The operation is not implemented yet.*/
     return true;

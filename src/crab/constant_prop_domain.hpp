@@ -138,6 +138,7 @@ class constant_prop_domain_t final {
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
     void do_bin(const Bin&, location_t);
     std::optional<int> find_const_value(register_t) const;
+    std::optional<int> find_in_registers(const reg_with_loc_t reg) const;
     void print_initial_types();
 
 }; // end constant_prop_domain_t

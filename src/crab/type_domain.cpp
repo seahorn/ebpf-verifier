@@ -25,40 +25,43 @@ static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
     }
 }
 
-static void print_register(register_t r, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
-    std::cout << "r" << static_cast<unsigned int>(r);
-    if (p) {
-        std::cout << " : ";
-        print_ptr_type(p.value(), d);
+static void print_number(std::optional<int>& num) {
+    std::cout << "number";
+    if (num) {
+        std::cout << "<" << num.value() << ">";
     }
 }
 
-static void print_annotated(Call const& call, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+static void print_register(Reg r, std::optional<ptr_t>& p, std::optional<dist_t>& d,
+        std::optional<int>& n) {
+    std::cout << r << " : ";
+    if (p) {
+        print_ptr_type(p.value(), d);
+    }
+    else {
+        print_number(n);
+    }
+}
+
+static void print_annotated(Call const& call, std::optional<ptr_t>& p, std::optional<dist_t>& d,
+        std::optional<int>& n) {
     std::cout << "  ";
-    print_register(R0_RETURN_VALUE, p, d);
+    print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p, d, n);
     std::cout << " = " << call.name << ":" << call.func << "(...)\n";
 }
 
-static void print_annotated(Bin const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+static void print_annotated(Bin const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d,
+        std::optional<int>& n) {
     std::cout << "  ";
-    print_register(b.dst.v, p, d);
-    if (std::holds_alternative<Reg>(b.v)) {
-        if (b.op == Bin::Op::MOV)
-            std::cout << " = r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
-        else if (b.op == Bin::Op::ADD)
-            std::cout << " += r" << static_cast<unsigned int>(std::get<Reg>(b.v).v) << ";";
-    }
-    else {
-        if (b.op == Bin::Op::ADD)
-            std::cout << " += " << static_cast<int>(std::get<Imm>(b.v).v) << ";";
-    }
-    std::cout << "\n";
+    print_register(b.dst, p, d, n);
+    std::cout << " " << b.op << "= " << b.v << ";\n";
 }
 
-static void print_annotated(Mem const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d) {
+static void print_annotated(Mem const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d,
+        std::optional<int>& n) {
     if (b.is_load) {
         std::cout << "  ";
-        print_register(std::get<Reg>(b.value).v, p, d);
+        print_register(std::get<Reg>(b.value), p, d, n);
         std::cout << " = ";
     }
     std::string sign = b.access.offset < 0 ? " - " : " + ";
@@ -201,13 +204,10 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (print > 0) {
         register_t r0_reg{R0_RETURN_VALUE};
         auto r0 = reg_with_loc_t(r0_reg, loc);
-        if (u.is_map_lookup) {
-            auto region = m_region.find_in_registers(r0);
-            auto offset = m_offset.find_in_registers(r0);
-            print_annotated(u, region, offset);
-        }
-        else
-            std::cout << "  " << u << ";\n";
+        auto region = m_region.find_in_registers(r0);
+        auto offset = m_offset.find_in_registers(r0);
+        auto constant = m_constant.find_in_registers(r0);
+        print_annotated(u, region, offset, constant);
         return;
     }
     m_region(u, loc);
@@ -301,17 +301,10 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
 
     if (print > 0) {
         auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-        if ((std::holds_alternative<Reg>(bin.v)
-                    && (bin.op == Bin::Op::MOV || bin.op == Bin::Op::ADD))
-                || (std::holds_alternative<Imm>(bin.v) && bin.op == Bin::Op::ADD)) {
-
-                auto region = m_region.find_in_registers(reg_with_loc);
-                auto offset = m_offset.find_in_registers(reg_with_loc);
-                print_annotated(bin, region, offset);
-        }
-        else {
-            std::cout << "  " << bin << "\n";
-        }
+        auto region = m_region.find_in_registers(reg_with_loc);
+        auto offset = m_offset.find_in_registers(reg_with_loc);
+        auto constant = m_constant.find_in_registers(reg_with_loc);
+        print_annotated(bin, region, offset, constant);
         return;
     }
 
@@ -334,7 +327,8 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
         auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
         auto region = m_region.find_in_registers(target_reg_loc);
         auto offset = m_offset.find_in_registers(target_reg_loc);
-        print_annotated(b, region, offset);
+        auto constant = m_constant.find_in_registers(target_reg_loc);
+        print_annotated(b, region, offset, constant);
         return;
     }
 
