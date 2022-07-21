@@ -316,16 +316,16 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     }
 
     std::optional<ptr_t> src_type, dst_type;
-    std::shared_ptr<int> src_const_value;
+    std::optional<int> src_const_value;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg r = std::get<Reg>(bin.v);
         src_type = m_region.find_ptr_type(r.v);
         src_const_value = m_constant.find_const_value(r.v);
     }
     dst_type = m_region.find_ptr_type(bin.dst.v);
-    m_region.do_bin(bin, {}, loc);
-    m_constant.do_bin(bin);
-    m_offset.do_bin(bin, {}, src_type, dst_type, loc);
+    m_region.do_bin(bin, src_const_value, loc);
+    m_constant.do_bin(bin, loc);
+    m_offset.do_bin(bin, src_const_value, src_type, dst_type, loc);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
@@ -342,7 +342,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     auto basereg_type = m_region.find_ptr_type(basereg.v);
 
     m_region.do_load(b, target_reg, loc);
-    m_constant.do_load(b, target_reg, basereg_type);
+    m_constant.do_load(b, target_reg, basereg_type, loc);
     m_offset.do_load(b, target_reg, basereg_type, loc);
 }
 
@@ -438,9 +438,9 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
-       if (print > 0)
+        if (print > 0)
             std::cout << "   " << curr_pos << ".";
-            //if (print <= 0) std::cout << statement << "\n";
+        //if (print <= 0) std::cout << statement << "\n";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
     }
 

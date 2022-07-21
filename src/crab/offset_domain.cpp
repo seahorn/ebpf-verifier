@@ -403,7 +403,7 @@ bool is_stack_pointer(std::optional<ptr_t>& type) {
     return false;
 }
 
-void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_value,
+void offset_domain_t::do_bin(const Bin &bin, std::optional<int> src_const_value,
         std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type, location_t loc) {
     if (is_bottom()) return;
 
@@ -444,14 +444,14 @@ void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_valu
                 if (src_const_value) {
                     weight_t updated_dist;
                     if (dst_dist.m_dist >= 0) {
-                        updated_dist = dst_dist.m_dist + (*src_const_value);
+                        updated_dist = dst_dist.m_dist + src_const_value.value();
                     }
                     else if (dst_dist.m_dist >= -4098) {
                         // TODO: special handling of meta pointer required
-                        updated_dist = dst_dist.m_dist - (*src_const_value);
+                        updated_dist = dst_dist.m_dist - src_const_value.value();
                     }
                     else {
-                        updated_dist = dst_dist.m_dist - (*src_const_value);
+                        updated_dist = dst_dist.m_dist - src_const_value.value();
                     }
                     m_reg_state.insert(bin.dst.v, reg_with_loc, dist_t(updated_dist));
                     //std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
@@ -510,7 +510,7 @@ void offset_domain_t::do_bin(const Bin &bin, std::shared_ptr<int> src_const_valu
 }
 
 void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
-    do_bin(bin, nullptr, {}, {}, loc);
+    do_bin(bin, {}, {}, {}, loc);
 }
 
 void offset_domain_t::operator()(const Undefined &, location_t loc, int print) {}

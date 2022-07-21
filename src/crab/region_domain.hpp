@@ -131,10 +131,12 @@ class register_types_t {
 
   public:
     register_types_t(bool is_bottom = false) : m_region_env(nullptr), m_is_bottom(is_bottom) {}
-    explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_region_env_t> reg_type_env, bool is_bottom = false)
+    explicit register_types_t(live_registers_t&& vars,
+            std::shared_ptr<global_region_env_t> reg_type_env, bool is_bottom = false)
         : m_cur_def(std::move(vars)), m_region_env(reg_type_env), m_is_bottom(is_bottom) {}
 
-    explicit register_types_t(std::shared_ptr<global_region_env_t> reg_type_env, bool is_bottom = false)
+    explicit register_types_t(std::shared_ptr<global_region_env_t> reg_type_env,
+            bool is_bottom = false)
         : m_region_env(reg_type_env), m_is_bottom(is_bottom) {}
 
     register_types_t operator|(const register_types_t& other) const;
@@ -225,7 +227,7 @@ class region_domain_t final {
 
     void do_load(const Mem&, const Reg&, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
-    void do_bin(const Bin&, std::shared_ptr<int>, location_t);
+    void do_bin(const Bin&, std::optional<int>, location_t);
     void check_type_constraint(const TypeConstraint&);
 
     void report_type_error(std::string, location_t);

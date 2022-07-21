@@ -14,11 +14,15 @@
 using crab::ptr_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
+using crab::reg_with_loc_t;
+
+using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
+using global_constant_env_t = std::unordered_map<reg_with_loc_t, int>;
 
 class registers_cp_state_t {
-    using const_values_registers_t = std::array<std::shared_ptr<int>, 11>;
 
-    const_values_registers_t m_const_values;
+    live_registers_t m_cur_def;
+    std::shared_ptr<global_constant_env_t> m_constant_env;
     bool m_is_bottom = false;
 
     public:
@@ -26,14 +30,20 @@ class registers_cp_state_t {
         bool is_top() const;
         void set_to_bottom();
         void set_to_top();
-        std::shared_ptr<int> get(register_t) const;
-        void set(register_t, std::shared_ptr<int>);
+        std::optional<int> find(reg_with_loc_t reg) const;
+        std::optional<int> find(register_t key) const;
+        void insert(register_t, const reg_with_loc_t&, int);
         void operator-=(register_t);
         registers_cp_state_t operator|(const registers_cp_state_t& other) const;
-        registers_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
-        explicit registers_cp_state_t(const_values_registers_t&& const_values, bool is_bottom = false)
-            : m_const_values(std::move(const_values)), m_is_bottom(is_bottom) {}
-        void print_all_consts();
+        registers_cp_state_t(bool is_bottom = false) : m_constant_env(nullptr),
+            m_is_bottom(is_bottom) {}
+        explicit registers_cp_state_t(live_registers_t&& vars,
+                std::shared_ptr<global_constant_env_t> constant_env, bool is_bottom = false)
+            : m_cur_def(std::move(vars)), m_constant_env(constant_env), m_is_bottom(is_bottom) {}
+        explicit registers_cp_state_t(std::shared_ptr<global_constant_env_t> constant_env,
+                bool is_bottom = false)
+            : m_constant_env(constant_env), m_is_bottom(is_bottom) {}
+        //void print_all_consts();
 };
 
 class stack_cp_state_t {
@@ -47,6 +57,7 @@ class stack_cp_state_t {
         bool is_top() const;
         void set_to_bottom();
         void set_to_top();
+        static stack_cp_state_t top();
         std::optional<int> find(int) const;
         void store(int, int);
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
@@ -123,10 +134,10 @@ class constant_prop_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_t>);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
-    void do_bin(const Bin&);
-    std::shared_ptr<int> find_const_value(register_t) const;
+    void do_bin(const Bin&, location_t);
+    std::optional<int> find_const_value(register_t) const;
     void print_initial_types();
 
 }; // end constant_prop_domain_t

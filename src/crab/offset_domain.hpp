@@ -216,7 +216,7 @@ class offset_domain_t final {
 
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>&, location_t loc);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
-    void do_bin(const Bin&, std::shared_ptr<int>, std::optional<ptr_t>, std::optional<ptr_t>,
+    void do_bin(const Bin&, std::optional<int>, std::optional<ptr_t>, std::optional<ptr_t>,
             location_t);
     void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
 

@@ -5,20 +5,28 @@
 
 #include "crab/constant_prop_domain.hpp"
 
+namespace std {
+    template <>
+    struct hash<crab::reg_with_loc_t> {
+        size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
+    };
+}
+
 bool registers_cp_state_t::is_bottom() const {
     return m_is_bottom;
 }
 
 bool registers_cp_state_t::is_top() const {
     if (m_is_bottom) return false;
-    for (auto it : m_const_values) {
+    if (m_constant_env == nullptr) return true;
+    for (auto it : m_cur_def) {
         if (it != nullptr) return false;
     }
     return true;
 }
 
 void registers_cp_state_t::set_to_top() {
-    m_const_values = const_values_registers_t{nullptr};
+    m_cur_def = live_registers_t{nullptr};
     m_is_bottom = false;
 }
 
@@ -26,16 +34,22 @@ void registers_cp_state_t::set_to_bottom() {
     m_is_bottom = true;
 }
 
-std::shared_ptr<int> registers_cp_state_t::get(register_t reg) const {
-    return m_const_values[reg];
+void registers_cp_state_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc,
+        int constant) {
+    (*m_constant_env)[reg_with_loc] = constant;
+    m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
 
-void registers_cp_state_t::set(register_t reg, std::shared_ptr<int> cv) {
-    m_const_values[reg] = cv;
+std::optional<int> registers_cp_state_t::find(reg_with_loc_t reg) const {
+    auto it = m_constant_env->find(reg);
+    if (it == m_constant_env->end()) return {};
+    return it->second;
 }
 
-void registers_cp_state_t::operator-=(register_t to_forget) {
-    set(to_forget, nullptr);
+std::optional<int> registers_cp_state_t::find(register_t key) const {
+    if (m_cur_def[key] == nullptr) return {};
+    const reg_with_loc_t& reg = *(m_cur_def[key]);
+    return find(reg);
 }
 
 registers_cp_state_t registers_cp_state_t::operator|(const registers_cp_state_t& other) const {
@@ -44,24 +58,36 @@ registers_cp_state_t registers_cp_state_t::operator|(const registers_cp_state_t&
     } else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    const_values_registers_t const_values_joined;
-    for (size_t i = 0; i < m_const_values.size(); i++) {
-        if (m_const_values[i] && other.m_const_values[i] &&
-                m_const_values[i] == other.m_const_values[i]) {
-            const_values_joined[i] = m_const_values[i];
+    live_registers_t consts_joined;
+    for (size_t i = 0; i < m_cur_def.size(); i++) {
+        if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
+        auto it1 = find(*(m_cur_def[i]));
+        auto it2 = other.find(*(other.m_cur_def[i]));
+        if (it1 && it2) {
+            int const1 = it1.value(), const2 = it2.value();
+            if (const1 == const2) {
+                consts_joined[i] = m_cur_def[i];
+            }
         }
     }
-    return registers_cp_state_t(std::move(const_values_joined));
+    return registers_cp_state_t(std::move(consts_joined), m_constant_env);
 }
 
-void registers_cp_state_t::print_all_consts() {
-    std::cout << "\nprinting all constant values: \n";
-    for (size_t i = 0; i < m_const_values.size(); i++) {
-        if (m_const_values[i]) {
-            std::cout << "r" << i << " = " << *m_const_values[i] << "\n";
-        }
+//void registers_cp_state_t::print_all_consts() {
+//    std::cout << "\nprinting all constant values: \n";
+//    for (size_t i = 0; i < m_cur_def.size(); i++) {
+//        if (m_cur_def[i]) {
+//            std::cout << "r" << i << " = " << *m_cur_def[i] << "\n";
+//        }
+//    }
+//    std::cout << "==============================\n\n";
+//}
+
+void registers_cp_state_t::operator-=(register_t var) {
+    if (is_bottom()) {
+        return;
     }
-    std::cout << "==============================\n\n";
+    m_cur_def[var] = nullptr;
 }
 
 bool stack_cp_state_t::is_bottom() const {
@@ -80,6 +106,10 @@ void stack_cp_state_t::set_to_top() {
 
 void stack_cp_state_t::set_to_bottom() {
     m_is_bottom = true;
+}
+
+stack_cp_state_t stack_cp_state_t::top() {
+    return stack_cp_state_t(false);
 }
 
 std::optional<int> stack_cp_state_t::find(int key) const {
@@ -133,8 +163,8 @@ void constant_prop_domain_t::set_to_top() {
 }
 
 
-std::shared_ptr<int> constant_prop_domain_t::find_const_value(register_t reg) const {
-    return m_registers_const_values.get(reg);
+std::optional<int> constant_prop_domain_t::find_const_value(register_t reg) const {
+    return m_registers_const_values.find(reg);
 }
 
 bool constant_prop_domain_t::operator<=(const constant_prop_domain_t& abs) const {
@@ -234,110 +264,114 @@ void constant_prop_domain_t::operator()(const Assert &u, location_t loc, int pri
 }
 
 constant_prop_domain_t constant_prop_domain_t::setup_entry() {
-    constant_prop_domain_t typ;
-    return typ;
+    std::shared_ptr<global_constant_env_t> all_constants = std::make_shared<global_constant_env_t>();
+    registers_cp_state_t registers(all_constants);
+
+    constant_prop_domain_t cp(std::move(registers), stack_cp_state_t::top());
+    return cp;
 }
 
-void constant_prop_domain_t::do_bin(const Bin& bin) {
-    auto dstV = m_registers_const_values.get(bin.dst.v);
-    std::shared_ptr<int> updatedDstV = nullptr;
+void constant_prop_domain_t::do_bin(const Bin& bin, location_t loc) {
+    auto dst_v = m_registers_const_values.find(bin.dst.v);
+    std::optional<int> updated_dst_const = {};
 
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
-        auto srcV = m_registers_const_values.get(src.v);
+        auto src_v = m_registers_const_values.find(src.v);
 
-        if (!srcV) {
-            m_registers_const_values -= bin.dst.v;
+        if (!src_v) {
+            m_registers_const_values -= bin.dst.v;;
             return;
         }
 
+        auto src_const = src_v.value();
         switch (bin.op)
         {
             // ra = rb;
             case Bin::Op::MOV: {
-                updatedDstV = srcV;
+                updated_dst_const = src_const;
                 break;
             }
             // ra += rb
             case Bin::Op::ADD: {
                 // both ra and rb are numbers, so handle here
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) + (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() + src_const;
                 }
                 break;
             }
             // ra -= rb
             case Bin::Op::SUB: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) - (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() - src_const;
                 }
                 break;
             }
             // ra *= rb
             case Bin::Op::MUL: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) * (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() * src_const;
                 }
                 break;
             }
             // ra /= rb
             case Bin::Op::DIV: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) / (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() / src_const;
                 }
                 break;
             }
             // ra %= rb
             case Bin::Op::MOD: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) % (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() % src_const;
                 }
                 break;
             }
             // ra |= rb
             case Bin::Op::OR: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) | (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() | src_const;
                 }
                 break;
             }
             // ra &= rb
             case Bin::Op::AND: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) & (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() & src_const;
                 }
                 break;
             }
             // ra <<= rb
             case Bin::Op::LSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) << (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() << src_const;
                 }
                 break;
             }
             // ra >>= rb
             case Bin::Op::RSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) >> (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() >> src_const;
                 }
                 break;
             }
             // ra >>>= rb
             case Bin::Op::ARSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((int64_t)(*dstV) >> (*srcV));
+                if (dst_v) {
+                    updated_dst_const = (int64_t)dst_v.value() >> src_const;
                 }
                 break;
             }
             // ra ^= rb
             case Bin::Op::XOR: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) ^ (*srcV));
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() ^ src_const;
                 }
                 break;
             }
         }
-        //std::cout << "value of vb: " << *srcV << "\n";
+        //std::cout << "value of vb: " << *src_const << "\n";
     }
     else {
         int imm = static_cast<int>(std::get<Imm>(bin.v).v);
@@ -345,99 +379,99 @@ void constant_prop_domain_t::do_bin(const Bin& bin) {
         {
             // ra = c, where c is a constant
             case Bin::Op::MOV: {
-                updatedDstV = std::make_shared<int>(imm);
+                updated_dst_const = imm;
                 break;
             }
             // ra += c, where c is a constant
             case Bin::Op::ADD: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) + imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() + imm;
                 }
                 break;
             }
             // ra -= c
             case Bin::Op::SUB: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) - imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() - imm;
                 }
                 break;
             }
             // ra *= c
             case Bin::Op::MUL: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) * imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() * imm;
                 }
                 break;
             }
             // ra /= c
             case Bin::Op::DIV: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) / imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() / imm;
                 }
                 break;
             }
             // ra %= c
             case Bin::Op::MOD: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) % imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() % imm;
                 }
                 break;
             }
             // ra |= c
             case Bin::Op::OR: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) | imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() | imm;
                 }
                 break;
             }
             // ra &= c
             case Bin::Op::AND: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) & imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() & imm;
                 }
                 break;
             }
             // ra <<= c
             case Bin::Op::LSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) << imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() << imm;
                 }
                 break;
             }
             // ra >>= c
             case Bin::Op::RSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) >> imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() >> imm;
                 }
                 break;
             }
             // ra >>>= c
             case Bin::Op::ARSH: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((int64_t)(*dstV) >> imm);
+                if (dst_v) {
+                    updated_dst_const = (int64_t)dst_v.value() >> imm;
                 }
                 break;
             }
             // ra ^= c
             case Bin::Op::XOR: {
-                if (dstV) {
-                    updatedDstV = std::make_shared<int>((*dstV) ^ imm);
+                if (dst_v) {
+                    updated_dst_const = dst_v.value() ^ imm;
                 }
                 break;
             }
          }
     }
-    m_registers_const_values.set(bin.dst.v, updatedDstV);
-    //if (updatedDstV)
-    //    std::cout << "new value of va: " << *updatedDstV << "\n";
+    auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
+    if (updated_dst_const)
+        m_registers_const_values.insert(bin.dst.v, reg_with_loc, updated_dst_const.value());
 }
 
 void constant_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (is_bottom()) return;
-    do_bin(bin);
+    do_bin(bin, loc);
 }
 
-void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t> basereg_type) {
+void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t> basereg_type, location_t loc) {
     if (!basereg_type) {
         m_registers_const_values -= target_reg.v;
         return;
@@ -446,6 +480,7 @@ void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::o
     ptr_t basereg_ptr_type = basereg_type.value();
     int offset = b.access.offset;
 
+    auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
         int to_load = p_with_off.get_offset() + offset;
@@ -456,7 +491,7 @@ void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::o
                 m_registers_const_values -= target_reg.v;
                 return;
             }
-            m_registers_const_values.set(target_reg.v, std::make_shared<int>(it.value()));
+            m_registers_const_values.insert(target_reg.v, reg_with_loc, it.value());
         }
         else {
             m_registers_const_values -= target_reg.v;
@@ -478,9 +513,9 @@ void constant_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, s
         auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_type);
         int store_at = basereg_ptr_with_off_type.get_offset() + offset;
         if (basereg_ptr_with_off_type.get_region() == crab::region::T_STACK) {
-            auto it = m_registers_const_values.get(target_reg.v);
+            auto it = m_registers_const_values.find(target_reg.v);
             if (it) {
-                m_stack_slots_const_values.store(store_at, *it);
+                m_stack_slots_const_values.store(store_at, it.value());
             }
         }
     }
@@ -492,7 +527,7 @@ void constant_prop_domain_t::operator()(const Mem& b, location_t loc, int print)
 
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), {});
+            do_load(b, std::get<Reg>(b.value), {}, loc);
         } else {
             do_mem_store(b, std::get<Reg>(b.value), {});
         }

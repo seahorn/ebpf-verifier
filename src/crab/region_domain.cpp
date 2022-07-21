@@ -290,7 +290,6 @@ void register_types_t::operator-=(register_t var) {
 }
 
 void register_types_t::set_to_bottom() {
-    m_cur_def = live_registers_t{nullptr};
     m_is_bottom = true;
 }
 
@@ -310,7 +309,8 @@ bool register_types_t::is_top() const {
     return true;
 }
 
-void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
+void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc,
+        const ptr_t& type) {
     (*m_region_env)[reg_with_loc] = type;
     m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
@@ -686,7 +686,7 @@ void region_domain_t::check_type_constraint(const TypeConstraint& s) {
     //exit(1);
 }
 
-void region_domain_t::do_bin(const Bin& bin, std::shared_ptr<int> src_const_value, location_t loc) {
+void region_domain_t::do_bin(const Bin& bin, std::optional<int> src_const_value, location_t loc) {
     ptr_t dst_reg;
     if (bin.op == Bin::Op::ADD) {
         auto it = m_registers.find(bin.dst.v);
@@ -727,7 +727,7 @@ void region_domain_t::do_bin(const Bin& bin, std::shared_ptr<int> src_const_valu
                     ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
                     if (dst_reg_with_off.get_region() == crab::region::T_STACK) {
                         if (src_const_value) {
-                            int updated_offset = dst_reg_with_off.get_offset()+(*src_const_value);
+                            int updated_offset = dst_reg_with_off.get_offset()+src_const_value.value();
                             dst_reg_with_off.set_offset(updated_offset);
                             auto reg = reg_with_loc_t(bin.dst.v, loc);
                             m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
@@ -781,7 +781,7 @@ void region_domain_t::do_bin(const Bin& bin, std::shared_ptr<int> src_const_valu
 }
 
 void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    do_bin(bin, nullptr, loc);
+    do_bin(bin, {}, loc);
 }
 
 void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
