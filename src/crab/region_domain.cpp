@@ -535,17 +535,14 @@ string_invariant region_domain_t::to_set() {
 }
 
 void region_domain_t::operator()(const Undefined & u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
 void region_domain_t::operator()(const Un &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
 void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << ";\n";
         return;
@@ -553,7 +550,6 @@ void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) 
     m_registers -= u.dst.v;
 }
 void region_domain_t::operator()(const Call &u, location_t loc, int print) {
-    if (is_bottom()) return;
     register_t r0_reg{R0_RETURN_VALUE};
     auto r0 = reg_with_loc_t(r0_reg, loc);
     if (u.is_map_lookup) {
@@ -565,17 +561,14 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
     }
 }
 void region_domain_t::operator()(const Exit &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
 void region_domain_t::operator()(const Jmp &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
 void region_domain_t::operator()(const Packet & u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << ";\n";
         return;
@@ -583,12 +576,37 @@ void region_domain_t::operator()(const Packet & u, location_t loc, int print) {
     m_registers -= register_t{0};
 }
 void region_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
+
+void region_domain_t::operator()(const Addable& u, location_t loc, int print) {
+
+    auto maybe_ptr_type1 = m_registers.find(u.ptr.v);
+    auto maybe_ptr_type2 = m_registers.find(u.num.v);
+    // a -> b <-> !a || b
+    if (!maybe_ptr_type1 || !maybe_ptr_type2) {
+        return;
+    }
+    std::cout << "Addable assertion fail\n";
+}
+
+void region_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+
+    bool is_stack_p = is_stack_pointer(u.mem.v);
+    auto maybe_ptr_type2 = m_registers.find(u.val.v);
+
+    if (is_stack_p || !maybe_ptr_type2) {
+        return;
+    }
+    std::cout << "Valid store assertion fail\n";
+}
+
 void region_domain_t::operator()(const Assume &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0)
         std::cout << "  " << u << ";\n";
 }
@@ -598,7 +616,6 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
 }
 
 void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << ";\n";
         return;
@@ -999,4 +1016,18 @@ void region_domain_t::operator()(const basic_block_t& bb, bool check_termination
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
         //if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) std::cout << "type_error\n";
     }
+}
+
+
+bool region_domain_t::is_stack_pointer(register_t reg) const {
+    auto type = m_registers.find(reg);
+    if (!type) {    // not a pointer
+        return false;
+    }
+    ptr_t ptr_type = type.value();
+    if (std::holds_alternative<ptr_with_off_t>(ptr_type)
+        && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region::T_STACK) {
+        return true;
+    }
+    return false;
 }

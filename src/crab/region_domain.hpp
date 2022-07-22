@@ -212,8 +212,8 @@ class region_domain_t final {
     void operator()(const Assert &, location_t loc = boost::none, int print = 0);
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
     void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Addable& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Addable& s, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0);
     void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0);
     void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
@@ -240,4 +240,5 @@ class region_domain_t final {
     std::vector<int> get_stack_keys() const;
     void print_registers_at(location_t) const;
     void print_initial_types() const;
+    bool is_stack_pointer(register_t) const;
 }; // end region_domain_t

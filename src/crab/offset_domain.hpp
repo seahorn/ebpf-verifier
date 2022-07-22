@@ -12,6 +12,10 @@
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
+constexpr int STACK_BEGIN = 0;
+constexpr int CTX_BEGIN = 0;
+constexpr int PACKET_BEGIN = 0;
+
 using crab::ptr_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
@@ -223,5 +227,6 @@ class offset_domain_t final {
     std::optional<dist_t> find_in_ctx(int) const;
     std::optional<dist_t> find_in_stack(int) const;
     std::optional<dist_t> find_in_registers(const reg_with_loc_t) const;
+    std::optional<dist_t> find_offset_info(register_t reg) const;
 
 }; // end offset_domain_t

@@ -167,7 +167,6 @@ string_invariant type_domain_t::to_set() {
 }
 
 void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -178,7 +177,6 @@ void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -189,7 +187,7 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    if (is_bottom()) return;
+    std::cout << "LoadMapFd: " << u << "\n";
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -200,7 +198,6 @@ void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         register_t r0_reg{R0_RETURN_VALUE};
         auto r0 = reg_with_loc_t(r0_reg, loc);
@@ -216,7 +213,6 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -227,7 +223,6 @@ void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -238,7 +233,6 @@ void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -249,7 +243,6 @@ void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -260,7 +253,6 @@ void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -280,12 +272,97 @@ void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int prin
 }
 
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    if (is_bottom()) return;
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
     }
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
+}
+
+static bool same_region(ptr_t& p1, ptr_t& p2) {
+    // TODO: refactor/move to appropriate class/struct
+    if (std::holds_alternative<ptr_with_off_t>(p1) && std::holds_alternative<ptr_with_off_t>(p2)) {
+        auto p1_with_off = std::get<ptr_with_off_t>(p1);
+        auto p2_with_off = std::get<ptr_with_off_t>(p2);
+        return (p1_with_off.get_region() == p2_with_off.get_region());
+    }
+    else {
+        auto p1_no_off = std::get<ptr_no_off_t>(p1);
+        auto p2_no_off = std::get<ptr_no_off_t>(p2);
+        return (p1_no_off.get_region() == p2_no_off.get_region());
+    }
+}
+
+void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+
+    auto maybe_ptr_type1 = m_region.find_ptr_type(u.r1.v);
+    auto maybe_ptr_type2 = m_region.find_ptr_type(u.r2.v);
+    auto maybe_num_type1 = m_constant.find_const_value(u.r1.v);
+    auto maybe_num_type2 = m_constant.find_const_value(u.r2.v);
+    if (maybe_ptr_type1 && maybe_ptr_type2) {
+        if (!maybe_num_type1 && !maybe_num_type2) {
+            // an extra check just to make sure registers are not labelled both ptrs and numbers
+            if (same_region(maybe_ptr_type1.value(), maybe_ptr_type2.value())) {
+                return;
+            }
+        }
+    }
+    else if (!maybe_ptr_type1 && !maybe_ptr_type2) {
+        return;
+    }
+    std::cout << "Non-comparable values\n";
+}
+
+void type_domain_t::operator()(const Addable& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+}
+
+void type_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_region(u, loc);
+}
+
+
+void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
+    //std::cout << "validSize: " << u << "\n";
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    m_constant(u, loc);
+}
+
+void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+}
+
+void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
+    if (print > 0) {
+        std::cout << "  " << u << "\n";
+        return;
+    }
+    auto maybe_ptr_type = m_region.find_ptr_type(u.reg.v);
+    if (maybe_ptr_type && std::holds_alternative<ptr_with_off_t>(maybe_ptr_type.value())) {
+        auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_type.value());
+        if (ptr_type_with_off.get_offset() == 0) return;
+    }
+    auto maybe_dist = m_offset.find_offset_info(u.reg.v);
+    if (maybe_dist && maybe_dist.value().m_dist == 0) return;
+    std::cout << "Zero Offset assertion fail\n";
 }
 
 type_domain_t type_domain_t::setup_entry() {
@@ -297,8 +374,6 @@ type_domain_t type_domain_t::setup_entry() {
 }
 
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    if (is_bottom()) return;
-
     if (print > 0) {
         auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
         auto region = m_region.find_in_registers(reg_with_loc);
@@ -357,8 +432,6 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (is_bottom()) return;
- 
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
             do_load(b, std::get<Reg>(b.value), loc, print);

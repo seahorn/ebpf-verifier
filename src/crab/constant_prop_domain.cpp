@@ -162,7 +162,6 @@ void constant_prop_domain_t::set_to_top() {
     m_stack_slots_const_values.set_to_top();
 }
 
-
 std::optional<int> constant_prop_domain_t::find_const_value(register_t reg) const {
     return m_registers_const_values.find(reg);
 }
@@ -241,38 +240,22 @@ string_invariant constant_prop_domain_t::to_set() {
     return string_invariant{};
 }
 
-void constant_prop_domain_t::operator()(const Undefined & u, location_t loc, int print) {}
-void constant_prop_domain_t::operator()(const Un &u, location_t loc, int print) {}
-void constant_prop_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {}
-void constant_prop_domain_t::operator()(const Call &u, location_t loc, int print) {}
-void constant_prop_domain_t::operator()(const Exit &u, location_t loc, int print) {
-}
-void constant_prop_domain_t::operator()(const Jmp &u, location_t loc, int print) {
-}
-void constant_prop_domain_t::operator()(const Packet & u, location_t loc, int print) {
-}
-void constant_prop_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
-}
-void constant_prop_domain_t::operator()(const Assume &u, location_t loc, int print) {
-}
-
-void constant_prop_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
-}
-
-void constant_prop_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
-}
-
-void constant_prop_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
-}
-
 constant_prop_domain_t constant_prop_domain_t::setup_entry() {
     std::shared_ptr<global_constant_env_t> all_constants = std::make_shared<global_constant_env_t>();
     registers_cp_state_t registers(all_constants);
 
     constant_prop_domain_t cp(std::move(registers), stack_cp_state_t::top());
     return cp;
+}
+
+void constant_prop_domain_t::operator()(const ValidSize& s, location_t loc, int print) {
+    auto reg_v = m_registers_const_values.find(s.reg.v);
+    if (reg_v) {
+        if ((s.can_be_zero && reg_v.value() >= 0) || (!s.can_be_zero && reg_v.value() > 0)) {
+            return;
+        }
+    }
+    std::cout << "Valid Size assertion fail\n";
 }
 
 void constant_prop_domain_t::do_bin(const Bin& bin, location_t loc) {
@@ -471,7 +454,6 @@ void constant_prop_domain_t::do_bin(const Bin& bin, location_t loc) {
 }
 
 void constant_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    if (is_bottom()) return;
     do_bin(bin, loc);
 }
 
@@ -527,8 +509,6 @@ void constant_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, s
 }
 
 void constant_prop_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (is_bottom()) return;
-
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
             do_load(b, std::get<Reg>(b.value), {}, loc);

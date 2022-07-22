@@ -6,11 +6,6 @@
 #define min(a, b) (a < b ? a : b)
 #define max(a, b) (a > b ? a : b)
 
-#define STACK_BEGIN 0
-#define STACK_END 512
-#define CTX_BEGIN 0
-#define PACKET_BEGIN 0
-
 namespace std {
     template <>
     struct hash<crab::reg_with_loc_t> {
@@ -541,7 +536,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
             int offset = reg_with_off_ptr_type.get_offset();
             int offset_to_check = offset+s.offset;
             if (reg_with_off_ptr_type.get_region() == crab::region::T_STACK) {
-                if (offset_to_check >= STACK_BEGIN && offset_to_check+w <= STACK_END) return;
+                if (offset_to_check >= STACK_BEGIN && offset_to_check+w <= EBPF_STACK_SIZE) return;
             }
             else {
                 if (offset_to_check >= CTX_BEGIN && offset_to_check+w <= m_ctx_dists->get_size())
@@ -658,4 +653,8 @@ std::optional<dist_t> offset_domain_t::find_in_ctx(int key) const {
 
 std::optional<dist_t> offset_domain_t::find_in_stack(int key) const {
     return m_stack_state.find(key);
+}
+
+std::optional<dist_t> offset_domain_t::find_offset_info(register_t reg) const {
+    return m_reg_state.find(reg);
 }
