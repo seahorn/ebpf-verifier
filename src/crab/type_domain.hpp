@@ -76,6 +76,7 @@ class type_domain_t final {
     void operator()(const ZeroOffset&, location_t loc = boost::none, int print = 0);
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
+    friend std::ostream& operator<<(std::ostream& o, const type_domain_t& dom);
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
@@ -90,5 +91,6 @@ class type_domain_t final {
     void print_ctx() const;
     void print_stack() const;
     void print_initial_registers() const;
+    void adjust_bb_for_types(location_t);
 
 }; // end type_domain_t

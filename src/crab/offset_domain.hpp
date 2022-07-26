@@ -88,6 +88,7 @@ class registers_state_t {
         std::optional<dist_t> find(reg_with_loc_t reg) const;
         std::optional<dist_t> find(register_t key) const;
         friend std::ostream& operator<<(std::ostream& o, const registers_state_t& p);
+        void adjust_bb_for_registers(location_t);
 };
 
 class stack_state_t {
@@ -228,5 +229,5 @@ class offset_domain_t final {
     std::optional<dist_t> find_in_stack(int) const;
     std::optional<dist_t> find_in_registers(const reg_with_loc_t) const;
     std::optional<dist_t> find_offset_info(register_t reg) const;
-
+    void adjust_bb_for_types(location_t);
 }; // end offset_domain_t

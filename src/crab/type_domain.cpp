@@ -150,9 +150,6 @@ type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
     return other;
 }
 
-void type_domain_t::write(std::ostream& os) const { 
-}
-
 std::string type_domain_t::domain_name() const {
     return "type_domain";
 }
@@ -187,7 +184,7 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    std::cout << "LoadMapFd: " << u << "\n";
+    //std::cout << "LoadMapFd: " << u << "\n";
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -491,10 +488,18 @@ void type_domain_t::print_initial_types() const {
     print_initial_registers();
 }
 
+void type_domain_t::adjust_bb_for_types(location_t loc) {
+    m_region.adjust_bb_for_types(loc);
+    m_offset.adjust_bb_for_types(loc);
+    m_constant.adjust_bb_for_types(loc);
+}
+
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     auto label = bb.label();
     uint32_t curr_pos = 0;
-    location_t loc;
+    location_t loc = location_t(std::make_pair(label, curr_pos));
+    adjust_bb_for_types(loc);
+
     if (print > 0) {
         if (label == label_t::entry) {
             print_initial_types();
@@ -527,4 +532,17 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
         }
         std::cout << "\n\n";
     }
+}
+
+void type_domain_t::write(std::ostream& o) const {
+    if (is_bottom()) {
+        o << "_|_";
+    } else {
+        o << m_region << "\n";
+    }
+}
+
+std::ostream& operator<<(std::ostream& o, const type_domain_t& typ) {
+    typ.write(o);
+    return o;
 }

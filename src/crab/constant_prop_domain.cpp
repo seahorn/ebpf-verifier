@@ -59,18 +59,35 @@ registers_cp_state_t registers_cp_state_t::operator|(const registers_cp_state_t&
         return *this;
     }
     live_registers_t consts_joined;
+    location_t loc = location_t(std::make_pair(label_t(-2, -2), 0));
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
         auto it1 = find(*(m_cur_def[i]));
         auto it2 = other.find(*(other.m_cur_def[i]));
         if (it1 && it2) {
             int const1 = it1.value(), const2 = it2.value();
+            auto reg = reg_with_loc_t((register_t)i, loc);
             if (const1 == const2) {
                 consts_joined[i] = m_cur_def[i];
             }
         }
     }
     return registers_cp_state_t(std::move(consts_joined), m_constant_env);
+}
+
+void registers_cp_state_t::adjust_bb_for_registers(location_t loc) {
+    location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
+    for (size_t i = 0; i < m_cur_def.size(); i++) {
+        auto new_reg = reg_with_loc_t((register_t)i, loc);
+        auto it = find((register_t)i);
+        if (!it) continue;
+        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
+        (*m_constant_env)[new_reg] = it.value();
+
+        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
+        if (*m_cur_def[i] == old_reg)
+            m_constant_env->erase(old_reg);
+    }
 }
 
 //void registers_cp_state_t::print_all_consts() {
@@ -471,7 +488,7 @@ void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::o
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
         int to_load = p_with_off.get_offset() + offset;
 
-        if (p_with_off.get_region() == crab::region::T_STACK) {
+        if (p_with_off.get_region() == crab::region_t::T_STACK) {
             auto it = m_stack_slots_const_values.find(to_load);
             if (!it) {
                 m_registers_const_values -= target_reg.v;
@@ -498,7 +515,7 @@ void constant_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, s
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
         auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_type);
         int store_at = basereg_ptr_with_off_type.get_offset() + offset;
-        if (basereg_ptr_with_off_type.get_region() == crab::region::T_STACK) {
+        if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
             auto it = m_registers_const_values.find(target_reg.v);
             if (it) {
                 m_stack_slots_const_values.store(store_at, it.value());
@@ -529,4 +546,6 @@ void constant_prop_domain_t::operator()(const basic_block_t& bb, bool check_term
     }
 }
 
-void constant_prop_domain_t::set_require_check(check_require_func_t f) {}
+void constant_prop_domain_t::adjust_bb_for_types(location_t loc) {
+    m_registers_const_values.adjust_bb_for_registers(loc);
+}

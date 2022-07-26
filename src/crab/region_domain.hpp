@@ -13,7 +13,7 @@
 
 namespace crab {
 
-enum class region {
+enum class region_t {
 	T_CTX,
 	T_STACK,
 	T_PACKET,
@@ -22,7 +22,7 @@ enum class region {
 
 
 class ptr_no_off_t {
-    region m_r;
+    region_t m_r;
 
   public:
     ptr_no_off_t() = default;
@@ -30,10 +30,10 @@ class ptr_no_off_t {
     ptr_no_off_t(ptr_no_off_t &&) = default;
     ptr_no_off_t &operator=(const ptr_no_off_t &) = default;
     ptr_no_off_t &operator=(ptr_no_off_t &&) = default;
-    ptr_no_off_t(region _r) : m_r(_r) {}
+    ptr_no_off_t(region_t _r) : m_r(_r) {}
 
-    constexpr region get_region() const { return m_r; }
-    void set_region(region);
+    constexpr region_t get_region() const { return m_r; }
+    void set_region(region_t);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
     //bool operator==(const ptr_no_off_t& p2);
@@ -41,7 +41,7 @@ class ptr_no_off_t {
 };
 
 class ptr_with_off_t {
-    region m_r;
+    region_t m_r;
     int m_offset;
 
   public:
@@ -50,12 +50,12 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region _r, int _off) : m_r(_r), m_offset(_off) {}
+    ptr_with_off_t(region_t _r, int _off) : m_r(_r), m_offset(_off) {}
 
     constexpr int get_offset() const { return m_offset; }
     void set_offset(int);
-    constexpr region get_region() const { return m_r; }
-    void set_region(region);
+    constexpr region_t get_region() const { return m_r; }
+    void set_region(region_t);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
     //bool operator==(const ptr_with_off_t& p2);
@@ -152,6 +152,7 @@ class register_types_t {
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
     void print_types_at(location_t) const;
     void write(std::ostream&) const;
+    void adjust_bb_for_registers(location_t loc);
 };
 
 }
@@ -220,6 +221,7 @@ class region_domain_t final {
     void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
+    friend std::ostream& operator<<(std::ostream&, const region_domain_t&);
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
@@ -241,4 +243,5 @@ class region_domain_t final {
     void print_registers_at(location_t) const;
     void print_initial_types() const;
     bool is_stack_pointer(register_t) const;
+    void adjust_bb_for_types(location_t loc);
 }; // end region_domain_t

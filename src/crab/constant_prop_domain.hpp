@@ -43,6 +43,7 @@ class registers_cp_state_t {
         explicit registers_cp_state_t(std::shared_ptr<global_constant_env_t> constant_env,
                 bool is_bottom = false)
             : m_constant_env(constant_env), m_is_bottom(is_bottom) {}
+        void adjust_bb_for_registers(location_t);
         //void print_all_consts();
 };
 
@@ -132,7 +133,7 @@ class constant_prop_domain_t final {
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
     string_invariant to_set();
-    void set_require_check(check_require_func_t f);
+    void set_require_check(check_require_func_t f) {}
 
     void do_load(const Mem&, const Reg&, std::optional<ptr_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
@@ -140,5 +141,6 @@ class constant_prop_domain_t final {
     std::optional<int> find_const_value(register_t) const;
     std::optional<int> find_in_registers(const reg_with_loc_t reg) const;
     void print_initial_types();
+    void adjust_bb_for_types(location_t);
 
 }; // end constant_prop_domain_t

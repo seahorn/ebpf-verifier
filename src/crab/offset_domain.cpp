@@ -87,19 +87,36 @@ registers_state_t registers_state_t::operator|(const registers_state_t& other) c
         return *this;
     }
     live_registers_t out_vars;
+    location_t loc = location_t(std::make_pair(label_t(-2, -2), 0));
+
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
         auto it1 = find(*(m_cur_def[i]));
         auto it2 = other.find(*(other.m_cur_def[i]));
         if (it1 && it2) {
             dist_t dist1 = it1.value(), dist2 = it2.value();
+            auto reg = reg_with_loc_t((register_t)i, loc);
             if (dist1 == dist2) {
                 out_vars[i] = m_cur_def[i];
             }
         }
     }
-
     return registers_state_t(std::move(out_vars), m_offset_env, false);
+}
+
+void registers_state_t::adjust_bb_for_registers(location_t loc) {
+    location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
+    for (size_t i = 0; i < m_cur_def.size(); i++) {
+        auto new_reg = reg_with_loc_t((register_t)i, loc);
+        auto it = find((register_t)i);
+        if (!it) continue;
+        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
+        (*m_offset_env)[new_reg] = it.value();
+
+        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
+        if (*m_cur_def[i] == old_reg)
+            m_offset_env->erase(old_reg);
+    }
 }
 
 void stack_state_t::set_to_top() {
@@ -380,7 +397,7 @@ bool is_packet_pointer(std::optional<ptr_t>& type) {
     }
     ptr_t ptr_type = type.value();
     if (std::holds_alternative<ptr_no_off_t>(ptr_type)
-        && std::get<ptr_no_off_t>(ptr_type).get_region() == crab::region::T_PACKET) {
+        && std::get<ptr_no_off_t>(ptr_type).get_region() == crab::region_t::T_PACKET) {
         return true;
     }
     return false;
@@ -392,7 +409,7 @@ bool is_stack_pointer(std::optional<ptr_t>& type) {
     }
     ptr_t ptr_type = type.value();
     if (std::holds_alternative<ptr_with_off_t>(ptr_type)
-        && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region::T_STACK) {
+        && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region_t::T_STACK) {
         return true;
     }
     return false;
@@ -449,7 +466,6 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<int> src_const_value,
                         updated_dist = dst_dist.m_dist - src_const_value.value();
                     }
                     m_reg_state.insert(bin.dst.v, reg_with_loc, dist_t(updated_dist));
-                    //std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 }
                 else {
                     m_reg_state -= bin.dst.v;
@@ -492,7 +508,6 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<int> src_const_value,
                     updated_dist = dst_dist.m_dist - imm;
                 }
                 m_reg_state.insert(bin.dst.v, reg_with_loc, dist_t(updated_dist));
-                //std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
             }
 
@@ -535,7 +550,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_type);
             int offset = reg_with_off_ptr_type.get_offset();
             int offset_to_check = offset+s.offset;
-            if (reg_with_off_ptr_type.get_region() == crab::region::T_STACK) {
+            if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
                 if (offset_to_check >= STACK_BEGIN && offset_to_check+w <= EBPF_STACK_SIZE) return;
             }
             else {
@@ -545,7 +560,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
         }
         else {
             auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_type);
-            if (reg_no_off_ptr_type.get_region() == crab::region::T_PACKET) {
+            if (reg_no_off_ptr_type.get_region() == crab::region_t::T_PACKET) {
                 auto it = m_reg_state.find(s.reg.v);
                 int limit = m_extra_constraints.get_limit();
                 if (it) {
@@ -611,7 +626,7 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
         int to_load = p_with_off.get_offset() + offset;
 
-        if (p_with_off.get_region() == crab::region::T_CTX) {
+        if (p_with_off.get_region() == crab::region_t::T_CTX) {
             auto it = m_ctx_dists->find(to_load);
             if (!it) {
                 m_reg_state -= target_reg.v;
@@ -620,9 +635,8 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
             dist_t d = it.value();
             auto reg = reg_with_loc_t(target_reg.v, loc);
             m_reg_state.insert(target_reg.v, reg, dist_t(d));
-            //std::cout << "offset: " << (*m_reg_state.get(target_reg.v)).m_dist << "\n";
         }
-        else if (p_with_off.get_region() == crab::region::T_STACK) {
+        else if (p_with_off.get_region() == crab::region_t::T_STACK) {
             auto it = m_stack_state.find(to_load);
 
             if (!it) {
@@ -632,7 +646,6 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
             dist_t d = it.value();
             auto reg = reg_with_loc_t(target_reg.v, loc);
             m_reg_state.insert(target_reg.v, reg, dist_t(d));
-            //std::cout << "offset: " << (*m_reg_state.get(target_reg.v)).m_dist << "\n";
         }
     }
     else {  // we are loading from packet or shared
@@ -657,4 +670,8 @@ std::optional<dist_t> offset_domain_t::find_in_stack(int key) const {
 
 std::optional<dist_t> offset_domain_t::find_offset_info(register_t reg) const {
     return m_reg_state.find(reg);
+}
+
+void offset_domain_t::adjust_bb_for_types(location_t loc) {
+    m_reg_state.adjust_bb_for_registers(loc);
 }
