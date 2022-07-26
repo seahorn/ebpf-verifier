@@ -5,16 +5,28 @@
 
 #include "crab/type_domain.hpp"
 
+namespace std {
+    static ptr_t get_ptr(const ptr_or_mapfd_t& t) {
+    return std::visit( overloaded
+               {
+                   []( const ptr_with_off_t& x ){ return ptr_t{x};},
+                   []( const ptr_no_off_t& x ){ return ptr_t{x};},
+                   []( auto& ) { return ptr_t{};}
+                }, t
+            );
+    }
+}
+
 static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
 
-static void print_ptr_no_off_type(ptr_no_off_t ptr, std::optional<dist_t> dist) {
+static void print_ptr_no_off_type(const ptr_no_off_t& ptr, std::optional<dist_t>& dist) {
     std::cout << ptr;
     if (dist) {
         std::cout << "<" << dist.value() << ">";
     }
 }
 
-static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
+static void print_ptr_type(const ptr_t& ptr, std::optional<dist_t>& dist) {
     if (std::holds_alternative<ptr_with_off_t>(ptr)) {
         ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
         std::cout << ptr_with_off;
@@ -25,6 +37,16 @@ static void print_ptr_type(ptr_t ptr, std::optional<dist_t> dist) {
     }
 }
 
+static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd, std::optional<dist_t>& d) {
+    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
+        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
+    }
+    else {
+        auto ptr = get_ptr(ptr_or_mapfd);
+        print_ptr_type(ptr, d);
+    }
+}
+
 static void print_number(std::optional<int>& num) {
     std::cout << "number";
     if (num) {
@@ -32,33 +54,41 @@ static void print_number(std::optional<int>& num) {
     }
 }
 
-static void print_register(Reg r, std::optional<ptr_t>& p, std::optional<dist_t>& d,
+static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p, std::optional<dist_t>& d,
         std::optional<int>& n) {
     std::cout << r << " : ";
     if (p) {
-        print_ptr_type(p.value(), d);
+        print_ptr_or_mapfd_type(p.value(), d);
     }
     else {
         print_number(n);
     }
 }
 
-static void print_annotated(Call const& call, std::optional<ptr_t>& p, std::optional<dist_t>& d,
-        std::optional<int>& n) {
+static void print_annotated(const Call& call, std::optional<ptr_or_mapfd_t>& p,
+        std::optional<dist_t>& d, std::optional<int>& n) {
     std::cout << "  ";
     print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p, d, n);
     std::cout << " = " << call.name << ":" << call.func << "(...)\n";
 }
 
-static void print_annotated(Bin const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d,
-        std::optional<int>& n) {
+static void print_annotated(const Bin& b, std::optional<ptr_or_mapfd_t>& p,
+        std::optional<dist_t>& d, std::optional<int>& n) {
     std::cout << "  ";
     print_register(b.dst, p, d, n);
-    std::cout << " " << b.op << "= " << b.v << ";\n";
+    std::cout << " " << b.op << "= " << b.v << "\n";
 }
 
-static void print_annotated(Mem const& b, std::optional<ptr_t>& p, std::optional<dist_t>& d,
-        std::optional<int>& n) {
+static void print_annotated(const LoadMapFd& u, std::optional<ptr_or_mapfd_t>& p) {
+    std::cout << "  ";
+    std::optional<dist_t> d;
+    std::optional<int> n;
+    print_register(u.dst, p, d, n);
+    std::cout << " = map_fd " << u.mapfd << "\n";
+}
+
+static void print_annotated(const Mem& b, std::optional<ptr_or_mapfd_t>& p,
+        std::optional<dist_t>& d, std::optional<int>& n) {
     if (b.is_load) {
         std::cout << "  ";
         print_register(std::get<Reg>(b.value), p, d, n);
@@ -184,9 +214,10 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    //std::cout << "LoadMapFd: " << u << "\n";
     if (print > 0) {
-        std::cout << "  " << u << "\n";
+        auto reg = reg_with_loc_t(u.dst.v, loc);
+        auto region = m_region.find_in_registers(reg);
+        print_annotated(u, region);
         return;
     }
     m_region(u, loc);
@@ -260,7 +291,7 @@ void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
-    auto reg_type = m_region.find_ptr_type(s.reg.v);
+    auto reg_type = m_region.find_ptr_or_mapfd_type(s.reg.v);
     m_offset.check_valid_access(s, reg_type);
 }
 
@@ -276,18 +307,21 @@ void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
-static bool same_region(ptr_t& p1, ptr_t& p2) {
+static bool same_region(ptr_or_mapfd_t& p1, ptr_or_mapfd_t& p2) {
     // TODO: refactor/move to appropriate class/struct
-    if (std::holds_alternative<ptr_with_off_t>(p1) && std::holds_alternative<ptr_with_off_t>(p2)) {
+    if (std::holds_alternative<ptr_with_off_t>(p1)
+            && std::holds_alternative<ptr_with_off_t>(p2)) {
         auto p1_with_off = std::get<ptr_with_off_t>(p1);
         auto p2_with_off = std::get<ptr_with_off_t>(p2);
         return (p1_with_off.get_region() == p2_with_off.get_region());
     }
-    else {
+    else if (std::holds_alternative<ptr_no_off_t>(p1)
+            && std::holds_alternative<ptr_no_off_t>(p2)) {
         auto p1_no_off = std::get<ptr_no_off_t>(p1);
         auto p2_no_off = std::get<ptr_no_off_t>(p2);
         return (p1_no_off.get_region() == p2_no_off.get_region());
     }
+    return false;
 }
 
 void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
@@ -296,8 +330,8 @@ void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
         return;
     }
 
-    auto maybe_ptr_type1 = m_region.find_ptr_type(u.r1.v);
-    auto maybe_ptr_type2 = m_region.find_ptr_type(u.r2.v);
+    auto maybe_ptr_type1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
+    auto maybe_ptr_type2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
     auto maybe_num_type1 = m_constant.find_const_value(u.r1.v);
     auto maybe_num_type2 = m_constant.find_const_value(u.r2.v);
     if (maybe_ptr_type1 && maybe_ptr_type2) {
@@ -352,7 +386,7 @@ void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
         std::cout << "  " << u << "\n";
         return;
     }
-    auto maybe_ptr_type = m_region.find_ptr_type(u.reg.v);
+    auto maybe_ptr_type = m_region.find_ptr_or_mapfd_type(u.reg.v);
     if (maybe_ptr_type && std::holds_alternative<ptr_with_off_t>(maybe_ptr_type.value())) {
         auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_type.value());
         if (ptr_type_with_off.get_offset() == 0) return;
@@ -380,14 +414,14 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         return;
     }
 
-    std::optional<ptr_t> src_type, dst_type;
+    std::optional<ptr_or_mapfd_t> src_type, dst_type;
     std::optional<int> src_const_value;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg r = std::get<Reg>(bin.v);
-        src_type = m_region.find_ptr_type(r.v);
+        src_type = m_region.find_ptr_or_mapfd_type(r.v);
         src_const_value = m_constant.find_const_value(r.v);
     }
-    dst_type = m_region.find_ptr_type(bin.dst.v);
+    dst_type = m_region.find_ptr_or_mapfd_type(bin.dst.v);
     m_region.do_bin(bin, src_const_value, loc);
     m_constant.do_bin(bin, loc);
     m_offset.do_bin(bin, src_const_value, src_type, dst_type, loc);
@@ -405,7 +439,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     }
 
     Reg basereg = b.access.basereg;
-    auto basereg_type = m_region.find_ptr_type(basereg.v);
+    auto basereg_type = m_region.find_ptr_or_mapfd_type(basereg.v);
 
     m_region.do_load(b, target_reg, loc);
     m_constant.do_load(b, target_reg, basereg_type, loc);
@@ -420,8 +454,8 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     }
 
     Reg basereg = b.access.basereg;
-    auto basereg_type = m_region.find_ptr_type(basereg.v);
-    auto targetreg_type = m_region.find_ptr_type(target_reg.v);
+    auto basereg_type = m_region.find_ptr_or_mapfd_type(basereg.v);
+    auto targetreg_type = m_region.find_ptr_or_mapfd_type(target_reg.v);
 
     m_region.do_mem_store(b, target_reg, loc);
     m_constant.do_mem_store(b, target_reg, basereg_type);

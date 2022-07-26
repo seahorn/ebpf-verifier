@@ -11,6 +11,8 @@
 #include "string_constraints.hpp"
 #include <boost/optional/optional_io.hpp>
 
+#include "platform.hpp"
+
 namespace crab {
 
 enum class region_t {
@@ -60,6 +62,22 @@ class ptr_with_off_t {
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
     //bool operator==(const ptr_with_off_t& p2);
     //bool operator!=(const ptr_with_off_t& p2);
+};
+
+class mapfd_t {
+    EbpfMapValueType m_value_type;
+
+  public:
+    mapfd_t(const mapfd_t&) = default;
+    mapfd_t(mapfd_t&&) = default;
+    mapfd_t &operator=(const mapfd_t&) = default;
+    mapfd_t &operator=(mapfd_t&&) = default;
+    mapfd_t(EbpfMapValueType val_type) : m_value_type(val_type) {}
+    friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
+    void write(std::ostream&) const;
+
+    bool has_type_map_programs() const;
+    constexpr EbpfMapValueType get_value_type() const { return m_value_type; }
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
@@ -121,7 +139,8 @@ class stack_t {
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_t>;
+using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
+using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
 
 class register_types_t {
 
@@ -145,9 +164,9 @@ class register_types_t {
     void set_to_top();
     bool is_bottom() const;
     bool is_top() const;
-    void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type);
-    std::optional<ptr_t> find(reg_with_loc_t reg) const;
-    std::optional<ptr_t> find(register_t key) const;
+    void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_or_mapfd_t& type);
+    std::optional<ptr_or_mapfd_t> find(reg_with_loc_t reg) const;
+    std::optional<ptr_or_mapfd_t> find(register_t key) const;
     const live_registers_t &get_vars() { return m_cur_def; }
     friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
     void print_types_at(location_t) const;
@@ -199,16 +218,16 @@ class region_domain_t final {
     void operator-=(variable_t var);
 
     //// abstract transformers
-    void operator()(const Undefined &, location_t loc = boost::none, int print = 0);
+    void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Bin &, location_t loc = boost::none, int print = 0);
-    void operator()(const Un &, location_t loc = boost::none, int print = 0);
+    void operator()(const Un &, location_t loc = boost::none, int print = 0) {}
     void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
     void operator()(const Call &, location_t loc = boost::none, int print = 0);
-    void operator()(const Exit &, location_t loc = boost::none, int print = 0);
-    void operator()(const Jmp &, location_t loc = boost::none, int print = 0);
+    void operator()(const Exit &, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Jmp &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Mem &, location_t loc = boost::none, int print = 0);
     void operator()(const Packet &, location_t loc = boost::none, int print = 0);
-    void operator()(const LockAdd &, location_t loc = boost::none, int print = 0);
+    void operator()(const LockAdd &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Assume &, location_t loc = boost::none, int print = 0);
     void operator()(const Assert &, location_t loc = boost::none, int print = 0);
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
@@ -233,12 +252,12 @@ class region_domain_t final {
     void check_type_constraint(const TypeConstraint&);
 
     void report_type_error(std::string, location_t);
-    std::optional<crab::ptr_t> find_ptr_type(register_t);
+    std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t);
     size_t ctx_size() const;
     std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
     std::vector<int> get_ctx_keys() const;
     std::optional<crab::ptr_t> find_in_stack(int key) const;
-    std::optional<crab::ptr_t> find_in_registers(const crab::reg_with_loc_t&) const;
+    std::optional<crab::ptr_or_mapfd_t> find_in_registers(const crab::reg_with_loc_t&) const;
     std::vector<int> get_stack_keys() const;
     void print_registers_at(location_t) const;
     void print_initial_types() const;

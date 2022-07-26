@@ -13,6 +13,9 @@
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
+using crab::ptr_or_mapfd_t;
+using crab::mapfd_t;
+
 class type_domain_t final {
     region_domain_t m_region;
     offset_domain_t m_offset;

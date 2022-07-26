@@ -474,18 +474,19 @@ void constant_prop_domain_t::operator()(const Bin& bin, location_t loc, int prin
     do_bin(bin, loc);
 }
 
-void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t> basereg_type, location_t loc) {
+void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
+        std::optional<ptr_or_mapfd_t> basereg_type, location_t loc) {
     if (!basereg_type) {
         m_registers_const_values -= target_reg.v;
         return;
     }
 
-    ptr_t basereg_ptr_type = basereg_type.value();
+    auto basereg_ptr_or_mapfd_type = basereg_type.value();
     int offset = b.access.offset;
 
     auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
-    if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
-        auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
+    if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
+        auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
         int to_load = p_with_off.get_offset() + offset;
 
         if (p_with_off.get_region() == crab::region_t::T_STACK) {
@@ -505,15 +506,16 @@ void constant_prop_domain_t::do_load(const Mem& b, const Reg& target_reg, std::o
     }
 }
 
-void constant_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::optional<ptr_t> basereg_type) {
+void constant_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
+        std::optional<ptr_or_mapfd_t> basereg_type) {
     int offset = b.access.offset;
 
     if (!basereg_type) {
         return;
     }
-    ptr_t basereg_ptr_type = basereg_type.value();
-    if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
-        auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_type);
+    auto basereg_ptr_or_mapfd_type = basereg_type.value();
+    if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
+        auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
         int store_at = basereg_ptr_with_off_type.get_offset() + offset;
         if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
             auto it = m_registers_const_values.find(target_reg.v);

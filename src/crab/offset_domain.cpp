@@ -391,32 +391,33 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
     else {}     //we do not need to deal with other cases
 }
 
-bool is_packet_pointer(std::optional<ptr_t>& type) {
+bool is_packet_pointer(std::optional<ptr_or_mapfd_t>& type) {
     if (!type) {    // not a pointer
         return false;
     }
-    ptr_t ptr_type = type.value();
-    if (std::holds_alternative<ptr_no_off_t>(ptr_type)
-        && std::get<ptr_no_off_t>(ptr_type).get_region() == crab::region_t::T_PACKET) {
+    auto ptr_or_mapfd_type = type.value();
+    if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type)
+        && std::get<ptr_no_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_PACKET) {
         return true;
     }
     return false;
 }
 
-bool is_stack_pointer(std::optional<ptr_t>& type) {
+bool is_stack_pointer(std::optional<ptr_or_mapfd_t>& type) {
     if (!type) {    // not a pointer
         return false;
     }
-    ptr_t ptr_type = type.value();
-    if (std::holds_alternative<ptr_with_off_t>(ptr_type)
-        && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region_t::T_STACK) {
+    auto ptr_or_mapfd_type = type.value();
+    if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type)
+        && std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_STACK) {
         return true;
     }
     return false;
 }
 
 void offset_domain_t::do_bin(const Bin &bin, std::optional<int> src_const_value,
-        std::optional<ptr_t> src_type, std::optional<ptr_t> dst_type, location_t loc) {
+        std::optional<ptr_or_mapfd_t> src_type, std::optional<ptr_or_mapfd_t> dst_type,
+        location_t loc) {
     if (is_bottom()) return;
 
     auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
@@ -539,15 +540,16 @@ void offset_domain_t::operator()(const Packet &, location_t loc, int print) {}
 
 void offset_domain_t::operator()(const LockAdd &, location_t loc, int print) {}
 
-void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr_t>& reg_type) {
+void offset_domain_t::check_valid_access(const ValidAccess& s,
+        std::optional<ptr_or_mapfd_t>& reg_type) {
     if (std::holds_alternative<Imm>(s.width)) {
         int w = std::get<Imm>(s.width).v;
         if (w == 0 || !reg_type) return;
 
         m_extra_constraints.normalize();
-        ptr_t reg_ptr_type = reg_type.value();
-        if (std::holds_alternative<ptr_with_off_t>(reg_ptr_type)) {
-            auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_type);
+        auto reg_ptr_or_mapfd_type = reg_type.value();
+        if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
+            auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
             int offset = reg_with_off_ptr_type.get_offset();
             int offset_to_check = offset+s.offset;
             if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
@@ -558,8 +560,8 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
                     return;
             }
         }
-        else {
-            auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_type);
+        else if (std::holds_alternative<ptr_no_off_t>(reg_ptr_or_mapfd_type)) {
+            auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_or_mapfd_type);
             if (reg_no_off_ptr_type.get_region() == crab::region_t::T_PACKET) {
                 auto it = m_reg_state.find(s.reg.v);
                 int limit = m_extra_constraints.get_limit();
@@ -573,6 +575,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s, std::optional<ptr
                 return;
             }
         }
+        else {}
     }
     else {
         return;
@@ -592,14 +595,15 @@ void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination
     }
 }
 
-void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& basereg_type, std::optional<ptr_t>& targetreg_type) {
+void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
+        std::optional<ptr_or_mapfd_t>& basereg_type,
+        std::optional<ptr_or_mapfd_t>& targetreg_type) {
     int offset = b.access.offset;
 
     if (is_stack_pointer(basereg_type)) {
         auto basereg_with_off = std::get<ptr_with_off_t>(basereg_type.value());
         int store_at = basereg_with_off.get_offset() + offset;
         if (is_packet_pointer(targetreg_type)) {
-            ptr_t targetreg_ptr_type = targetreg_type.value();
             auto it = m_reg_state.find(target_reg.v);
             if (!it) {
                 std::cout << "type_error: register is a packet_pointer and no offset info found\n";
@@ -614,12 +618,13 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, std::opt
     else {}  // in the rest cases, we do not store
 }
 
-void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional<ptr_t>& basereg_type, location_t loc) {
+void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
+        std::optional<ptr_or_mapfd_t>& basereg_type, location_t loc) {
     if (!basereg_type) {
         m_reg_state -= target_reg.v;
         return;
     }
-    ptr_t basereg_ptr_type = basereg_type.value();
+    auto basereg_ptr_type = basereg_type.value();
     int offset = b.access.offset;
     
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
@@ -648,7 +653,7 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg, std::optional
             m_reg_state.insert(target_reg.v, reg, dist_t(d));
         }
     }
-    else {  // we are loading from packet or shared
+    else {  // we are loading from packet or shared, or we have mapfd
         m_reg_state -= target_reg.v;
     }
 }

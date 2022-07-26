@@ -12,6 +12,8 @@
 #include "string_constraints.hpp"
 
 using crab::ptr_t;
+using crab::ptr_or_mapfd_t;
+using crab::mapfd_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::reg_with_loc_t;
@@ -135,8 +137,8 @@ class constant_prop_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_t>, location_t);
-    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>, location_t);
+    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
     void do_bin(const Bin&, location_t);
     std::optional<int> find_const_value(register_t) const;
     std::optional<int> find_in_registers(const reg_with_loc_t reg) const;

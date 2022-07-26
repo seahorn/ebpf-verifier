@@ -16,7 +16,9 @@ constexpr int STACK_BEGIN = 0;
 constexpr int CTX_BEGIN = 0;
 constexpr int PACKET_BEGIN = 0;
 
+using crab::ptr_or_mapfd_t;
 using crab::ptr_t;
+using crab::mapfd_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::reg_with_loc_t;
@@ -219,11 +221,12 @@ class offset_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_t>&, location_t loc);
-    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_t>&, std::optional<ptr_t>&);
-    void do_bin(const Bin&, std::optional<int>, std::optional<ptr_t>, std::optional<ptr_t>,
-            location_t);
-    void check_valid_access(const ValidAccess&, std::optional<ptr_t>&);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&, location_t loc);
+    void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&,
+            std::optional<ptr_or_mapfd_t>&);
+    void do_bin(const Bin&, std::optional<int>, std::optional<ptr_or_mapfd_t>,
+            std::optional<ptr_or_mapfd_t>, location_t);
+    void check_valid_access(const ValidAccess&, std::optional<ptr_or_mapfd_t>&);
 
     std::optional<dist_t> find_in_ctx(int) const;
     std::optional<dist_t> find_in_stack(int) const;
