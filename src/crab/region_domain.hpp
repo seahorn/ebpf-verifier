@@ -97,9 +97,9 @@ class reg_with_loc_t {
 };
 
 class ctx_t {
-    using offset_to_ptr_no_off_t = std::unordered_map<int, ptr_no_off_t>;
+    using ptr_types_t = std::unordered_map<int, ptr_no_off_t>;
 
-    offset_to_ptr_no_off_t m_packet_ptrs;
+    ptr_types_t m_packet_ptrs;
 
   public:
     ctx_t(const ebpf_context_descriptor_t* desc);
@@ -110,15 +110,17 @@ class ctx_t {
     void write(std::ostream&) const;
 };
 
-class stack_t {
-    using offset_to_ptr_t = std::unordered_map<int, ptr_t>;
+using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
 
-    offset_to_ptr_t m_ptrs;
+class stack_t {
+    using ptr_or_mapfd_types_t = std::unordered_map<int, ptr_or_mapfd_t>;
+
+    ptr_or_mapfd_types_t m_ptrs;
     bool m_is_bottom;
 
   public:
     stack_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
-    stack_t(offset_to_ptr_t && ptrs, bool is_bottom)
+    stack_t(ptr_or_mapfd_types_t && ptrs, bool is_bottom)
     : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
     
     stack_t operator|(const stack_t& other) const;
@@ -129,9 +131,9 @@ class stack_t {
     static stack_t top();
     bool is_bottom() const;
     bool is_top() const;
-    const offset_to_ptr_t &get_ptrs() { return m_ptrs; }
-    void insert(int key, ptr_t value);
-    std::optional<ptr_t> find(int key) const;
+    const ptr_or_mapfd_types_t &get_ptrs() { return m_ptrs; }
+    void insert(int key, ptr_or_mapfd_t value);
+    std::optional<ptr_or_mapfd_t> find(int key) const;
     std::vector<int> get_keys() const;
     size_t size() const;
     friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
@@ -139,7 +141,6 @@ class stack_t {
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
 using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
 
 class register_types_t {
@@ -256,7 +257,7 @@ class region_domain_t final {
     size_t ctx_size() const;
     std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
     std::vector<int> get_ctx_keys() const;
-    std::optional<crab::ptr_t> find_in_stack(int key) const;
+    std::optional<crab::ptr_or_mapfd_t> find_in_stack(int key) const;
     std::optional<crab::ptr_or_mapfd_t> find_in_registers(const crab::reg_with_loc_t&) const;
     std::vector<int> get_stack_keys() const;
     void print_registers_at(location_t) const;

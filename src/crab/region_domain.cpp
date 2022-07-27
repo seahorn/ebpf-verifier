@@ -199,7 +199,7 @@ void stack_t::write(std::ostream& o) const {
     else {
         o << "{";
         for (auto const& s : m_ptrs) {
-            //print_register(s.first, s.second, o);
+            print_register(s.first, s.second, o);
             o << "\n";
         }
         o << "}";
@@ -410,7 +410,7 @@ stack_t stack_t::operator|(const stack_t& other) const {
     } else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    offset_to_ptr_t out_ptrs;
+    ptr_or_mapfd_types_t out_ptrs;
     for (auto const&kv: m_ptrs) {
         auto it = other.find(kv.first);
         if (it && kv.second == it.value())
@@ -447,7 +447,7 @@ bool stack_t::is_top() const {
     return m_ptrs.empty();
 }
 
-void stack_t::insert(int key, ptr_t value) {
+void stack_t::insert(int key, ptr_or_mapfd_t value) {
     m_ptrs[key] = value;
 }
 
@@ -466,7 +466,7 @@ std::vector<int> stack_t::get_keys() const {
 }
 
 
-std::optional<ptr_t> stack_t::find(int key) const {
+std::optional<ptr_or_mapfd_t> stack_t::find(int key) const {
     auto it = m_ptrs.find(key);
     if (it == m_ptrs.end()) return {};
     return it->second;
@@ -523,7 +523,7 @@ std::optional<ptr_no_off_t> region_domain_t::find_in_ctx(int key) const {
     return m_ctx->find(key);
 }
 
-std::optional<ptr_t> region_domain_t::find_in_stack(int key) const {
+std::optional<ptr_or_mapfd_t> region_domain_t::find_in_stack(int key) const {
     return m_stack.find(key);
 }
 
@@ -671,6 +671,7 @@ void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
 
 region_domain_t region_domain_t::setup_entry() {
 
+    print_map_descriptors(global_program_info.map_descriptors, std::cout);
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
     std::shared_ptr<global_region_env_t> all_types = std::make_shared<global_region_env_t>();
 
@@ -871,7 +872,7 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
         std::cout << desc;
         return;
     }
-    ptr_or_mapfd_t type_basereg = it.value();
+    auto type_basereg = it.value();
 
     if (!std::holds_alternative<ptr_with_off_t>(type_basereg)) {
         // loading from either packet, shared region or mapfd not allowed
@@ -879,7 +880,7 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
         return;
     }
 
-    ptr_with_off_t type_with_off = std::get<ptr_with_off_t>(type_basereg);
+    auto type_with_off = std::get<ptr_with_off_t>(type_basereg);
     int load_at = offset+type_with_off.get_offset();
 
     switch (type_with_off.get_region()) {
@@ -892,19 +893,10 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
                 m_registers -= target_reg.v;
                 return;
             }
-            ptr_t type_loaded = it.value();
+            auto type_loaded = it.value();
 
-            if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
-                ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_registers.insert(target_reg.v, reg, type_loaded_with_off);
-            }
-            else if (std::holds_alternative<ptr_no_off_t>(type_loaded)) {
-                ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_registers.insert(target_reg.v, reg, type_loaded_no_off);
-            }
-            else {}
+            auto reg = reg_with_loc_t(target_reg.v, loc);
+            m_registers.insert(target_reg.v, reg, type_loaded);
 
             break;
         }
@@ -944,7 +936,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         std::cout << desc;
         return;
     }
-    ptr_or_mapfd_t type_basereg = it.value();
+    auto type_basereg = it.value();
 
     auto it2 = m_registers.find(target_reg.v);
 
@@ -961,7 +953,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
                 return;
             }
             else {
-                auto type_to_store = get_ptr(it2.value());
+                auto type_to_store = it2.value();
                 /*
                 if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
                         std::get<ptr_with_off_t>(type_to_store).r == crab::region_t::T_STACK) {
@@ -1083,7 +1075,7 @@ bool region_domain_t::is_stack_pointer(register_t reg) const {
     if (!type) {    // not a pointer
         return false;
     }
-    ptr_or_mapfd_t ptr_type = type.value();
+    auto ptr_type = type.value();
     if (std::holds_alternative<ptr_with_off_t>(ptr_type)
         && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region_t::T_STACK) {
         return true;

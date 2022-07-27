@@ -498,11 +498,11 @@ void type_domain_t::print_stack() const {
     std::cout << "stack: ";
     std::cout << "{\n";
     for (auto const k : stack_keys) {
-        std::optional<ptr_t> ptr = m_region.find_in_stack(k);
-        std::optional<dist_t> dist = m_offset.find_in_stack(k);
-        if (ptr) {
+        auto ptr_or_mapfd = m_region.find_in_stack(k);
+        auto dist = m_offset.find_in_stack(k);
+        if (ptr_or_mapfd) {
             std::cout << "  " << k << ": ";
-            print_ptr_type(ptr.value(), dist);
+            print_ptr_or_mapfd_type(ptr_or_mapfd.value(), dist);
             std::cout << ",";
         }
     }
