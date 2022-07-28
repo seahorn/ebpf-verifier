@@ -65,6 +65,7 @@ class ptr_with_off_t {
 };
 
 class mapfd_t {
+    int m_mapfd;
     EbpfMapValueType m_value_type;
 
   public:
@@ -72,12 +73,13 @@ class mapfd_t {
     mapfd_t(mapfd_t&&) = default;
     mapfd_t &operator=(const mapfd_t&) = default;
     mapfd_t &operator=(mapfd_t&&) = default;
-    mapfd_t(EbpfMapValueType val_type) : m_value_type(val_type) {}
+    mapfd_t(int mapfd, EbpfMapValueType val_type) : m_mapfd(mapfd), m_value_type(val_type) {}
     friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
     void write(std::ostream&) const;
 
     bool has_type_map_programs() const;
     constexpr EbpfMapValueType get_value_type() const { return m_value_type; }
+    constexpr int get_mapfd() const { return m_mapfd; }
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;

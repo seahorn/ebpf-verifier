@@ -83,6 +83,12 @@ static void print_register(register_t r, const ptr_or_mapfd_t& ptr_or_mapfd, std
     print_ptr_or_mapfd_type(ptr_or_mapfd, o);
 }
 
+static void print_register_ptr_type(register_t r, const ptr_t& ptr, std::ostream& o) {
+    o << "r" << static_cast<unsigned int>(r);
+    o << " : ";
+    print_ptr_type(ptr, o);
+}
+
 namespace crab {
 
 inline std::string get_reg_ptr(const region_t& r) {
@@ -218,7 +224,7 @@ void ctx_t::write(std::ostream& o) const {
     else {
         o << "{";
         for (auto const& s : m_packet_ptrs) {
-            //print_register(s.first, s.second, o);
+            print_register_ptr_type(s.first, s.second, o);
             o << "\n";
         }
         o << "}";
@@ -605,16 +611,42 @@ void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) 
     const EbpfMapDescriptor& desc = global_program_info.platform->get_map_descriptor(u.mapfd);
     const EbpfMapValueType& map_value_type = global_program_info.platform->
         get_map_type(desc.type).value_type;
-    auto type = mapfd_t(map_value_type);
+    auto type = mapfd_t(u.mapfd, map_value_type);
     m_registers.insert(reg, reg_with_loc, type);
 }
 
 void region_domain_t::operator()(const Call &u, location_t loc, int print) {
+    std::optional<Reg> maybe_fd_reg{};
+    for (ArgSingle param : u.singles) {
+        if (param.kind == ArgSingle::Kind::MAP_FD) maybe_fd_reg = param.reg;
+        break;
+    }
     register_t r0_reg{R0_RETURN_VALUE};
     auto r0 = reg_with_loc_t(r0_reg, loc);
     if (u.is_map_lookup) {
-        auto type = ptr_no_off_t(crab::region_t::T_SHARED);
-        m_registers.insert(r0_reg, r0, type);
+        if (!maybe_fd_reg) {
+            m_registers -= r0_reg;
+            return;
+        }
+        auto ptr_or_mapfd = m_registers.find(maybe_fd_reg->v);
+        if (!ptr_or_mapfd || !std::holds_alternative<mapfd_t>(ptr_or_mapfd.value())) {
+            m_registers -= r0_reg;
+            return;
+        }
+        auto mapfd = std::get<mapfd_t>(ptr_or_mapfd.value());
+        auto map_desc = global_program_info.platform->get_map_descriptor(mapfd.get_mapfd());
+        if (mapfd.get_value_type() == EbpfMapValueType::MAP) {
+            const EbpfMapDescriptor& inner_map_desc = global_program_info.platform->
+                get_map_descriptor(map_desc.inner_map_fd);
+            const EbpfMapValueType& inner_map_value_type = global_program_info.platform->
+                get_map_type(inner_map_desc.type).value_type;
+            auto type = mapfd_t(map_desc.inner_map_fd, inner_map_value_type);
+            m_registers.insert(r0_reg, r0, type);
+        }
+        else {
+            auto type = ptr_no_off_t(crab::region_t::T_SHARED);
+            m_registers.insert(r0_reg, r0, type);
+        }
     }
     else {
         m_registers -= r0_reg;
@@ -671,7 +703,6 @@ void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
 
 region_domain_t region_domain_t::setup_entry() {
 
-    print_map_descriptors(global_program_info.map_descriptors, std::cout);
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
     std::shared_ptr<global_region_env_t> all_types = std::make_shared<global_region_env_t>();
 
