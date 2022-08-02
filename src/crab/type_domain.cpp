@@ -47,7 +47,7 @@ static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd, std::opt
     }
 }
 
-static void print_number(std::optional<int>& num) {
+static void print_number(std::optional<interval_t>& num) {
     std::cout << "number";
     if (num) {
         std::cout << "<" << num.value() << ">";
@@ -55,7 +55,7 @@ static void print_number(std::optional<int>& num) {
 }
 
 static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p, std::optional<dist_t>& d,
-        std::optional<int>& n) {
+        std::optional<interval_t> n) {
     std::cout << r << " : ";
     if (p) {
         print_ptr_or_mapfd_type(p.value(), d);
@@ -66,14 +66,14 @@ static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p, std::optiona
 }
 
 static void print_annotated(const Call& call, std::optional<ptr_or_mapfd_t>& p,
-        std::optional<dist_t>& d, std::optional<int>& n) {
+        std::optional<dist_t>& d, std::optional<interval_t>& n) {
     std::cout << "  ";
     print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p, d, n);
     std::cout << " = " << call.name << ":" << call.func << "(...)\n";
 }
 
 static void print_annotated(const Bin& b, std::optional<ptr_or_mapfd_t>& p,
-        std::optional<dist_t>& d, std::optional<int>& n) {
+        std::optional<dist_t>& d, std::optional<interval_t>& n) {
     std::cout << "  ";
     print_register(b.dst, p, d, n);
     std::cout << " " << b.op << "= " << b.v << "\n";
@@ -82,13 +82,13 @@ static void print_annotated(const Bin& b, std::optional<ptr_or_mapfd_t>& p,
 static void print_annotated(const LoadMapFd& u, std::optional<ptr_or_mapfd_t>& p) {
     std::cout << "  ";
     std::optional<dist_t> d;
-    std::optional<int> n;
+    std::optional<interval_t> n;
     print_register(u.dst, p, d, n);
     std::cout << " = map_fd " << u.mapfd << "\n";
 }
 
 static void print_annotated(const Mem& b, std::optional<ptr_or_mapfd_t>& p,
-        std::optional<dist_t>& d, std::optional<int>& n) {
+        std::optional<dist_t>& d, std::optional<interval_t>& n) {
     if (b.is_load) {
         std::cout << "  ";
         print_register(std::get<Reg>(b.value), p, d, n);
@@ -106,7 +106,7 @@ bool type_domain_t::is_bottom() const {
 
 bool type_domain_t::is_top() const {
     if (m_is_bottom) return false;
-    return (m_region.is_top() && m_offset.is_top() && m_constant.is_top());
+    return (m_region.is_top() && m_offset.is_top() && m_interval.is_top());
 }
 
 type_domain_t type_domain_t::bottom() {
@@ -122,7 +122,7 @@ void type_domain_t::set_to_bottom() {
 void type_domain_t::set_to_top() {
     m_region.set_to_top();
     m_offset.set_to_top();
-    m_constant.set_to_top();
+    m_interval.set_to_top();
 }
 
 bool type_domain_t::operator<=(const type_domain_t& abs) const {
@@ -151,7 +151,7 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const {
         return *this;
     }
     return type_domain_t(m_region | other.m_region, m_offset | other.m_offset,
-            m_constant | other.m_constant);
+            m_interval | other.m_interval);
 }
 
 type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
@@ -162,7 +162,7 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
         return *this;
     }
     return type_domain_t(m_region | std::move(other.m_region), m_offset | std::move(m_offset),
-            m_constant | std::move(other.m_constant));
+            m_interval | std::move(other.m_interval));
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -200,7 +200,7 @@ void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
@@ -210,7 +210,7 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
@@ -222,7 +222,7 @@ void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
@@ -231,13 +231,13 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
         auto r0 = reg_with_loc_t(r0_reg, loc);
         auto region = m_region.find_in_registers(r0);
         auto offset = m_offset.find_in_registers(r0);
-        auto constant = m_constant.find_in_registers(r0);
-        print_annotated(u, region, offset, constant);
+        auto interval = m_interval.find_in_registers(r0);
+        print_annotated(u, region, offset, interval);
         return;
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
@@ -247,7 +247,7 @@ void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
@@ -257,7 +257,7 @@ void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
@@ -267,7 +267,7 @@ void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
@@ -277,7 +277,7 @@ void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
@@ -287,7 +287,7 @@ void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
     }
     m_region(u, loc);
     m_offset(u, loc);
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
@@ -332,8 +332,8 @@ void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
 
     auto maybe_ptr_type1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
     auto maybe_ptr_type2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
-    auto maybe_num_type1 = m_constant.find_const_value(u.r1.v);
-    auto maybe_num_type2 = m_constant.find_const_value(u.r2.v);
+    auto maybe_num_type1 = m_interval.find_interval_value(u.r1.v);
+    auto maybe_num_type2 = m_interval.find_interval_value(u.r2.v);
     if (maybe_ptr_type1 && maybe_ptr_type2) {
         if (!maybe_num_type1 && !maybe_num_type2) {
             // an extra check just to make sure registers are not labelled both ptrs and numbers
@@ -371,7 +371,7 @@ void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
         std::cout << "  " << u << "\n";
         return;
     }
-    m_constant(u, loc);
+    m_interval(u, loc);
 }
 
 void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
@@ -392,14 +392,21 @@ void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
         if (ptr_type_with_off.get_offset() == 0) return;
     }
     auto maybe_dist = m_offset.find_offset_info(u.reg.v);
-    if (maybe_dist && maybe_dist.value().m_dist == 0) return;
+    if (maybe_dist) {
+        auto dist_val = maybe_dist.value().m_dist;
+        auto single_val = dist_val.singleton();
+        if (single_val) {
+            auto dist_value = single_val.value();
+            if (dist_value == number_t(0)) return;
+        }
+    }
     std::cout << "Zero Offset assertion fail\n";
 }
 
 type_domain_t type_domain_t::setup_entry() {
     region_domain_t reg = region_domain_t::setup_entry();
     offset_domain_t off = offset_domain_t::setup_entry();
-    constant_prop_domain_t cp = constant_prop_domain_t::setup_entry();
+    interval_prop_domain_t cp = interval_prop_domain_t::setup_entry();
     type_domain_t typ(std::move(reg), std::move(off), std::move(cp));
     return typ;
 }
@@ -409,22 +416,22 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
         auto region = m_region.find_in_registers(reg_with_loc);
         auto offset = m_offset.find_in_registers(reg_with_loc);
-        auto constant = m_constant.find_in_registers(reg_with_loc);
-        print_annotated(bin, region, offset, constant);
+        auto interval = m_interval.find_in_registers(reg_with_loc);
+        print_annotated(bin, region, offset, interval);
         return;
     }
 
     std::optional<ptr_or_mapfd_t> src_type, dst_type;
-    std::optional<int> src_const_value;
+    std::optional<interval_t> src_interval_value;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg r = std::get<Reg>(bin.v);
         src_type = m_region.find_ptr_or_mapfd_type(r.v);
-        src_const_value = m_constant.find_const_value(r.v);
+        src_interval_value = m_interval.find_interval_value(r.v);
     }
     dst_type = m_region.find_ptr_or_mapfd_type(bin.dst.v);
-    m_region.do_bin(bin, src_const_value, loc);
-    m_constant.do_bin(bin, loc);
-    m_offset.do_bin(bin, src_const_value, src_type, dst_type, loc);
+    m_region.do_bin(bin, src_interval_value, loc);
+    m_interval.do_bin(bin, loc);
+    m_offset.do_bin(bin, src_interval_value, src_type, dst_type, loc);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
@@ -433,8 +440,8 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
         auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
         auto region = m_region.find_in_registers(target_reg_loc);
         auto offset = m_offset.find_in_registers(target_reg_loc);
-        auto constant = m_constant.find_in_registers(target_reg_loc);
-        print_annotated(b, region, offset, constant);
+        auto interval = m_interval.find_in_registers(target_reg_loc);
+        print_annotated(b, region, offset, interval);
         return;
     }
 
@@ -442,7 +449,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     auto basereg_type = m_region.find_ptr_or_mapfd_type(basereg.v);
 
     m_region.do_load(b, target_reg, loc);
-    m_constant.do_load(b, target_reg, basereg_type, loc);
+    m_interval.do_load(b, target_reg, basereg_type, loc);
     m_offset.do_load(b, target_reg, basereg_type, loc);
 }
 
@@ -458,7 +465,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     auto targetreg_type = m_region.find_ptr_or_mapfd_type(target_reg.v);
 
     m_region.do_mem_store(b, target_reg, loc);
-    m_constant.do_mem_store(b, target_reg, basereg_type);
+    m_interval.do_mem_store(b, target_reg, basereg_type);
     m_offset.do_mem_store(b, target_reg, basereg_type, targetreg_type);
 }
 
@@ -525,7 +532,7 @@ void type_domain_t::print_initial_types() const {
 void type_domain_t::adjust_bb_for_types(location_t loc) {
     m_region.adjust_bb_for_types(loc);
     m_offset.adjust_bb_for_types(loc);
-    m_constant.adjust_bb_for_types(loc);
+    m_interval.adjust_bb_for_types(loc);
 }
 
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {

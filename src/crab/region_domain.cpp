@@ -790,7 +790,7 @@ void region_domain_t::check_type_constraint(const TypeConstraint& s) {
     //exit(1);
 }
 
-void region_domain_t::do_bin(const Bin& bin, std::optional<int> src_const_value, location_t loc) {
+void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const_value, location_t loc) {
     ptr_or_mapfd_t dst_reg;
     if (bin.op == Bin::Op::ADD) {
         auto it = m_registers.find(bin.dst.v);
@@ -831,7 +831,14 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<int> src_const_value,
                     ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
                     if (dst_reg_with_off.get_region() == crab::region_t::T_STACK) {
                         if (src_const_value) {
-                            int updated_offset = dst_reg_with_off.get_offset()+src_const_value.value();
+                            auto src_const_maybe_number = src_const_value.value().singleton();
+                            if (!src_const_maybe_number) {
+                                m_stack.set_to_top();
+                                return;
+                            }
+
+                            int updated_offset = dst_reg_with_off.get_offset()
+                                + int(src_const_maybe_number.value());
                             dst_reg_with_off.set_offset(updated_offset);
                             auto reg = reg_with_loc_t(bin.dst.v, loc);
                             m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
@@ -839,7 +846,6 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<int> src_const_value,
                         }
                         else {
                             m_stack.set_to_top();
-                            m_stack -= dst_reg_with_off.get_offset();
                             return;
                         }
                     }

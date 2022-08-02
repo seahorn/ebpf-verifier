@@ -17,14 +17,16 @@ using crab::mapfd_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::reg_with_loc_t;
+using crab::interval_t;
+using crab::bound_t;
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using global_constant_env_t = std::unordered_map<reg_with_loc_t, int>;
+using global_interval_env_t = std::unordered_map<reg_with_loc_t, interval_t>;
 
 class registers_cp_state_t {
 
     live_registers_t m_cur_def;
-    std::shared_ptr<global_constant_env_t> m_constant_env;
+    std::shared_ptr<global_interval_env_t> m_interval_env;
     bool m_is_bottom = false;
 
     public:
@@ -32,27 +34,27 @@ class registers_cp_state_t {
         bool is_top() const;
         void set_to_bottom();
         void set_to_top();
-        std::optional<int> find(reg_with_loc_t reg) const;
-        std::optional<int> find(register_t key) const;
-        void insert(register_t, const reg_with_loc_t&, int);
+        std::optional<interval_t> find(reg_with_loc_t reg) const;
+        std::optional<interval_t> find(register_t key) const;
+        void insert(register_t, const reg_with_loc_t&, interval_t);
         void operator-=(register_t);
         registers_cp_state_t operator|(const registers_cp_state_t& other) const;
-        registers_cp_state_t(bool is_bottom = false) : m_constant_env(nullptr),
+        registers_cp_state_t(bool is_bottom = false) : m_interval_env(nullptr),
             m_is_bottom(is_bottom) {}
         explicit registers_cp_state_t(live_registers_t&& vars,
-                std::shared_ptr<global_constant_env_t> constant_env, bool is_bottom = false)
-            : m_cur_def(std::move(vars)), m_constant_env(constant_env), m_is_bottom(is_bottom) {}
-        explicit registers_cp_state_t(std::shared_ptr<global_constant_env_t> constant_env,
+                std::shared_ptr<global_interval_env_t> interval_env, bool is_bottom = false)
+            : m_cur_def(std::move(vars)), m_interval_env(interval_env), m_is_bottom(is_bottom) {}
+        explicit registers_cp_state_t(std::shared_ptr<global_interval_env_t> interval_env,
                 bool is_bottom = false)
-            : m_constant_env(constant_env), m_is_bottom(is_bottom) {}
+            : m_interval_env(interval_env), m_is_bottom(is_bottom) {}
         void adjust_bb_for_registers(location_t);
         //void print_all_consts();
 };
 
 class stack_cp_state_t {
-    using const_values_stack_t = std::unordered_map<unsigned int, int>;
+    using interval_values_stack_t = std::unordered_map<unsigned int, interval_t>;
 
-    const_values_stack_t m_const_values;
+    interval_values_stack_t m_interval_values;
     bool m_is_bottom = false;
 
     public:
@@ -61,51 +63,51 @@ class stack_cp_state_t {
         void set_to_bottom();
         void set_to_top();
         static stack_cp_state_t top();
-        std::optional<int> find(int) const;
-        void store(int, int);
+        std::optional<interval_t> find(int) const;
+        void store(int, interval_t);
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
-        explicit stack_cp_state_t(const_values_stack_t&& const_values, bool is_bottom = false)
-            : m_const_values(std::move(const_values)), m_is_bottom(is_bottom) {}
+        explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
+            : m_interval_values(std::move(interval_values)), m_is_bottom(is_bottom) {}
 };
 
-class constant_prop_domain_t final {
-    registers_cp_state_t m_registers_const_values;
-    stack_cp_state_t m_stack_slots_const_values;
+class interval_prop_domain_t final {
+    registers_cp_state_t m_registers_interval_values;
+    stack_cp_state_t m_stack_slots_interval_values;
     bool m_is_bottom = false;
 
   public:
 
-    constant_prop_domain_t() = default;
-    constant_prop_domain_t(constant_prop_domain_t&& o) = default;
-    constant_prop_domain_t(const constant_prop_domain_t& o) = default;
-    explicit constant_prop_domain_t(registers_cp_state_t&& consts_regs,
-            stack_cp_state_t&& const_stack_slots, bool is_bottom = false) :
-        m_registers_const_values(std::move(consts_regs)), m_stack_slots_const_values(std::move(const_stack_slots)),
+    interval_prop_domain_t() = default;
+    interval_prop_domain_t(interval_prop_domain_t&& o) = default;
+    interval_prop_domain_t(const interval_prop_domain_t& o) = default;
+    explicit interval_prop_domain_t(registers_cp_state_t&& consts_regs,
+            stack_cp_state_t&& interval_stack_slots, bool is_bottom = false) :
+        m_registers_interval_values(std::move(consts_regs)), m_stack_slots_interval_values(std::move(interval_stack_slots)),
         m_is_bottom(is_bottom) {}
-    constant_prop_domain_t& operator=(constant_prop_domain_t&& o) = default;
-    constant_prop_domain_t& operator=(const constant_prop_domain_t& o) = default;
+    interval_prop_domain_t& operator=(interval_prop_domain_t&& o) = default;
+    interval_prop_domain_t& operator=(const interval_prop_domain_t& o) = default;
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-    static constant_prop_domain_t setup_entry();
+    static interval_prop_domain_t setup_entry();
     // bottom/top
-    static constant_prop_domain_t bottom();
+    static interval_prop_domain_t bottom();
     void set_to_top();
     void set_to_bottom();
     bool is_bottom() const;
     bool is_top() const;
     // inclusion
-    bool operator<=(const constant_prop_domain_t& other) const;
+    bool operator<=(const interval_prop_domain_t& other) const;
     // join
-    void operator|=(const constant_prop_domain_t& abs);
-    void operator|=(constant_prop_domain_t&& abs);
-    constant_prop_domain_t operator|(const constant_prop_domain_t& other) const;
-    constant_prop_domain_t operator|(constant_prop_domain_t&& abs) const;
+    void operator|=(const interval_prop_domain_t& abs);
+    void operator|=(interval_prop_domain_t&& abs);
+    interval_prop_domain_t operator|(const interval_prop_domain_t& other) const;
+    interval_prop_domain_t operator|(interval_prop_domain_t&& abs) const;
     // meet
-    constant_prop_domain_t operator&(const constant_prop_domain_t& other) const;
+    interval_prop_domain_t operator&(const interval_prop_domain_t& other) const;
     // widening
-    constant_prop_domain_t widen(const constant_prop_domain_t& other) const;
+    interval_prop_domain_t widen(const interval_prop_domain_t& other) const;
     // narrowing
-    constant_prop_domain_t narrow(const constant_prop_domain_t& other) const;
+    interval_prop_domain_t narrow(const interval_prop_domain_t& other) const;
     //forget
     void operator-=(variable_t var);
 
@@ -140,9 +142,9 @@ class constant_prop_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
     void do_bin(const Bin&, location_t);
-    std::optional<int> find_const_value(register_t) const;
-    std::optional<int> find_in_registers(const reg_with_loc_t reg) const;
+    std::optional<interval_t> find_interval_value(register_t) const;
+    std::optional<interval_t> find_in_registers(const reg_with_loc_t reg) const;
     void print_initial_types();
     void adjust_bb_for_types(location_t);
 
-}; // end constant_prop_domain_t
+}; // end interval_prop_domain_t

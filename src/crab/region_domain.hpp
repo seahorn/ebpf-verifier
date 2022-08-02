@@ -13,6 +13,8 @@
 
 #include "platform.hpp"
 
+using crab::interval_t;
+
 namespace crab {
 
 enum class region_t {
@@ -251,7 +253,7 @@ class region_domain_t final {
 
     void do_load(const Mem&, const Reg&, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
-    void do_bin(const Bin&, std::optional<int>, location_t);
+    void do_bin(const Bin&, std::optional<interval_t>, location_t);
     void check_type_constraint(const TypeConstraint&);
 
     void report_type_error(std::string, location_t);

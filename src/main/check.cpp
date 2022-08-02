@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     app.add_flag("-l", list, "List sections");
 
     std::string domain = "zoneCrab";
-    std::set<string> doms{"stats", "linux", "zoneCrab", "region", "offset", "cfg", "type", "cp"};
+    std::set<string> doms{"stats", "linux", "zoneCrab", "region", "offset", "cfg", "type", "interval"};
     app.add_set("-d,--dom,--domain", domain, doms, "Abstract domain")->type_name("DOMAIN");
 
     app.add_flag("--termination", ebpf_verifier_options.check_termination, "Verify termination");
@@ -146,7 +146,7 @@ int main(int argc, char** argv) {
     }
 
     if (domain == "zoneCrab" || domain == "region" || domain == "offset"
-            || domain == "cp" || domain == "type") {
+            || domain == "interval" || domain == "type") {
         ebpf_verifier_stats_t verifier_stats;
         if (domain == "region") {
           ebpf_verifier_options.abstract_domain = abstract_domain_kind::REGION_DOMAIN;
@@ -154,8 +154,8 @@ int main(int argc, char** argv) {
         else if (domain == "offset") {
           ebpf_verifier_options.abstract_domain = abstract_domain_kind::OFFSET_DOMAIN;
         }
-        else if (domain == "cp") {
-          ebpf_verifier_options.abstract_domain = abstract_domain_kind::CONST_PROP_DOMAIN;
+        else if (domain == "interval") {
+          ebpf_verifier_options.abstract_domain = abstract_domain_kind::INTERVAL_PROP_DOMAIN;
         }
         else if (domain == "type") {
           ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;

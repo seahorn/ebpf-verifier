@@ -22,10 +22,11 @@ using crab::mapfd_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::reg_with_loc_t;
+using crab::interval_t;
+using crab::bound_t;
 
-using constant_t = int;   // define a domain for constants
 //using symbol_t = register_t;    // a register with unknown value
-using weight_t = constant_t; // should be constants + symbols
+using weight_t = interval_t;
 using slack_var_t = int;
 
 enum class rop_t {
@@ -40,7 +41,7 @@ struct dist_t {
     weight_t m_dist;
 
     dist_t(weight_t d, slack_var_t s = -1) : m_slack(s), m_dist(d) {}
-    dist_t() : m_slack(-1), m_dist(0) {}
+    dist_t() : m_slack(-1), m_dist(weight_t::top()) {}
     bool operator==(const dist_t& d) const;
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const dist_t& d);
@@ -53,7 +54,7 @@ struct inequality_t {
 
     inequality_t(slack_var_t slack, rop_t rel, weight_t val) : m_slack(slack), m_rel(rel)
                                                                , m_value(val) {}
-    inequality_t() = default;
+    inequality_t() : m_slack(-1), m_value(weight_t::top()) {}
 };    // represents `slack rel value;`, e.g., `s >= 0`
 
 struct forward_and_backward_eq_t {
@@ -129,7 +130,7 @@ class extra_constraints_t {
         void add_equality(forward_and_backward_eq_t);
         void add_inequality(inequality_t);
         void normalize();
-        weight_t get_limit() const;
+        bound_t get_limit() const;
         extra_constraints_t operator|(const extra_constraints_t&) const;
         explicit extra_constraints_t(forward_and_backward_eq_t&& fabeq, inequality_t ineq, bool is_bottom = false) : m_eq(fabeq), m_ineq(ineq), m_is_bottom(is_bottom) {}
 };
@@ -224,7 +225,7 @@ class offset_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&, location_t loc);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&,
             std::optional<ptr_or_mapfd_t>&);
-    void do_bin(const Bin&, std::optional<int>, std::optional<ptr_or_mapfd_t>,
+    void do_bin(const Bin&, std::optional<interval_t>, std::optional<ptr_or_mapfd_t>,
             std::optional<ptr_or_mapfd_t>, location_t);
     void check_valid_access(const ValidAccess&, std::optional<ptr_or_mapfd_t>&);
 

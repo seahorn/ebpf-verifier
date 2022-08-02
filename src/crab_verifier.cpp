@@ -18,7 +18,7 @@
 #include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
 #include "crab/type_domain.hpp"
-#include "crab/constant_prop_domain.hpp"
+#include "crab/interval_prop_domain.hpp"
 #include "crab/region_domain.hpp"
 #include "crab/offset_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
@@ -140,8 +140,8 @@ static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
         type_domain_t entry_inv = type_domain_t::setup_entry();
         return abstract_domain_t(entry_inv);
     }
-    case abstract_domain_kind::CONST_PROP_DOMAIN: {
-        constant_prop_domain_t entry_inv = constant_prop_domain_t::setup_entry();
+    case abstract_domain_kind::INTERVAL_PROP_DOMAIN: {
+        interval_prop_domain_t entry_inv = interval_prop_domain_t::setup_entry();
         return abstract_domain_t(entry_inv);
     }
     default:
@@ -167,7 +167,7 @@ static abstract_domain_t make_initial(abstract_domain_kind abstract_domain, cons
     case abstract_domain_kind::OFFSET_DOMAIN: {
         // TODO
     }
-    case abstract_domain_kind::CONST_PROP_DOMAIN: {
+    case abstract_domain_kind::INTERVAL_PROP_DOMAIN: {
         // TODO
     }
     default:
