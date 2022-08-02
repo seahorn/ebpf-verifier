@@ -48,7 +48,6 @@ class registers_cp_state_t {
                 bool is_bottom = false)
             : m_interval_env(interval_env), m_is_bottom(is_bottom) {}
         void adjust_bb_for_registers(location_t);
-        //void print_all_consts();
 };
 
 class stack_cp_state_t {
@@ -142,7 +141,7 @@ class interval_prop_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
     std::optional<interval_t> find_interval_value(register_t) const;
-    std::optional<interval_t> find_in_registers(const reg_with_loc_t reg) const;
+    std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
     void print_initial_types();
     void adjust_bb_for_types(location_t);
 

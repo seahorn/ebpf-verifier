@@ -56,39 +56,6 @@ namespace std {
 }
 
 
-static void print_ptr_type(const ptr_t& ptr, std::ostream& o) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
-        o << ptr_with_off;
-    }
-    else {
-        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
-        o << ptr_no_off;
-    }
-}
-
-static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd, std::ostream& o) {
-    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
-        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
-    }
-    else {
-        auto ptr = get_ptr(ptr_or_mapfd);
-        print_ptr_type(ptr, o);
-    }
-}
-
-static void print_register(register_t r, const ptr_or_mapfd_t& ptr_or_mapfd, std::ostream& o) {
-    o << "r" << static_cast<unsigned int>(r);
-    o << " : ";
-    print_ptr_or_mapfd_type(ptr_or_mapfd, o);
-}
-
-static void print_register_ptr_type(register_t r, const ptr_t& ptr, std::ostream& o) {
-    o << "r" << static_cast<unsigned int>(r);
-    o << " : ";
-    print_ptr_type(ptr, o);
-}
-
 namespace crab {
 
 inline std::string get_reg_ptr(const region_t& r) {
@@ -196,46 +163,6 @@ std::size_t reg_with_loc_t::hash() const {
     return seed;
 }
 
-void stack_t::write(std::ostream& o) const {
-    o << "stack: ";
-    if (is_bottom())
-        o << "_|_\n";
-    else if (is_top())
-        o << "top\n";
-    else {
-        o << "{";
-        for (auto const& s : m_ptrs) {
-            print_register(s.first, s.second, o);
-            o << "\n";
-        }
-        o << "}";
-    }
-}
-
-std::ostream& operator<<(std::ostream& o, const stack_t& st) {
-    st.write(o);
-    return o;
-}
-
-void ctx_t::write(std::ostream& o) const {
-    o << "ctx: ";
-    if (m_packet_ptrs.empty())
-        o << "top\n";
-    else {
-        o << "{";
-        for (auto const& s : m_packet_ptrs) {
-            print_register_ptr_type(s.first, s.second, o);
-            o << "\n";
-        }
-        o << "}";
-    }
-}
-
-std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx) {
-    _ctx.write(o);
-    return o;
-}
-
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
 {
     if (desc->data != -1) {
@@ -267,23 +194,6 @@ std::optional<ptr_no_off_t> ctx_t::find(int key) const {
     auto it = m_packet_ptrs.find(key);
     if (it == m_packet_ptrs.end()) return {};
     return it->second;
-}
-
-void register_types_t::write(std::ostream& o) const {
-    if (is_bottom())
-        o << "_|_\n";
-    else {
-        for (const auto& v : *(m_region_env)) {
-            o << v.first << " : ";
-            print_ptr_or_mapfd_type(v.second, o);
-            o << "\n";
-        }
-    }
-}
-
-std::ostream& operator<<(std::ostream& o, const register_types_t& typ) {
-    typ.write(o);
-    return o;
 }
 
 static region_t get_region(const ptr_t& ptr) {
@@ -381,19 +291,6 @@ std::optional<ptr_or_mapfd_t> register_types_t::find(register_t key) const {
     return find(reg);
 }
 
-void register_types_t::print_types_at(location_t loc) const {
-    for (size_t i = 0; i < m_cur_def.size(); i++) {
-        auto reg_with_loc = reg_with_loc_t(i, loc);
-        auto it = find(reg_with_loc);
-        if (it) {
-            std::cout << "  ";
-            print_register(i, it.value(), std::cout);
-            std::cout << "\n";
-        }
-    }
-    std::cout << "\n";
-}
-
 void register_types_t::adjust_bb_for_registers(location_t loc) {
     location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
     for (size_t i = 0; i < m_cur_def.size(); i++) {
@@ -480,7 +377,7 @@ std::optional<ptr_or_mapfd_t> stack_t::find(int key) const {
 
 }
 
-std::optional<ptr_or_mapfd_t> region_domain_t::find_ptr_or_mapfd_type(register_t reg) {
+std::optional<ptr_or_mapfd_t> region_domain_t::find_ptr_or_mapfd_type(register_t reg) const {
     return m_registers.find(reg);
 }
 
@@ -509,7 +406,7 @@ void region_domain_t::set_to_top() {
     m_registers.set_to_top();
 }
 
-std::optional<ptr_or_mapfd_t> region_domain_t::find_in_registers(const reg_with_loc_t& reg) const {
+std::optional<ptr_or_mapfd_t> region_domain_t::find_ptr_or_mapfd_at_loc(const reg_with_loc_t& reg) const {
     return m_registers.find(reg);
 }
 
@@ -585,11 +482,6 @@ region_domain_t region_domain_t::widen(const region_domain_t& abs) const {
 region_domain_t region_domain_t::narrow(const region_domain_t& other) const {
     /* WARNING: The operation is not implemented yet.*/
     return other;
-}
-
-void region_domain_t::write(std::ostream& os) const { 
-    os << m_registers;
-    os << m_stack << "\n";
 }
 
 std::string region_domain_t::domain_name() const {
@@ -1041,18 +933,6 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     else {}
 }
 
-void region_domain_t::print_registers_at(location_t loc) const {
-    m_registers.print_types_at(loc);
-}
-
-void region_domain_t::print_initial_types() const {
-    auto label = label_t::entry;
-    location_t loc = location_t(std::make_pair(label, 0));
-    std::cout << "\n" << *m_ctx << "\n";
-    std::cout << m_stack << "\n";
-    std::cout << "Initial register types:\n";
-    print_registers_at(loc);
-}
 
 bool region_domain_t::is_stack_pointer(register_t reg) const {
     auto type = m_registers.find(reg);
@@ -1069,9 +949,4 @@ bool region_domain_t::is_stack_pointer(register_t reg) const {
 
 void region_domain_t::adjust_bb_for_types(location_t loc) {
     m_registers.adjust_bb_for_registers(loc);
-}
-
-std::ostream& operator<<(std::ostream& o, const region_domain_t& reg) {
-    reg.write(o);
-    return o;
 }

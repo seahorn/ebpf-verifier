@@ -653,7 +653,7 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
     }
 }
 
-std::optional<dist_t> offset_domain_t::find_in_registers(const reg_with_loc_t reg) const {
+std::optional<dist_t> offset_domain_t::find_offset_at_loc(const reg_with_loc_t reg) const {
     return m_reg_state.find(reg);
 }
 

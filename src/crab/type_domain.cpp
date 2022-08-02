@@ -216,7 +216,7 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     if (print > 0) {
         auto reg = reg_with_loc_t(u.dst.v, loc);
-        auto region = m_region.find_in_registers(reg);
+        auto region = m_region.find_ptr_or_mapfd_at_loc(reg);
         print_annotated(u, region);
         return;
     }
@@ -229,9 +229,9 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (print > 0) {
         register_t r0_reg{R0_RETURN_VALUE};
         auto r0 = reg_with_loc_t(r0_reg, loc);
-        auto region = m_region.find_in_registers(r0);
-        auto offset = m_offset.find_in_registers(r0);
-        auto interval = m_interval.find_in_registers(r0);
+        auto region = m_region.find_ptr_or_mapfd_at_loc(r0);
+        auto offset = m_offset.find_offset_at_loc(r0);
+        auto interval = m_interval.find_interval_at_loc(r0);
         print_annotated(u, region, offset, interval);
         return;
     }
@@ -414,9 +414,9 @@ type_domain_t type_domain_t::setup_entry() {
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     if (print > 0) {
         auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-        auto region = m_region.find_in_registers(reg_with_loc);
-        auto offset = m_offset.find_in_registers(reg_with_loc);
-        auto interval = m_interval.find_in_registers(reg_with_loc);
+        auto region = m_region.find_ptr_or_mapfd_at_loc(reg_with_loc);
+        auto offset = m_offset.find_offset_at_loc(reg_with_loc);
+        auto interval = m_interval.find_interval_at_loc(reg_with_loc);
         print_annotated(bin, region, offset, interval);
         return;
     }
@@ -438,9 +438,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
 
     if (print > 0) {
         auto target_reg_loc = reg_with_loc_t(target_reg.v, loc);
-        auto region = m_region.find_in_registers(target_reg_loc);
-        auto offset = m_offset.find_in_registers(target_reg_loc);
-        auto interval = m_interval.find_in_registers(target_reg_loc);
+        auto region = m_region.find_ptr_or_mapfd_at_loc(target_reg_loc);
+        auto offset = m_offset.find_offset_at_loc(target_reg_loc);
+        auto interval = m_interval.find_interval_at_loc(target_reg_loc);
         print_annotated(b, region, offset, interval);
         return;
     }
@@ -485,48 +485,51 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
     }
 }
 
+void type_domain_t::print_registers() const {
+    std::cout << "\tregister types: {\n";
+    for (size_t i = 0; i < NUM_REGISTERS; i++) {
+        register_t reg = (register_t)i;
+        auto maybe_ptr_or_mapfd_type = m_region.find_ptr_or_mapfd_type(reg);
+        auto maybe_offset = m_offset.find_offset_info(reg);
+        auto maybe_interval = m_interval.find_interval_value(reg);
+        if (maybe_ptr_or_mapfd_type || maybe_interval) {
+            std::cout << "\t\t";
+            print_register(Reg{(uint8_t)reg}, maybe_ptr_or_mapfd_type, maybe_offset,
+                    maybe_interval);
+            std::cout << "\n";
+        }
+    }
+    std::cout << "\t}\n";
+}
+
 void type_domain_t::print_ctx() const {
     std::vector<int> ctx_keys = m_region.get_ctx_keys();
-    std::cout << "ctx: {\n";
-    for (auto const k : ctx_keys) {
-        std::optional<ptr_t> ptr = m_region.find_in_ctx(k);
-        std::optional<dist_t> dist = m_offset.find_in_ctx(k);
+    std::cout << "\tctx: {\n";
+    for (auto const& k : ctx_keys) {
+        auto ptr = m_region.find_in_ctx(k);
+        auto dist = m_offset.find_in_ctx(k);
         if (ptr) {
-            std::cout << "  " << k << ": ";
+            std::cout << "\t\t" << k << ": ";
             print_ptr_type(ptr.value(), dist);
             std::cout << ",\n";
         }
     }
-    std::cout << "}\n\n";
+    std::cout << "\t}\n";
 }
 
 void type_domain_t::print_stack() const {
     std::vector<int> stack_keys = m_region.get_stack_keys();
-    std::cout << "stack: ";
-    std::cout << "{\n";
+    std::cout << "\tstack: {\n";
     for (auto const k : stack_keys) {
         auto ptr_or_mapfd = m_region.find_in_stack(k);
         auto dist = m_offset.find_in_stack(k);
         if (ptr_or_mapfd) {
-            std::cout << "  " << k << ": ";
+            std::cout << "\t\t" << k << ": ";
             print_ptr_or_mapfd_type(ptr_or_mapfd.value(), dist);
             std::cout << ",";
         }
     }
-    std::cout << "}\n\n";
-}
-
-void type_domain_t::print_initial_registers() const {
-    auto label = label_t::entry;
-    location_t loc = location_t(std::make_pair(label, 0));
-    std::cout << "Initial register types:\n";
-    m_region.print_registers_at(loc);
-}
-
-void type_domain_t::print_initial_types() const {
-    print_ctx();
-    print_stack();
-    print_initial_registers();
+    std::cout << "\t}\n";
 }
 
 void type_domain_t::adjust_bb_for_types(location_t loc) {
@@ -537,13 +540,18 @@ void type_domain_t::adjust_bb_for_types(location_t loc) {
 
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     auto label = bb.label();
+    if (print < 0) {
+        std::cout << "state of stack and ctx in program:\n";
+        print_ctx();
+        print_stack();
+        return;
+    }
     uint32_t curr_pos = 0;
     location_t loc = location_t(std::make_pair(label, curr_pos));
     adjust_bb_for_types(loc);
 
     if (print > 0) {
         if (label == label_t::entry) {
-            print_initial_types();
             m_is_bottom = false;
         }
         std::cout << label << ":\n";
@@ -580,7 +588,10 @@ void type_domain_t::write(std::ostream& o) const {
     if (is_bottom()) {
         o << "_|_";
     } else {
-        o << m_region << "\n";
+        std::cout << "{\n";
+        print_registers();
+        print_stack();
+        std::cout << "}\n";
     }
 }
 

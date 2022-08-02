@@ -110,8 +110,6 @@ class ctx_t {
     size_t size() const;
     std::vector<int> get_keys() const;
     std::optional<ptr_no_off_t> find(int key) const;
-    friend std::ostream& operator<<(std::ostream& o, const ctx_t& _ctx);
-    void write(std::ostream&) const;
 };
 
 using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
@@ -140,8 +138,6 @@ class stack_t {
     std::optional<ptr_or_mapfd_t> find(int key) const;
     std::vector<int> get_keys() const;
     size_t size() const;
-    friend std::ostream& operator<<(std::ostream& o, const stack_t& st);
-    void write(std::ostream&) const;
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
@@ -173,9 +169,6 @@ class register_types_t {
     std::optional<ptr_or_mapfd_t> find(reg_with_loc_t reg) const;
     std::optional<ptr_or_mapfd_t> find(register_t key) const;
     const live_registers_t &get_vars() { return m_cur_def; }
-    friend std::ostream& operator<<(std::ostream& o, const register_types_t& p);
-    void print_types_at(location_t) const;
-    void write(std::ostream&) const;
     void adjust_bb_for_registers(location_t loc);
 };
 
@@ -256,15 +249,13 @@ class region_domain_t final {
     void do_bin(const Bin&, std::optional<interval_t>, location_t);
 
     void report_type_error(std::string, location_t);
-    std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t);
+    std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t) const;
     size_t ctx_size() const;
     std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
     std::vector<int> get_ctx_keys() const;
     std::optional<crab::ptr_or_mapfd_t> find_in_stack(int key) const;
-    std::optional<crab::ptr_or_mapfd_t> find_in_registers(const crab::reg_with_loc_t&) const;
+    std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
     std::vector<int> get_stack_keys() const;
-    void print_registers_at(location_t) const;
-    void print_initial_types() const;
     bool is_stack_pointer(register_t) const;
     void adjust_bb_for_types(location_t loc);
 }; // end region_domain_t

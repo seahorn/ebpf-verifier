@@ -89,16 +89,6 @@ void registers_cp_state_t::adjust_bb_for_registers(location_t loc) {
     }
 }
 
-//void registers_cp_state_t::print_all_consts() {
-//    std::cout << "\nprinting all interval values: \n";
-//    for (size_t i = 0; i < m_cur_def.size(); i++) {
-//        if (m_cur_def[i]) {
-//            std::cout << "r" << i << " = " << *m_cur_def[i] << "\n";
-//        }
-//    }
-//    std::cout << "==============================\n\n";
-//}
-
 void registers_cp_state_t::operator-=(register_t var) {
     if (is_bottom()) {
         return;
@@ -182,7 +172,7 @@ std::optional<interval_t> interval_prop_domain_t::find_interval_value(register_t
     return m_registers_interval_values.find(reg);
 }
 
-std::optional<interval_t> interval_prop_domain_t::find_in_registers(const reg_with_loc_t reg) const {
+std::optional<interval_t> interval_prop_domain_t::find_interval_at_loc(const reg_with_loc_t reg) const {
     return m_registers_interval_values.find(reg);
 }
 

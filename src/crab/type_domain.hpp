@@ -13,6 +13,8 @@
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
+constexpr int NUM_REGISTERS = 11;
+
 using crab::ptr_or_mapfd_t;
 using crab::mapfd_t;
 
@@ -89,11 +91,10 @@ class type_domain_t final {
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
-    void print_initial_types() const;
     void report_type_error(std::string, location_t);
+    void print_registers() const;
     void print_ctx() const;
     void print_stack() const;
-    void print_initial_registers() const;
     void adjust_bb_for_types(location_t);
 
 }; // end type_domain_t

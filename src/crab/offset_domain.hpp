@@ -231,7 +231,7 @@ class offset_domain_t final {
 
     std::optional<dist_t> find_in_ctx(int) const;
     std::optional<dist_t> find_in_stack(int) const;
-    std::optional<dist_t> find_in_registers(const reg_with_loc_t) const;
+    std::optional<dist_t> find_offset_at_loc(const reg_with_loc_t) const;
     std::optional<dist_t> find_offset_info(register_t reg) const;
     void adjust_bb_for_types(location_t);
 }; // end offset_domain_t
