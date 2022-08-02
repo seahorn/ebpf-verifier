@@ -373,6 +373,20 @@ int offset_domain_t::get_instruction_count_upper_bound() {
 
 string_invariant offset_domain_t::to_set() { return string_invariant{}; }
 
+void offset_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
+    m_reg_state -= u.dst.v;
+}
+
+void offset_domain_t::operator()(const Packet &u, location_t loc, int print) {
+    register_t r0_reg{R0_RETURN_VALUE};
+    m_reg_state -= r0_reg;
+}
+
+void offset_domain_t::operator()(const Call &u, location_t loc, int print) {
+    register_t r0_reg{R0_RETURN_VALUE};
+    m_reg_state -= r0_reg;
+}
+
 void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
     Condition cond = b.cond;
     if (cond.op == Condition::Op::LE) {
@@ -531,26 +545,6 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
     }
 }
 
-void offset_domain_t::operator()(const Bin &bin, location_t loc, int print) {
-    do_bin(bin, {}, {}, {}, loc);
-}
-
-void offset_domain_t::operator()(const Undefined &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const Un &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const LoadMapFd &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const Call &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const Exit &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const Jmp &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const Packet &, location_t loc, int print) {}
-
-void offset_domain_t::operator()(const LockAdd &, location_t loc, int print) {}
-
 void offset_domain_t::check_valid_access(const ValidAccess& s,
         std::optional<ptr_or_mapfd_t>& reg_type) {
     if (std::holds_alternative<Imm>(s.width)) {
@@ -594,17 +588,6 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
     }
     std::cout << "valid access assert fail\n";
     //exit(1);
-}
-
-void offset_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    std::visit(*this, u.cst);
-}
-
-void offset_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
-    for (const Instruction& statement : bb) {
-        location_t loc = boost::none;
-        std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
-    }
 }
 
 void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
@@ -668,9 +651,6 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
     else {  // we are loading from packet or shared, or we have mapfd
         m_reg_state -= target_reg.v;
     }
-}
-
-void offset_domain_t::operator()(const Mem &b, location_t loc, int print) {
 }
 
 std::optional<dist_t> offset_domain_t::find_in_registers(const reg_with_loc_t reg) const {

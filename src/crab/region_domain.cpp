@@ -654,7 +654,7 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
 }
 
 void region_domain_t::operator()(const Packet & u, location_t loc, int print) {
-    m_registers -= register_t{0};
+    m_registers -= register_t{R0_RETURN_VALUE};
 }
 
 void region_domain_t::operator()(const Addable& u, location_t loc, int print) {
@@ -683,24 +683,6 @@ void region_domain_t::operator()(const ValidStore& u, location_t loc, int print)
     std::cout << "Valid store assertion fail\n";
 }
 
-void region_domain_t::operator()(const Assume &u, location_t loc, int print) {
-    if (print > 0)
-        std::cout << "  " << u << ";\n";
-}
-
-void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
-    check_type_constraint(s);
-}
-
-void region_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    if (print > 0) {
-        std::cout << "  " << u << ";\n";
-        return;
-    }
-    //std::cout << "assert: " << u << "\n";
-    std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
-}
-
 region_domain_t region_domain_t::setup_entry() {
 
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
@@ -725,7 +707,7 @@ void region_domain_t::report_type_error(std::string s, location_t loc) {
     set_to_bottom();
 }
 
-void region_domain_t::check_type_constraint(const TypeConstraint& s) {
+void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
     auto it = find_ptr_or_mapfd_type(s.reg.v);
     if (it) {
         if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
@@ -890,10 +872,6 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
             }
         }
     }
-}
-
-void region_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    do_bin(bin, {}, loc);
 }
 
 void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
@@ -1063,23 +1041,6 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     else {}
 }
 
-void region_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (is_bottom()) return;
-
-    if (std::holds_alternative<Reg>(b.value)) {
-        if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), loc);
-        } else {
-            do_mem_store(b, std::get<Reg>(b.value), loc);
-        }
-    } else {
-        std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
-        std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
-        //report_type_error(desc, loc);
-        return;
-    }
-}
-
 void region_domain_t::print_registers_at(location_t loc) const {
     m_registers.print_types_at(loc);
 }
@@ -1092,20 +1053,6 @@ void region_domain_t::print_initial_types() const {
     std::cout << "Initial register types:\n";
     print_registers_at(loc);
 }
-
-void region_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
-    auto label = bb.label();
-    uint32_t curr_pos = 0;
-    location_t loc;
-
-    for (const Instruction& statement : bb) {
-        loc = location_t(std::make_pair(label, ++curr_pos));
-        //if (print > 0) std::cout << " " << curr_pos << ".";
-        std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
-        //if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) std::cout << "type_error\n";
-    }
-}
-
 
 bool region_domain_t::is_stack_pointer(register_t reg) const {
     auto type = m_registers.find(reg);

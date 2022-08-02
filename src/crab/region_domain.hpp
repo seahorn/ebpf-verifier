@@ -224,17 +224,17 @@ class region_domain_t final {
 
     //// abstract transformers
     void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Bin &, location_t loc = boost::none, int print = 0);
+    void operator()(const Bin &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Un &, location_t loc = boost::none, int print = 0) {}
     void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
     void operator()(const Call &, location_t loc = boost::none, int print = 0);
     void operator()(const Exit &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Jmp &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Mem &, location_t loc = boost::none, int print = 0);
+    void operator()(const Mem &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Packet &, location_t loc = boost::none, int print = 0);
     void operator()(const LockAdd &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Assume &, location_t loc = boost::none, int print = 0);
-    void operator()(const Assert &, location_t loc = boost::none, int print = 0);
+    void operator()(const Assume &, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Assert &, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
     void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const Addable& s, location_t loc = boost::none, int print = 0);
@@ -243,7 +243,7 @@ class region_domain_t final {
     void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
+    void operator()(const basic_block_t& bb, bool check_termination, int print = 0) {}
     void write(std::ostream& os) const;
     friend std::ostream& operator<<(std::ostream&, const region_domain_t&);
     std::string domain_name() const;
@@ -254,7 +254,6 @@ class region_domain_t final {
     void do_load(const Mem&, const Reg&, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
     void do_bin(const Bin&, std::optional<interval_t>, location_t);
-    void check_type_constraint(const TypeConstraint&);
 
     void report_type_error(std::string, location_t);
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t);

@@ -264,6 +264,10 @@ interval_prop_domain_t interval_prop_domain_t::setup_entry() {
     return cp;
 }
 
+void interval_prop_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
+    m_registers_interval_values -= u.dst.v;
+}
+
 void interval_prop_domain_t::operator()(const ValidSize& s, location_t loc, int print) {
     auto reg_v = m_registers_interval_values.find(s.reg.v);
     if (reg_v) {
@@ -277,7 +281,18 @@ void interval_prop_domain_t::operator()(const ValidSize& s, location_t loc, int 
     std::cout << "Valid Size assertion fail\n";
 }
 
-void interval_prop_domain_t::do_bin(const Bin& bin, location_t loc) {
+void interval_prop_domain_t::operator()(const Call &, location_t loc, int print) {
+    // if its a map_lookup call, then r0 either is a shared_p, or map_fd reg
+    // otherwise, r0 is a number we do not know the value of
+    // both cases, we forget the type
+    m_registers_interval_values -= register_t{R0_RETURN_VALUE};
+}
+
+void interval_prop_domain_t::operator()(const Packet &u, location_t loc, int print) {
+    m_registers_interval_values -= register_t{R0_RETURN_VALUE};
+}
+
+void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     auto dst_v = m_registers_interval_values.find(bin.dst.v);
     std::optional<interval_t> updated_dst_interval = {};
 
@@ -485,9 +500,6 @@ void interval_prop_domain_t::do_bin(const Bin& bin, location_t loc) {
         m_registers_interval_values.insert(bin.dst.v, reg_with_loc, updated_dst_interval.value());
 }
 
-void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    do_bin(bin, loc);
-}
 
 void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
         std::optional<ptr_or_mapfd_t> basereg_type, location_t loc) {
@@ -539,27 +551,6 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         }
     }
     else {}
-}
-
-void interval_prop_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (std::holds_alternative<Reg>(b.value)) {
-        if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), {}, loc);
-        } else {
-            do_mem_store(b, std::get<Reg>(b.value), {});
-        }
-    }
-}
-
-void interval_prop_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
-    auto label = bb.label();
-    uint32_t curr_pos = 0;
-    location_t loc;
-    for (const Instruction& statement : bb) {
-        std::cout << statement << "\n";
-        loc = location_t(std::make_pair(label, ++curr_pos));
-        std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
-    }
 }
 
 void interval_prop_domain_t::adjust_bb_for_types(location_t loc) {

@@ -296,7 +296,7 @@ void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) 
 }
 
 void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
-    m_region.check_type_constraint(s);
+    m_region(s, loc);
 }
 
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
@@ -430,7 +430,7 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     }
     dst_type = m_region.find_ptr_or_mapfd_type(bin.dst.v);
     m_region.do_bin(bin, src_interval_value, loc);
-    m_interval.do_bin(bin, loc);
+    m_interval(bin, loc);
     m_offset.do_bin(bin, src_interval_value, src_type, dst_type, loc);
 }
 
@@ -555,6 +555,7 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
             std::cout << "   " << curr_pos << ".";
         //if (print <= 0) std::cout << statement << "\n";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
+        //if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) std::cout << "type_error\n";
     }
 
     if (print > 0) {
