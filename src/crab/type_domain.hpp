@@ -17,6 +17,7 @@ constexpr int NUM_REGISTERS = 11;
 
 using crab::ptr_or_mapfd_t;
 using crab::mapfd_t;
+using crab::region_t;
 
 class type_domain_t final {
     region_domain_t m_region;

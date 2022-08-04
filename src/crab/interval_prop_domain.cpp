@@ -287,7 +287,6 @@ void interval_prop_domain_t::operator()(const ValidSize& s, location_t loc, int 
     auto reg_v = m_registers_interval_values.find(s.reg.v);
     if (reg_v) {
         auto reg_value = reg_v.value();
-        std::cout << "valid size assertion: " << reg_value << "\n";
         if ((s.can_be_zero && reg_value.lb() >= bound_t(0))
                 || (!s.can_be_zero && reg_value.lb() > bound_t(0))) {
             return;

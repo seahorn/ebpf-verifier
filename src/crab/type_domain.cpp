@@ -307,21 +307,17 @@ void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
-static bool same_region(ptr_or_mapfd_t& p1, ptr_or_mapfd_t& p2) {
-    // TODO: refactor/move to appropriate class/struct
-    if (std::holds_alternative<ptr_with_off_t>(p1)
-            && std::holds_alternative<ptr_with_off_t>(p2)) {
-        auto p1_with_off = std::get<ptr_with_off_t>(p1);
-        auto p2_with_off = std::get<ptr_with_off_t>(p2);
-        return (p1_with_off.get_region() == p2_with_off.get_region());
+static bool is_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
+    return (std::holds_alternative<mapfd_t>(ptr_or_mapfd));
+}
+
+static region_t get_region(const ptr_t& ptr) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        return std::get<ptr_with_off_t>(ptr).get_region();
     }
-    else if (std::holds_alternative<ptr_no_off_t>(p1)
-            && std::holds_alternative<ptr_no_off_t>(p2)) {
-        auto p1_no_off = std::get<ptr_no_off_t>(p1);
-        auto p2_no_off = std::get<ptr_no_off_t>(p2);
-        return (p1_no_off.get_region() == p2_no_off.get_region());
+    else {
+        return std::get<ptr_no_off_t>(ptr).get_region();
     }
-    return false;
 }
 
 void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
@@ -330,22 +326,32 @@ void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
         return;
     }
 
-    auto maybe_ptr_type1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
-    auto maybe_ptr_type2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
-    auto maybe_num_type1 = m_interval.find_interval_value(u.r1.v);
-    auto maybe_num_type2 = m_interval.find_interval_value(u.r2.v);
-    if (maybe_ptr_type1 && maybe_ptr_type2) {
-        if (!maybe_num_type1 && !maybe_num_type2) {
+    auto maybe_ptr_or_mapfd1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
+    auto maybe_ptr_or_mapfd2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
+    auto maybe_interval1 = m_interval.find_interval_value(u.r1.v);
+    auto maybe_interval2 = m_interval.find_interval_value(u.r2.v);
+    if (maybe_ptr_or_mapfd1 && maybe_ptr_or_mapfd2) {
+        if (!maybe_interval1 && !maybe_interval2) {
             // an extra check just to make sure registers are not labelled both ptrs and numbers
-            if (same_region(maybe_ptr_type1.value(), maybe_ptr_type2.value())) {
+            auto ptr_or_mapfd1 = maybe_ptr_or_mapfd1.value();
+            auto ptr_or_mapfd2 = maybe_ptr_or_mapfd1.value();
+            if (is_mapfd_type(ptr_or_mapfd1) && is_mapfd_type(ptr_or_mapfd2)) {
                 return;
+            }
+            else if (!is_mapfd_type(ptr_or_mapfd1) && !is_mapfd_type(ptr_or_mapfd2)) {
+                auto ptr1 = get_ptr(ptr_or_mapfd1);
+                auto ptr2 = get_ptr(ptr_or_mapfd2);
+                if (get_region(ptr1) == get_region(ptr2)) {
+                    return;
+                }
             }
         }
     }
-    else if (!maybe_ptr_type1 && !maybe_ptr_type2) {
+    else if (!maybe_ptr_or_mapfd1 && !maybe_ptr_or_mapfd2) {
+        // all other cases when we do not have a ptr or mapfd, the type is a number
         return;
     }
-    std::cout << "Non-comparable values\n";
+    std::cout << "Non-comparable types\n";
 }
 
 void type_domain_t::operator()(const Addable& u, location_t loc, int print) {
