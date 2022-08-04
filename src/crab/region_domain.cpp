@@ -593,10 +593,6 @@ void region_domain_t::operator()(const Addable& u, location_t loc, int print) {
 }
 
 void region_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
-    if (print > 0) {
-        std::cout << "  " << u << "\n";
-        return;
-    }
 
     bool is_stack_p = is_stack_pointer(u.mem.v);
     auto maybe_ptr_type2 = m_registers.find(u.val.v);

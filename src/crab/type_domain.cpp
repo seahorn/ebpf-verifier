@@ -372,7 +372,6 @@ void type_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
 
 
 void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
-    //std::cout << "validSize: " << u << "\n";
     if (print > 0) {
         std::cout << "  " << u << "\n";
         return;
@@ -392,18 +391,20 @@ void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
         std::cout << "  " << u << "\n";
         return;
     }
-    auto maybe_ptr_type = m_region.find_ptr_or_mapfd_type(u.reg.v);
-    if (maybe_ptr_type && std::holds_alternative<ptr_with_off_t>(maybe_ptr_type.value())) {
-        auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_type.value());
-        if (ptr_type_with_off.get_offset() == 0) return;
-    }
-    auto maybe_dist = m_offset.find_offset_info(u.reg.v);
-    if (maybe_dist) {
-        auto dist_val = maybe_dist.value().m_dist;
-        auto single_val = dist_val.singleton();
-        if (single_val) {
-            auto dist_value = single_val.value();
-            if (dist_value == number_t(0)) return;
+    auto maybe_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(u.reg.v);
+    if (maybe_ptr_or_mapfd) {
+        if (std::holds_alternative<ptr_with_off_t>(maybe_ptr_or_mapfd.value())) {
+            auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
+            if (ptr_type_with_off.get_offset() == 0) return;
+        }
+        auto maybe_dist = m_offset.find_offset_info(u.reg.v);
+        if (maybe_dist) {
+            auto dist_val = maybe_dist.value().m_dist;
+            auto single_val = dist_val.singleton();
+            if (single_val) {
+                auto dist_value = single_val.value();
+                if (dist_value == number_t(0)) return;
+            }
         }
     }
     std::cout << "Zero Offset assertion fail\n";
