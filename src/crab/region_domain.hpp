@@ -170,6 +170,7 @@ class register_types_t {
     std::optional<ptr_or_mapfd_t> find(register_t key) const;
     const live_registers_t &get_vars() { return m_cur_def; }
     void adjust_bb_for_registers(location_t loc);
+    void print_all_register_types() const;
 };
 
 }
@@ -258,4 +259,5 @@ class region_domain_t final {
     std::vector<int> get_stack_keys() const;
     bool is_stack_pointer(register_t) const;
     void adjust_bb_for_types(location_t loc);
+    void print_all_register_types() const;
 }; // end region_domain_t

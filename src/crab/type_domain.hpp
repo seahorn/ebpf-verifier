@@ -96,5 +96,4 @@ class type_domain_t final {
     void print_ctx() const;
     void print_stack() const;
     void adjust_bb_for_types(location_t);
-
 }; // end type_domain_t

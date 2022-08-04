@@ -161,8 +161,8 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return type_domain_t(m_region | std::move(other.m_region), m_offset | std::move(m_offset),
-            m_interval | std::move(other.m_interval));
+    return type_domain_t(m_region | std::move(other.m_region),
+            m_offset | std::move(other.m_offset), m_interval | std::move(other.m_interval));
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
@@ -485,6 +485,10 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
     }
 }
 
+// the method does not work well as it requires info about the label of basic block we are in
+// this info is not available when we are only printing any state
+// but it is available when we are processing a basic block for all its instructions:w
+//
 void type_domain_t::print_registers() const {
     std::cout << "\tregister types: {\n";
     for (size_t i = 0; i < NUM_REGISTERS; i++) {
@@ -518,15 +522,24 @@ void type_domain_t::print_ctx() const {
 }
 
 void type_domain_t::print_stack() const {
-    std::vector<int> stack_keys = m_region.get_stack_keys();
+    std::vector<int> stack_keys_region = m_region.get_stack_keys();
+    std::vector<int> stack_keys_interval = m_interval.get_stack_keys();
     std::cout << "\tstack: {\n";
-    for (auto const k : stack_keys) {
+    for (auto const k : stack_keys_region) {
         auto ptr_or_mapfd = m_region.find_in_stack(k);
         auto dist = m_offset.find_in_stack(k);
         if (ptr_or_mapfd) {
             std::cout << "\t\t" << k << ": ";
             print_ptr_or_mapfd_type(ptr_or_mapfd.value(), dist);
-            std::cout << ",";
+            std::cout << ",\n";
+        }
+    }
+    for (auto const k : stack_keys_interval) {
+        auto interval = m_interval.find_in_stack(k);
+        if (interval) {
+            std::cout << "\t\t" << k << ": ";
+            print_number(interval);
+            std::cout << ",\n";
         }
     }
     std::cout << "\t}\n";
@@ -544,18 +557,20 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
         std::cout << "state of stack and ctx in program:\n";
         print_ctx();
         print_stack();
+        std::cout << "\n";
         return;
     }
-    uint32_t curr_pos = 0;
-    location_t loc = location_t(std::make_pair(label, curr_pos));
-    adjust_bb_for_types(loc);
-
     if (print > 0) {
         if (label == label_t::entry) {
             m_is_bottom = false;
         }
         std::cout << label << ":\n";
     }
+
+    uint32_t curr_pos = 0;
+    location_t loc = location_t(std::make_pair(label, curr_pos));
+    if (print == 0)
+        adjust_bb_for_types(loc);
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
@@ -587,11 +602,6 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
 void type_domain_t::write(std::ostream& o) const {
     if (is_bottom()) {
         o << "_|_";
-    } else {
-        std::cout << "{\n";
-        print_registers();
-        print_stack();
-        std::cout << "}\n";
     }
 }
 

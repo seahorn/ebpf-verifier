@@ -48,6 +48,7 @@ class registers_cp_state_t {
                 bool is_bottom = false)
             : m_interval_env(interval_env), m_is_bottom(is_bottom) {}
         void adjust_bb_for_registers(location_t);
+        void print_all_register_types() const;
 };
 
 class stack_cp_state_t {
@@ -68,6 +69,8 @@ class stack_cp_state_t {
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
             : m_interval_values(std::move(interval_values)), m_is_bottom(is_bottom) {}
+        std::vector<int> get_keys() const;
+        size_t size() const;
 };
 
 class interval_prop_domain_t final {
@@ -142,7 +145,8 @@ class interval_prop_domain_t final {
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
     std::optional<interval_t> find_interval_value(register_t) const;
     std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
-    void print_initial_types();
+    std::optional<interval_t> find_in_stack(int) const;
     void adjust_bb_for_types(location_t);
-
+    void print_all_register_types() const;
+    std::vector<int> get_stack_keys() const;
 }; // end interval_prop_domain_t

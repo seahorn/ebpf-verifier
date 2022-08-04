@@ -71,6 +71,27 @@ inline std::string get_reg_ptr(const region_t& r) {
     }
 }
 
+static void print_ptr_type(const ptr_t& ptr) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
+        std::cout << ptr_with_off;
+    }
+    else {
+        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
+        std::cout << ptr_no_off;
+    }
+}
+
+static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
+    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
+        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
+    }
+    else {
+        auto ptr = get_ptr(ptr_or_mapfd);
+        print_ptr_type(ptr);
+    }
+}
+
 inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
     o << static_cast<std::underlying_type<region_t>::type>(t);
     return o;
@@ -279,6 +300,16 @@ void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc
     m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
 
+void register_types_t::print_all_register_types() const {
+    std::cout << "\tregion types: {\n";
+    for (auto const& kv : *m_region_env) {
+        std::cout << "\t\t" << kv.first << " : ";
+        print_ptr_or_mapfd_type(kv.second);
+        std::cout << "\n";
+    }
+    std::cout << "\t}\n";
+}
+
 std::optional<ptr_or_mapfd_t> register_types_t::find(reg_with_loc_t reg) const {
     auto it = m_region_env->find(reg);
     if (it == m_region_env->end()) return {};
@@ -295,15 +326,18 @@ void register_types_t::adjust_bb_for_registers(location_t loc) {
     location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         auto new_reg = reg_with_loc_t((register_t)i, loc);
+        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
+
         auto it = find((register_t)i);
         if (!it) continue;
-        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
-        (*m_region_env)[new_reg] = it.value();
 
-        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
         if (*m_cur_def[i] == old_reg) {
             m_region_env->erase(old_reg);
         }
+
+        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
+        (*m_region_env)[new_reg] = it.value();
+
     }
 }
 
@@ -949,4 +983,8 @@ bool region_domain_t::is_stack_pointer(register_t reg) const {
 
 void region_domain_t::adjust_bb_for_types(location_t loc) {
     m_registers.adjust_bb_for_registers(loc);
+}
+
+void region_domain_t::print_all_register_types() const {
+    m_registers.print_all_register_types();
 }

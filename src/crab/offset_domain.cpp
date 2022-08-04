@@ -117,15 +117,25 @@ void registers_state_t::adjust_bb_for_registers(location_t loc) {
     location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         auto new_reg = reg_with_loc_t((register_t)i, loc);
+        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
+
         auto it = find((register_t)i);
         if (!it) continue;
-        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
-        (*m_offset_env)[new_reg] = it.value();
 
-        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
         if (*m_cur_def[i] == old_reg)
             m_offset_env->erase(old_reg);
+
+        m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
+        (*m_offset_env)[new_reg] = it.value();
     }
+}
+
+void registers_state_t::print_all_register_types() const {
+    std::cout << "\toffset types: {\n";
+    for (auto const& kv : *m_offset_env) {
+        std::cout << "\t\t" << kv.first << " : " << kv.second << "\n";
+    }
+    std::cout << "\t}\n";
 }
 
 void stack_state_t::set_to_top() {
@@ -671,4 +681,8 @@ std::optional<dist_t> offset_domain_t::find_offset_info(register_t reg) const {
 
 void offset_domain_t::adjust_bb_for_types(location_t loc) {
     m_reg_state.adjust_bb_for_registers(loc);
+}
+
+void offset_domain_t::print_all_register_types() const {
+    m_reg_state.print_all_register_types();
 }

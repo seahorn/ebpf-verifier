@@ -78,14 +78,17 @@ void registers_cp_state_t::adjust_bb_for_registers(location_t loc) {
     location_t old_loc = location_t(std::make_pair(label_t(-2, -2), 0));
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         auto new_reg = reg_with_loc_t((register_t)i, loc);
+        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
+
         auto it = find((register_t)i);
         if (!it) continue;
+
+        if (*m_cur_def[i] == old_reg)
+            m_interval_env->erase(old_reg);
+
         m_cur_def[i] = std::make_shared<reg_with_loc_t>(new_reg);
         (*m_interval_env)[new_reg] = it.value();
 
-        auto old_reg = reg_with_loc_t((register_t)i, old_loc);
-        if (*m_cur_def[i] == old_reg)
-            m_interval_env->erase(old_reg);
     }
 }
 
@@ -94,6 +97,14 @@ void registers_cp_state_t::operator-=(register_t var) {
         return;
     }
     m_cur_def[var] = nullptr;
+}
+
+void registers_cp_state_t::print_all_register_types() const {
+    std::cout << "\tinterval types: {\n";
+    for (auto const& kv : *m_interval_env) {
+        std::cout << "\t\t" << kv.first << " : " << kv.second << "\n";
+    }
+    std::cout << "\t}\n";
 }
 
 bool stack_cp_state_t::is_bottom() const {
@@ -141,6 +152,20 @@ stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) cons
             interval_values_joined.insert(kv);
     }
     return stack_cp_state_t(std::move(interval_values_joined));
+}
+
+size_t stack_cp_state_t::size() const {
+    return m_interval_values.size();
+}
+
+std::vector<int> stack_cp_state_t::get_keys() const {
+    std::vector<int> keys;
+    keys.reserve(size());
+
+    for (auto const&kv : m_interval_values) {
+        keys.push_back(kv.first);
+    }
+    return keys;
 }
 
 bool interval_prop_domain_t::is_bottom() const {
@@ -543,6 +568,18 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
     else {}
 }
 
+std::optional<interval_t> interval_prop_domain_t::find_in_stack(int key) const {
+    return m_stack_slots_interval_values.find(key);
+}
+
 void interval_prop_domain_t::adjust_bb_for_types(location_t loc) {
     m_registers_interval_values.adjust_bb_for_registers(loc);
+}
+
+void interval_prop_domain_t::print_all_register_types() const {
+    m_registers_interval_values.print_all_register_types();
+}
+
+std::vector<int> interval_prop_domain_t::get_stack_keys() const {
+    return m_stack_slots_interval_values.get_keys();
 }
