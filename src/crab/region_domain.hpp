@@ -66,21 +66,30 @@ class ptr_with_off_t {
     //bool operator!=(const ptr_with_off_t& p2);
 };
 
+using map_key_size_t = unsigned int;
+using map_value_size_t = unsigned int;
+
 class mapfd_t {
     int m_mapfd;
     EbpfMapValueType m_value_type;
+    map_key_size_t m_key_size;
+    map_value_size_t m_value_size;
 
   public:
     mapfd_t(const mapfd_t&) = default;
     mapfd_t(mapfd_t&&) = default;
     mapfd_t &operator=(const mapfd_t&) = default;
     mapfd_t &operator=(mapfd_t&&) = default;
-    mapfd_t(int mapfd, EbpfMapValueType val_type) : m_mapfd(mapfd), m_value_type(val_type) {}
+    mapfd_t(int mapfd, EbpfMapValueType val_type, map_key_size_t key_size,
+            map_value_size_t value_size)
+        : m_mapfd(mapfd), m_value_type(val_type), m_key_size(key_size), m_value_size(value_size) {}
     friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
     void write(std::ostream&) const;
 
     bool has_type_map_programs() const;
     constexpr EbpfMapValueType get_value_type() const { return m_value_type; }
+    constexpr map_key_size_t get_key_size() const { return m_key_size; }
+    constexpr map_value_size_t get_value_size() const { return m_value_size; }
     constexpr int get_mapfd() const { return m_mapfd; }
 };
 
@@ -230,13 +239,13 @@ class region_domain_t final {
     void operator()(const Assume &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Assert &, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Addable& s, location_t loc = boost::none, int print = 0);
-    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0);
-    void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0);
-    void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ZeroOffset& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Comparable&, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Addable&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidStore&, location_t loc = boost::none, int print = 0);
+    void operator()(const TypeConstraint&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidSize&, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidMapKeyValue&, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ZeroOffset&, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0) {}
     void write(std::ostream& os) const;
     friend std::ostream& operator<<(std::ostream&, const region_domain_t&);

@@ -16,6 +16,8 @@ using crab::global_region_env_t;
 using crab::reg_with_loc_t;
 using crab::live_registers_t;
 using crab::register_types_t;
+using crab::map_key_size_t;
+using crab::map_value_size_t;
 
 
 namespace std {
@@ -474,7 +476,6 @@ void region_domain_t::operator|=(const region_domain_t& abs) {
 
 void region_domain_t::operator|=(region_domain_t&& abs) {
     if (is_bottom()) {
-        std::cout << "is bottom\n";
         *this = abs;
         return;
     }
@@ -535,7 +536,9 @@ void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) 
     const EbpfMapDescriptor& desc = global_program_info.platform->get_map_descriptor(u.mapfd);
     const EbpfMapValueType& map_value_type = global_program_info.platform->
         get_map_type(desc.type).value_type;
-    auto type = mapfd_t(u.mapfd, map_value_type);
+    map_key_size_t map_key_size = desc.key_size;
+    map_value_size_t map_value_size = desc.value_size;
+    auto type = mapfd_t(u.mapfd, map_value_type, map_key_size, map_value_size);
     m_registers.insert(reg, reg_with_loc, type);
 }
 
@@ -564,7 +567,10 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
                 get_map_descriptor(map_desc.inner_map_fd);
             const EbpfMapValueType& inner_map_value_type = global_program_info.platform->
                 get_map_type(inner_map_desc.type).value_type;
-            auto type = mapfd_t(map_desc.inner_map_fd, inner_map_value_type);
+            map_key_size_t inner_map_key_size = inner_map_desc.key_size;
+            map_value_size_t inner_map_value_size = inner_map_desc.value_size;
+            auto type = mapfd_t(map_desc.inner_map_fd, inner_map_value_type,
+                    inner_map_key_size, inner_map_value_size);
             m_registers.insert(r0_reg, r0, type);
         }
         else {

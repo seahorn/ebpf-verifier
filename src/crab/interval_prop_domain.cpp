@@ -148,8 +148,10 @@ stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) cons
     interval_values_stack_t interval_values_joined;
     for (auto const&kv: m_interval_values) {
         auto it = other.m_interval_values.find(kv.first);
-        if (it != m_interval_values.end() && kv.second == it->second)
-            interval_values_joined.insert(kv);
+        if (it != m_interval_values.end()) {
+            auto interval1 = kv.second, interval2 = it->second;
+            interval_values_joined[kv.first] = interval1 | interval2;
+        }
     }
     return stack_cp_state_t(std::move(interval_values_joined));
 }
@@ -279,6 +281,11 @@ interval_prop_domain_t interval_prop_domain_t::setup_entry() {
     return cp;
 }
 
+void interval_prop_domain_t::operator()(const Un& u, location_t loc, int print) {
+    auto reg_with_loc = reg_with_loc_t(u.dst.v, loc);
+    m_registers_interval_values.insert(u.dst.v, reg_with_loc, interval_t::top());
+}
+
 void interval_prop_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     m_registers_interval_values -= u.dst.v;
 }
@@ -295,15 +302,34 @@ void interval_prop_domain_t::operator()(const ValidSize& s, location_t loc, int 
     std::cout << "Valid Size assertion fail\n";
 }
 
-void interval_prop_domain_t::operator()(const Call &, location_t loc, int print) {
-    // if its a map_lookup call, then r0 either is a shared_p, or map_fd reg
-    // otherwise, r0 is a number we do not know the value of
-    // both cases, we forget the type
-    m_registers_interval_values -= register_t{R0_RETURN_VALUE};
+void interval_prop_domain_t::do_call(const Call& u, std::optional<ptr_or_mapfd_t> ptr_or_mapfd,
+        location_t loc) {
+
+    auto r0 = register_t{R0_RETURN_VALUE};
+    for (ArgPair param : u.pairs) {
+        if (param.kind == ArgPair::Kind::PTR_TO_UNINIT_MEM) {
+            if (ptr_or_mapfd && std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd.value())) {
+                auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd.value());
+                if (ptr_with_off.get_region() == region_t::T_STACK) {
+                    int offset = ptr_with_off.get_offset();
+                    m_stack_slots_interval_values.store(offset, interval_t::top());
+                }
+            }
+        }
+    }
+    if (u.is_map_lookup) {
+        m_registers_interval_values -= r0;
+    }
+    else {
+        auto r0_with_loc = reg_with_loc_t(r0, loc);
+        m_registers_interval_values.insert(r0, r0_with_loc, interval_t::top());
+    }
 }
 
 void interval_prop_domain_t::operator()(const Packet &u, location_t loc, int print) {
-    m_registers_interval_values -= register_t{R0_RETURN_VALUE};
+    auto r0 = register_t{R0_RETURN_VALUE};
+    auto r0_with_loc = reg_with_loc_t(r0, loc);
+    m_registers_interval_values.insert(r0, r0_with_loc, interval_t::top());
 }
 
 void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
@@ -342,75 +368,26 @@ void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int prin
                 }
                 break;
             }
-            /*
             // ra *= rb
-            case Bin::Op::MUL: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() * src_interval;
-                }
-                break;
-            }
+            case Bin::Op::MUL:
             // ra /= rb
-            case Bin::Op::DIV: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() / src_interval;
-                }
-                break;
-            }
+            case Bin::Op::DIV:
             // ra %= rb
-            case Bin::Op::MOD: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() % src_interval;
-                }
-                break;
-            }
+            case Bin::Op::MOD:
             // ra |= rb
-            case Bin::Op::OR: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() | src_interval;
-                }
-                break;
-            }
+            case Bin::Op::OR:
             // ra &= rb
-            case Bin::Op::AND: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() & src_interval;
-                }
-                break;
-            }
+            case Bin::Op::AND:
             // ra <<= rb
-            case Bin::Op::LSH: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() << src_interval;
-                }
-                break;
-            }
+            case Bin::Op::LSH:
             // ra >>= rb
-            case Bin::Op::RSH: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() >> src_interval;
-                }
-                break;
-            }
+            case Bin::Op::RSH:
             // ra >>>= rb
-            case Bin::Op::ARSH: {
-                if (dst_v) {
-                    updated_dst_interval = (int64_t)dst_v.value() >> src_interval;
-                }
-                break;
-            }
+            case Bin::Op::ARSH:
             // ra ^= rb
-            case Bin::Op::XOR: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() ^ src_interval;
-                }
+            case Bin::Op::XOR:
+                updated_dst_interval = interval_t::top();
                 break;
-            }
-            */
-            default: {
-                m_registers_interval_values -= bin.dst.v;
-                break;
-            }
         }
         //std::cout << "value of vb: " << *src_interval << "\n";
     }
@@ -438,75 +415,26 @@ void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int prin
                 }
                 break;
             }
-            /*
-            // ra *= c
-            case Bin::Op::MUL: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() * interval_t(number_t(imm));
-                }
+            // ra *= rb
+            case Bin::Op::MUL:
+            // ra /= rb
+            case Bin::Op::DIV:
+            // ra %= rb
+            case Bin::Op::MOD:
+            // ra |= rb
+            case Bin::Op::OR:
+            // ra &= rb
+            case Bin::Op::AND:
+            // ra <<= rb
+            case Bin::Op::LSH:
+            // ra >>= rb
+            case Bin::Op::RSH:
+            // ra >>>= rb
+            case Bin::Op::ARSH:
+            // ra ^= rb
+            case Bin::Op::XOR:
+                updated_dst_interval = interval_t::top();
                 break;
-            }
-            // ra /= c
-            case Bin::Op::DIV: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() / interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra %= c
-            case Bin::Op::MOD: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() % interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra |= c
-            case Bin::Op::OR: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() | interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra &= c
-            case Bin::Op::AND: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() & interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra <<= c
-            case Bin::Op::LSH: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() << interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra >>= c
-            case Bin::Op::RSH: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() >> interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra >>>= c
-            case Bin::Op::ARSH: {
-                if (dst_v) {
-                    updated_dst_interval = (int64_t)dst_v.value() >> interval_t(number_t(imm));
-                }
-                break;
-            }
-            // ra ^= c
-            case Bin::Op::XOR: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() ^ interval_t(number_t(imm));
-                }
-                break;
-            }
-            */
-            default: {
-                m_registers_interval_values -= bin.dst.v;
-                break;
-            }
         }
     }
     auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
@@ -516,7 +444,8 @@ void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int prin
 
 
 void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
-        std::optional<ptr_or_mapfd_t> basereg_type, location_t loc) {
+        std::optional<ptr_or_mapfd_t> basereg_type, std::optional<ptr_or_mapfd_t> targetreg_type,
+        location_t loc) {
     if (!basereg_type) {
         m_registers_interval_values -= target_reg.v;
         return;
@@ -528,21 +457,22 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
     auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
-        if (p_with_off.get_region() != crab::region_t::T_STACK) {
-            m_registers_interval_values -= target_reg.v;
-            return;
-        }
-
         int to_load = p_with_off.get_offset() + offset;
-        auto it = m_stack_slots_interval_values.find(to_load);
-        if (!it) {
-            m_registers_interval_values -= target_reg.v;
-            return;
+
+        if (p_with_off.get_region() == crab::region_t::T_STACK) {
+            auto it = m_stack_slots_interval_values.find(to_load);
+            if (!it) {
+                m_registers_interval_values -= target_reg.v;
+                return;
+            }
+            m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value());
         }
-        m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value());
+        else if (!targetreg_type) {
+            m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
+        }
     }
-    else {  // we are loading from packet or shared
-        m_registers_interval_values -= target_reg.v;
+    else if (!targetreg_type) {  // we are loading from packet or shared
+        m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
     }
 }
 

@@ -49,7 +49,7 @@ static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd, std::opt
 
 static void print_number(std::optional<interval_t>& num) {
     std::cout << "number";
-    if (num) {
+    if (!num.value().is_top()) {
         std::cout << "<" << num.value() << ">";
     }
 }
@@ -60,7 +60,7 @@ static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p, std::optiona
     if (p) {
         print_ptr_or_mapfd_type(p.value(), d);
     }
-    else {
+    if (n) {
         print_number(n);
     }
 }
@@ -208,8 +208,6 @@ void type_domain_t::operator()(const Un &u, location_t loc, int print) {
         std::cout << "  " << u << "\n";
         return;
     }
-    m_region(u, loc);
-    m_offset(u, loc);
     m_interval(u, loc);
 }
 
@@ -227,17 +225,24 @@ void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
 
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     if (print > 0) {
-        register_t r0_reg{R0_RETURN_VALUE};
-        auto r0 = reg_with_loc_t(r0_reg, loc);
-        auto region = m_region.find_ptr_or_mapfd_at_loc(r0);
-        auto offset = m_offset.find_offset_at_loc(r0);
-        auto interval = m_interval.find_interval_at_loc(r0);
+        auto r0 = register_t{R0_RETURN_VALUE};
+        auto r0_reg = reg_with_loc_t(r0, loc);
+        auto region = m_region.find_ptr_or_mapfd_at_loc(r0_reg);
+        auto offset = m_offset.find_offset_at_loc(r0_reg);
+        auto interval = m_interval.find_interval_at_loc(r0_reg);
         print_annotated(u, region, offset, interval);
         return;
     }
+
+    std::optional<ptr_or_mapfd_t> ptr_or_mapfd;
+    for (ArgPair param : u.pairs) {
+        if (param.kind == ArgPair::Kind::PTR_TO_UNINIT_MEM) {
+            ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(param.mem.v);
+        }
+    }
     m_region(u, loc);
     m_offset(u, loc);
-    m_interval(u, loc);
+    m_interval.do_call(u, ptr_or_mapfd, loc);
 }
 
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
@@ -384,6 +389,49 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
         std::cout << "  " << u << "\n";
         return;
     }
+    int width;
+    auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
+    auto maybe_dist = m_offset.find_offset_info(u.access_reg.v);
+    auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
+    if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
+        auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
+        auto mapfd = maybe_mapfd.value();
+        if (is_mapfd_type(mapfd)) {
+            auto mapfd_type = std::get<mapfd_t>(mapfd);
+            if (u.key) {
+                width = (int)mapfd_type.get_key_size();
+            }
+            else {
+                width = (int)mapfd_type.get_value_size();
+            }
+            if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
+                auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
+                int offset_to_check = ptr_with_off.get_offset();
+                if (ptr_with_off.get_region() == region_t::T_STACK) {
+                    auto it = m_interval.find_in_stack(offset_to_check);
+                    auto it2 = m_region.find_in_stack(offset_to_check);
+                    std::cout << "\n";
+                    print_stack();
+                    std::cout << "\n";
+                    if (it) return;
+                    else if (it2) {
+                        std::cout << "type error: map update with a non-numerical value\n";
+                    }
+                }
+            }
+            else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_basereg)) {
+                auto ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_basereg);
+                if (ptr_no_off.get_region() == region_t::T_PACKET) {
+                    // TODO: check bounds
+                    return;
+                }
+            }
+        }
+    }
+    std::cout << "if only this print, then either first is not ptr, or second is not map\n";
+    std::cout << maybe_ptr_or_mapfd_basereg.has_value() << " " << maybe_mapfd.has_value() << "\n";
+    print_stack();
+    std::cout << "valid map key value assertion failed\n";
 }
 
 void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
@@ -456,7 +504,10 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc,
     auto basereg_type = m_region.find_ptr_or_mapfd_type(basereg.v);
 
     m_region.do_load(b, target_reg, loc);
-    m_interval.do_load(b, target_reg, basereg_type, loc);
+
+    auto updated_targetreg_type = m_region.find_ptr_or_mapfd_type(target_reg.v);
+
+    m_interval.do_load(b, target_reg, basereg_type, updated_targetreg_type, loc);
     m_offset.do_load(b, target_reg, basereg_type, loc);
 }
 
@@ -464,6 +515,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 
     if (print > 0) {
         std::cout << "  " << b << ";\n";
+    print_stack();
         return;
     }
 
@@ -474,6 +526,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
     m_region.do_mem_store(b, target_reg, loc);
     m_interval.do_mem_store(b, target_reg, basereg_type);
     m_offset.do_mem_store(b, target_reg, basereg_type, targetreg_type);
+    print_stack();
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
@@ -567,12 +620,12 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
         std::cout << "\n";
         return;
     }
-    if (print > 0) {
+    //if (print > 0) {
         if (label == label_t::entry) {
             m_is_bottom = false;
         }
         std::cout << label << ":\n";
-    }
+    //}
 
     uint32_t curr_pos = 0;
     location_t loc = location_t(std::make_pair(label, curr_pos));
@@ -581,14 +634,14 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
-        if (print > 0)
+        //if (print > 0)
             std::cout << "   " << curr_pos << ".";
-        //if (print <= 0) std::cout << statement << "\n";
+        if (print <= 0) std::cout << statement << "\n";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
         //if (print > 0 && error_location->first == loc->first && error_location->second == loc->second) std::cout << "type_error\n";
     }
 
-    if (print > 0) {
+    //if (print > 0) {
         auto [it, et] = bb.next_blocks();
         if (it != et) {
             std::cout << "  " << "goto ";
@@ -603,7 +656,7 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
             }
         }
         std::cout << "\n\n";
-    }
+    //}
 }
 
 void type_domain_t::write(std::ostream& o) const {

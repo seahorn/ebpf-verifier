@@ -19,6 +19,7 @@ using crab::ptr_no_off_t;
 using crab::reg_with_loc_t;
 using crab::interval_t;
 using crab::bound_t;
+using crab::region_t;
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
 using global_interval_env_t = std::unordered_map<reg_with_loc_t, interval_t>;
@@ -116,9 +117,9 @@ class interval_prop_domain_t final {
     //// abstract transformers
     void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Bin &, location_t loc = boost::none, int print = 0);
-    void operator()(const Un &, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Un &, location_t loc = boost::none, int print = 0);
     void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
-    void operator()(const Call &, location_t loc = boost::none, int print = 0);
+    void operator()(const Call &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Exit &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Jmp &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Mem &, location_t loc = boost::none, int print = 0) {}
@@ -141,8 +142,10 @@ class interval_prop_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>, location_t);
+    void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>,
+            std::optional<ptr_or_mapfd_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
+    void do_call(const Call&, std::optional<ptr_or_mapfd_t>, location_t);
     std::optional<interval_t> find_interval_value(register_t) const;
     std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
     std::optional<interval_t> find_in_stack(int) const;
