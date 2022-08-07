@@ -247,7 +247,7 @@ class region_domain_t final {
     void operator()(const ValidMapKeyValue&, location_t loc = boost::none, int print = 0) {}
     void operator()(const ZeroOffset&, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0) {}
-    void write(std::ostream& os) const;
+    void write(std::ostream& os) const {}
     friend std::ostream& operator<<(std::ostream&, const region_domain_t&);
     std::string domain_name() const;
     int get_instruction_count_upper_bound();
