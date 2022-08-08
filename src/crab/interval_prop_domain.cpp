@@ -129,14 +129,14 @@ stack_cp_state_t stack_cp_state_t::top() {
     return stack_cp_state_t(false);
 }
 
-std::optional<interval_t> stack_cp_state_t::find(int key) const {
+std::optional<interval_cells_t> stack_cp_state_t::find(int key) const {
     auto it = m_interval_values.find(key);
     if (it == m_interval_values.end()) return {};
     return it->second;
 }
 
-void stack_cp_state_t::store(int key, interval_t val) {
-    m_interval_values[key] = val;
+void stack_cp_state_t::store(int key, interval_t val, int width) {
+    m_interval_values[key] = std::make_pair(val, width);
 }
 
 stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) const {
@@ -149,8 +149,11 @@ stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) cons
     for (auto const&kv: m_interval_values) {
         auto it = other.m_interval_values.find(kv.first);
         if (it != m_interval_values.end()) {
-            auto interval1 = kv.second, interval2 = it->second;
-            interval_values_joined[kv.first] = interval1 | interval2;
+            auto interval_cells1 = kv.second, interval_cells2 = it->second;
+            auto interval1 = interval_cells1.first, interval2 = interval_cells2.first;
+            int width1 = interval_cells1.second, width2 = interval_cells2.second;
+            int width_joined = std::max(width1, width2);
+            interval_values_joined[kv.first] = std::make_pair(interval1 | interval2, width_joined);
         }
     }
     return stack_cp_state_t(std::move(interval_values_joined));
@@ -302,20 +305,12 @@ void interval_prop_domain_t::operator()(const ValidSize& s, location_t loc, int 
     std::cout << "Valid Size assertion fail\n";
 }
 
-void interval_prop_domain_t::do_call(const Call& u, std::optional<ptr_or_mapfd_t> ptr_or_mapfd,
+void interval_prop_domain_t::do_call(const Call& u, const interval_values_stack_t& store_in_stack,
         location_t loc) {
 
     auto r0 = register_t{R0_RETURN_VALUE};
-    for (ArgPair param : u.pairs) {
-        if (param.kind == ArgPair::Kind::PTR_TO_UNINIT_MEM) {
-            if (ptr_or_mapfd && std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd.value())) {
-                auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd.value());
-                if (ptr_with_off.get_region() == region_t::T_STACK) {
-                    int offset = ptr_with_off.get_offset();
-                    m_stack_slots_interval_values.store(offset, interval_t::top());
-                }
-            }
-        }
+    for (const auto& kv : store_in_stack) {
+        m_stack_slots_interval_values.store(kv.first, kv.second.first, kv.second.second);
     }
     if (u.is_map_lookup) {
         m_registers_interval_values -= r0;
@@ -465,7 +460,7 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
                 m_registers_interval_values -= target_reg.v;
                 return;
             }
-            m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value());
+            m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value().first);
         }
         else if (!targetreg_type) {
             m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
@@ -479,6 +474,7 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
 void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         std::optional<ptr_or_mapfd_t> basereg_type) {
     int offset = b.access.offset;
+    int width = b.access.width;
 
     if (!basereg_type) {
         return;
@@ -490,14 +486,14 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
             auto it = m_registers_interval_values.find(target_reg.v);
             if (it) {
-                m_stack_slots_interval_values.store(store_at, it.value());
+                m_stack_slots_interval_values.store(store_at, it.value(), width);
             }
         }
     }
     else {}
 }
 
-std::optional<interval_t> interval_prop_domain_t::find_in_stack(int key) const {
+std::optional<interval_cells_t> interval_prop_domain_t::find_in_stack(int key) const {
     return m_stack_slots_interval_values.find(key);
 }
 

@@ -3,9 +3,6 @@
 
 #include "crab/offset_domain.hpp"
 
-#define min(a, b) (a < b ? a : b)
-#define max(a, b) (a > b ? a : b)
-
 namespace std {
     template <>
     struct hash<crab::reg_with_loc_t> {
@@ -336,7 +333,7 @@ offset_domain_t offset_domain_t::operator|(const offset_domain_t& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, m_extra_constraints | other.m_extra_constraints, m_ctx_dists, max(m_slack, other.m_slack));
+    return offset_domain_t(m_reg_state | other.m_reg_state, m_stack_state | other.m_stack_state, m_extra_constraints | other.m_extra_constraints, m_ctx_dists, std::max(m_slack, other.m_slack));
 }
 
 offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
@@ -346,7 +343,10 @@ offset_domain_t offset_domain_t::operator|(offset_domain_t&& other) const {
     else if (other.is_bottom() || is_top()) {
         return *this;
     }
-    return offset_domain_t(m_reg_state | std::move(other.m_reg_state), m_stack_state | std::move(other.m_stack_state), m_extra_constraints | std::move(other.m_extra_constraints), m_ctx_dists, max(m_slack, other.m_slack));
+    return offset_domain_t(m_reg_state | std::move(other.m_reg_state),
+            m_stack_state | std::move(other.m_stack_state),
+            m_extra_constraints | std::move(other.m_extra_constraints),
+            m_ctx_dists, std::max(m_slack, other.m_slack));
 }
 
 // meet

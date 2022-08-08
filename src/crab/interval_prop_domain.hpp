@@ -52,8 +52,10 @@ class registers_cp_state_t {
         void print_all_register_types() const;
 };
 
+using interval_cells_t = std::pair<interval_t, int>;    // intervals with width
+using interval_values_stack_t = std::unordered_map<unsigned int, interval_cells_t>;
+
 class stack_cp_state_t {
-    using interval_values_stack_t = std::unordered_map<unsigned int, interval_t>;
 
     interval_values_stack_t m_interval_values;
     bool m_is_bottom = false;
@@ -64,8 +66,8 @@ class stack_cp_state_t {
         void set_to_bottom();
         void set_to_top();
         static stack_cp_state_t top();
-        std::optional<interval_t> find(int) const;
-        void store(int, interval_t);
+        std::optional<interval_cells_t> find(int) const;
+        void store(int, interval_t, int);
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
@@ -145,10 +147,10 @@ class interval_prop_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>,
             std::optional<ptr_or_mapfd_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
-    void do_call(const Call&, std::optional<ptr_or_mapfd_t>, location_t);
+    void do_call(const Call&, const interval_values_stack_t&, location_t);
     std::optional<interval_t> find_interval_value(register_t) const;
     std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
-    std::optional<interval_t> find_in_stack(int) const;
+    std::optional<interval_cells_t> find_in_stack(int) const;
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     std::vector<int> get_stack_keys() const;
