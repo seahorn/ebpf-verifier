@@ -18,7 +18,7 @@ using crab::live_registers_t;
 using crab::register_types_t;
 using crab::map_key_size_t;
 using crab::map_value_size_t;
-
+using crab::ptr_or_mapfd_cells_t;
 
 namespace std {
     template <>
@@ -349,9 +349,18 @@ stack_t stack_t::operator|(const stack_t& other) const {
     }
     ptr_or_mapfd_types_t out_ptrs;
     for (auto const&kv: m_ptrs) {
-        auto it = other.find(kv.first);
-        if (it && kv.second == it.value())
-            out_ptrs.insert(kv);
+        auto maybe_ptr_or_mapfd_cells = other.find(kv.first);
+        if (maybe_ptr_or_mapfd_cells) {
+            auto ptr_or_mapfd_cells1 = kv.second;
+            auto ptr_or_mapfd_cells2 = maybe_ptr_or_mapfd_cells.value();
+            auto ptr_or_mapfd1 = ptr_or_mapfd_cells1.first;
+            auto ptr_or_mapfd2 = ptr_or_mapfd_cells2.first;
+            int width1 = ptr_or_mapfd_cells1.second;
+            int width2 = ptr_or_mapfd_cells2.second;
+            int width_joined = std::max(width1, width2);
+            if (ptr_or_mapfd1 == ptr_or_mapfd2)
+                out_ptrs[kv.first] = std::make_pair(ptr_or_mapfd1, width_joined);
+        }
     }
     return stack_t(std::move(out_ptrs), false);
 }
@@ -384,8 +393,8 @@ bool stack_t::is_top() const {
     return m_ptrs.empty();
 }
 
-void stack_t::insert(int key, ptr_or_mapfd_t value) {
-    m_ptrs[key] = value;
+void stack_t::store(int key, ptr_or_mapfd_t value, int width) {
+    m_ptrs[key] = std::make_pair(value, width);
 }
 
 size_t stack_t::size() const {
@@ -403,7 +412,7 @@ std::vector<int> stack_t::get_keys() const {
 }
 
 
-std::optional<ptr_or_mapfd_t> stack_t::find(int key) const {
+std::optional<ptr_or_mapfd_cells_t> stack_t::find(int key) const {
     auto it = m_ptrs.find(key);
     if (it == m_ptrs.end()) return {};
     return it->second;
@@ -460,7 +469,7 @@ std::optional<ptr_no_off_t> region_domain_t::find_in_ctx(int key) const {
     return m_ctx->find(key);
 }
 
-std::optional<ptr_or_mapfd_t> region_domain_t::find_in_stack(int key) const {
+std::optional<ptr_or_mapfd_cells_t> region_domain_t::find_in_stack(int key) const {
     return m_stack.find(key);
 }
 
@@ -837,7 +846,7 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
             auto type_loaded = it.value();
 
             auto reg = reg_with_loc_t(target_reg.v, loc);
-            m_registers.insert(target_reg.v, reg, type_loaded);
+            m_registers.insert(target_reg.v, reg, type_loaded.first);
 
             break;
         }
@@ -869,77 +878,58 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
-    auto it = m_registers.find(basereg.v);
-    if (!it) {
+    auto maybe_basereg_type = m_registers.find(basereg.v);
+    if (!maybe_basereg_type) {
         std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
         std::string desc = std::string("\tstoring at an unknown pointer, or from number - r") + s + "\n";
         //report_type_error(desc, loc);
         std::cout << desc;
         return;
     }
-    auto type_basereg = it.value();
+    auto basereg_type = maybe_basereg_type.value();
 
-    auto it2 = m_registers.find(target_reg.v);
+    auto targetreg_type = m_registers.find(target_reg.v);
 
-    if (std::holds_alternative<ptr_with_off_t>(type_basereg)) {
+    if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
         // base register is either CTX_P or STACK_P
-        auto type_basereg_with_off = std::get<ptr_with_off_t>(type_basereg);
+        auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
 
-        int store_at = offset+type_basereg_with_off.get_offset();
-        if (type_basereg_with_off.get_region() == crab::region_t::T_STACK) {
+        int store_at = offset+basereg_type_with_off.get_offset();
+        if (basereg_type_with_off.get_region() == crab::region_t::T_STACK) {
             // type of basereg is STACK_P
-            if (!it2) {
-               // std::cout << "type_error: storing either a number or an unknown pointer - r" << (int)target_reg.v << "\n";
+            if (!targetreg_type) {
                 m_stack -= store_at;
                 return;
             }
+            auto type_to_store = targetreg_type.value();
+            auto maybe_stored_type = m_stack.find(store_at);
+            int location_to_start_checks = store_at;
+            if (maybe_stored_type) {
+                // might have to check if the type already stored is the same as type to store
+                // but that check might be very harsh
+                auto type_in_stack = maybe_stored_type.value();
+                int width_stored = type_in_stack.second;
+                location_to_start_checks += width_stored;
+            }
             else {
-                auto type_to_store = it2.value();
-                /*
-                if (std::holds_alternative<ptr_with_off_t>(type_to_store) &&
-                        std::get<ptr_with_off_t>(type_to_store).r == crab::region_t::T_STACK) {
-                    std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
-                    std::string desc = std::string("\twe cannot store stack pointer, r") + s + ", into stack\n";
+                location_to_start_checks += 1;
+            }
+            for (auto i = location_to_start_checks; i < store_at+width; i++) {
+                auto it = m_stack.find(i);
+                if (it) {
+                    std::string s = std::to_string(store_at);
+                    std::string s1 = std::to_string(i);
+                    std::string desc = std::string("\ttype being stored into stack at ") + s + " is overlapping with already stored at " + s1 + "\n";
                     //report_type_error(desc, loc);
+                    std::cout << desc;
                     return;
                 }
-                else {
-                */
-                    for (auto i = store_at+1; i < store_at+width; i++) {
-                        auto it3 = m_stack.find(i);
-                        if (it3) {
-                            std::string s = std::to_string(store_at);
-                            std::string s1 = std::to_string(i);
-                            std::string desc = std::string("\ttype being stored into stack at ") + s + " is overlapping with already stored at " + s1 + "\n";
-                            //report_type_error(desc, loc);
-                            std::cout << desc;
-                            return;
-                        }
-                    }
-                    m_stack.insert(store_at, type_to_store);
-                    // revise: code below checks if there is already something stored at same location, the type should be the same -- it is very restricted and not required.
-                    // However, when we support storing info like width of type, we need more checks
-                    /*
-                    auto it4 = m_stack.find(store_at);
-                    if (it4) {
-                        auto type_in_stack = it4.value();
-                        if (type_to_store != type_in_stack) {
-                            std::string s = std::to_string(store_at);
-                            std::string desc = std::string("\ttype being stored at offset ") + s + " is not the same as already stored in stack\n";
-                            report_type_error(desc, loc);
-                            return;
-                        }
-                    }
-                    else {
-                        m_stack.insert(store_at, type_to_store);
-                    }
-                    */
-                //}
             }
+            m_stack.store(store_at, type_to_store, width);
         }
-        else if (type_basereg_with_off.get_region() == crab::region_t::T_CTX) {
+        else if (basereg_type_with_off.get_region() == crab::region_t::T_CTX) {
             // type of basereg is CTX_P
-            if (it2) {
+            if (targetreg_type) {
                 std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
                 std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into ctx\n";
                 // report_type_error(desc, loc);
@@ -950,13 +940,13 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         else
             assert(false);
     }
-    else if (std::holds_alternative<ptr_no_off_t>(type_basereg)) {
+    else if (std::holds_alternative<ptr_no_off_t>(basereg_type)) {
         // base register type is either PACKET_P, SHARED_P or STACK_P without known offset
-        auto type_basereg_no_off = std::get<ptr_no_off_t>(type_basereg);
+        auto basereg_type_no_off = std::get<ptr_no_off_t>(basereg_type);
 
         // if basereg is a stack_p with no offset, we do not store anything, and no type errors
         // if we later load with that pointer, we read nothing -- load is no-op
-        if (it2 && type_basereg_no_off.get_region() != crab::region_t::T_STACK) {
+        if (targetreg_type && basereg_type_no_off.get_region() != crab::region_t::T_STACK) {
             std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
             std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet or shared\n";
             //report_type_error(desc, loc);

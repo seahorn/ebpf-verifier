@@ -147,9 +147,9 @@ stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) cons
     }
     interval_values_stack_t interval_values_joined;
     for (auto const&kv: m_interval_values) {
-        auto it = other.m_interval_values.find(kv.first);
-        if (it != m_interval_values.end()) {
-            auto interval_cells1 = kv.second, interval_cells2 = it->second;
+        auto maybe_interval_cells = other.find(kv.first);
+        if (maybe_interval_cells) {
+            auto interval_cells1 = kv.second, interval_cells2 = maybe_interval_cells.value();
             auto interval1 = interval_cells1.first, interval2 = interval_cells2.first;
             int width1 = interval_cells1.second, width2 = interval_cells2.second;
             int width_joined = std::max(width1, width2);

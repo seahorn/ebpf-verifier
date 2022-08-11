@@ -122,10 +122,10 @@ class ctx_t {
 };
 
 using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
+using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
+using ptr_or_mapfd_types_t = std::unordered_map<int, ptr_or_mapfd_cells_t>;
 
 class stack_t {
-    using ptr_or_mapfd_types_t = std::unordered_map<int, ptr_or_mapfd_t>;
-
     ptr_or_mapfd_types_t m_ptrs;
     bool m_is_bottom;
 
@@ -143,8 +143,8 @@ class stack_t {
     bool is_bottom() const;
     bool is_top() const;
     const ptr_or_mapfd_types_t &get_ptrs() { return m_ptrs; }
-    void insert(int key, ptr_or_mapfd_t value);
-    std::optional<ptr_or_mapfd_t> find(int key) const;
+    void store(int, ptr_or_mapfd_t, int);
+    std::optional<ptr_or_mapfd_cells_t> find(int) const;
     std::vector<int> get_keys() const;
     size_t size() const;
 };
@@ -263,7 +263,7 @@ class region_domain_t final {
     size_t ctx_size() const;
     std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
     std::vector<int> get_ctx_keys() const;
-    std::optional<crab::ptr_or_mapfd_t> find_in_stack(int key) const;
+    std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(int key) const;
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
     std::vector<int> get_stack_keys() const;
     bool is_stack_pointer(register_t) const;

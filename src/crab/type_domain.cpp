@@ -594,11 +594,14 @@ void type_domain_t::print_stack() const {
     std::vector<int> stack_keys_interval = m_interval.get_stack_keys();
     std::cout << "\tstack: {\n";
     for (auto const k : stack_keys_region) {
-        auto ptr_or_mapfd = m_region.find_in_stack(k);
+        auto maybe_ptr_or_mapfd_cells = m_region.find_in_stack(k);
         auto dist = m_offset.find_in_stack(k);
-        if (ptr_or_mapfd) {
-            std::cout << "\t\t" << k << ": ";
-            print_ptr_or_mapfd_type(ptr_or_mapfd.value(), dist);
+        if (maybe_ptr_or_mapfd_cells) {
+            auto ptr_or_mapfd_cells = maybe_ptr_or_mapfd_cells.value();
+            int width = ptr_or_mapfd_cells.second;
+            auto ptr_or_mapfd = ptr_or_mapfd_cells.first;
+            std::cout << "\t\t[" << k << "-" << k+width-1 << "] : ";
+            print_ptr_or_mapfd_type(ptr_or_mapfd, dist);
             std::cout << ",\n";
         }
     }
