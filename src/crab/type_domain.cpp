@@ -235,7 +235,7 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
         return;
     }
 
-    using interval_values_stack_t = std::unordered_map<unsigned int, interval_cells_t>;
+    using interval_values_stack_t = std::unordered_map<int, interval_cells_t>;
     interval_values_stack_t stack_values;
     for (ArgPair param : u.pairs) {
         if (param.kind == ArgPair::Kind::PTR_TO_UNINIT_MEM) {

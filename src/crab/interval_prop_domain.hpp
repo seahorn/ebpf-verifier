@@ -53,7 +53,7 @@ class registers_cp_state_t {
 };
 
 using interval_cells_t = std::pair<interval_t, int>;    // intervals with width
-using interval_values_stack_t = std::unordered_map<unsigned int, interval_cells_t>;
+using interval_values_stack_t = std::unordered_map<int, interval_cells_t>;
 
 class stack_cp_state_t {
 
@@ -68,6 +68,7 @@ class stack_cp_state_t {
         static stack_cp_state_t top();
         std::optional<interval_cells_t> find(int) const;
         void store(int, interval_t, int);
+        void operator-=(int);
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
@@ -154,4 +155,5 @@ class interval_prop_domain_t final {
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     std::vector<int> get_stack_keys() const;
+    void do_stack_store(int, interval_t, int);
 }; // end interval_prop_domain_t

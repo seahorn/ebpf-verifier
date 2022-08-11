@@ -269,4 +269,5 @@ class region_domain_t final {
     bool is_stack_pointer(register_t) const;
     void adjust_bb_for_types(location_t loc);
     void print_all_register_types() const;
+    void do_stack_store(int, crab::ptr_or_mapfd_t, int);
 }; // end region_domain_t

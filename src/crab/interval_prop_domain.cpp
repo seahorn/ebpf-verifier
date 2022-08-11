@@ -139,6 +139,12 @@ void stack_cp_state_t::store(int key, interval_t val, int width) {
     m_interval_values[key] = std::make_pair(val, width);
 }
 
+void stack_cp_state_t::operator-=(int key) {
+    auto it = find(key);
+    if (it)
+        m_interval_values.erase(key);
+}
+
 stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
@@ -448,6 +454,7 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
 
     auto basereg_ptr_or_mapfd_type = basereg_type.value();
     int offset = b.access.offset;
+    int width = b.access.width;
 
     auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
@@ -457,6 +464,15 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
         if (p_with_off.get_region() == crab::region_t::T_STACK) {
             auto it = m_stack_slots_interval_values.find(to_load);
             if (!it) {
+                // TODO: make stack class iterable
+                for (const auto& k : m_stack_slots_interval_values.get_keys()) {
+                    const auto v = m_stack_slots_interval_values.find(k).value();
+                    if (k < to_load && to_load+width <= k+v.second) {
+                        m_registers_interval_values.insert(target_reg.v, reg_with_loc,
+                                interval_t::top());
+                        return;
+                    }
+                }
                 m_registers_interval_values -= target_reg.v;
                 return;
             }
@@ -471,6 +487,30 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
     }
 }
 
+void interval_prop_domain_t::do_stack_store(int store_at, interval_t to_store, int width) {
+    for (auto i = 0; i < width;) {
+        auto type = m_stack_slots_interval_values.find(store_at+i);
+        if (type) {
+            auto type_stored = type.value();
+            int width_stored = type_stored.second;
+            m_stack_slots_interval_values -= store_at+i;
+            if (i+width_stored > width) {
+                // case where type already stored has width that does not align with `width`
+                // in such case, we forget the stored type, at the remainder of location,
+                // we store a `top` interval, and as required we store `to_store` at `store_at`
+                // with width `width` (last operation in the method)
+                m_stack_slots_interval_values.store(store_at+width, interval_t::top(),
+                        i+width_stored-width);
+            }
+            i += width_stored;
+        }
+        else {
+            i++;
+        }
+    }
+    m_stack_slots_interval_values.store(store_at, to_store, width);
+}
+
 void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         std::optional<ptr_or_mapfd_t> basereg_type) {
     int offset = b.access.offset;
@@ -480,14 +520,17 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         return;
     }
     auto basereg_ptr_or_mapfd_type = basereg_type.value();
+    auto targetreg_type = m_registers_interval_values.find(target_reg.v);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
         auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
         int store_at = basereg_ptr_with_off_type.get_offset() + offset;
         if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
-            auto it = m_registers_interval_values.find(target_reg.v);
-            if (it) {
-                m_stack_slots_interval_values.store(store_at, it.value(), width);
+            if (!targetreg_type) {
+                m_stack_slots_interval_values -= store_at;
+                return;
             }
+            auto type_to_store = targetreg_type.value();
+            do_stack_store(store_at, type_to_store, width);
         }
     }
     else {}

@@ -872,12 +872,32 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     }
 }
 
+void region_domain_t::do_stack_store(int store_at, ptr_or_mapfd_t to_store, int width) {
+    for (int i = 0; i < width;) {
+        auto type = m_stack.find(store_at+i);
+        if (type) {
+            auto type_stored = type.value();
+            int width_stored = type_stored.second;
+            m_stack -= store_at+i;
+            if (i+width_stored > width) {
+                return;
+            }
+            i += width_stored;
+        }
+        else {
+            i++;
+        }
+    }
+    m_stack.store(store_at, to_store, width);
+}
+
 void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
 
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
+    // TODO: move generic checks to type domain
     auto maybe_basereg_type = m_registers.find(basereg.v);
     if (!maybe_basereg_type) {
         std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
@@ -902,30 +922,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
                 return;
             }
             auto type_to_store = targetreg_type.value();
-            auto maybe_stored_type = m_stack.find(store_at);
-            int location_to_start_checks = store_at;
-            if (maybe_stored_type) {
-                // might have to check if the type already stored is the same as type to store
-                // but that check might be very harsh
-                auto type_in_stack = maybe_stored_type.value();
-                int width_stored = type_in_stack.second;
-                location_to_start_checks += width_stored;
-            }
-            else {
-                location_to_start_checks += 1;
-            }
-            for (auto i = location_to_start_checks; i < store_at+width; i++) {
-                auto it = m_stack.find(i);
-                if (it) {
-                    std::string s = std::to_string(store_at);
-                    std::string s1 = std::to_string(i);
-                    std::string desc = std::string("\ttype being stored into stack at ") + s + " is overlapping with already stored at " + s1 + "\n";
-                    //report_type_error(desc, loc);
-                    std::cout << desc;
-                    return;
-                }
-            }
-            m_stack.store(store_at, type_to_store, width);
+            do_stack_store(store_at, type_to_store, width);
         }
         else if (basereg_type_with_off.get_region() == crab::region_t::T_CTX) {
             // type of basereg is CTX_P
