@@ -424,7 +424,7 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
                 int offset_to_check = ptr_with_off.get_offset();
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
-                    auto it = m_interval.find_in_stack(offset_to_check);
+                    auto it = m_interval.all_numeric_in_stack(offset_to_check, width);
                     auto it2 = m_region.find_in_stack(offset_to_check);
                     if (it) return;
                     else if (it2) {

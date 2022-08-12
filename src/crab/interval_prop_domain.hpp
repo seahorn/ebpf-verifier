@@ -69,6 +69,7 @@ class stack_cp_state_t {
         std::optional<interval_cells_t> find(int) const;
         void store(int, interval_t, int);
         void operator-=(int);
+        bool all_numeric(int, int) const;
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
@@ -156,4 +157,5 @@ class interval_prop_domain_t final {
     void print_all_register_types() const;
     std::vector<int> get_stack_keys() const;
     void do_stack_store(int, interval_t, int);
+    bool all_numeric_in_stack(int, int) const;
 }; // end interval_prop_domain_t

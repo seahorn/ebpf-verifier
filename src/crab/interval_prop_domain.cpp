@@ -145,6 +145,31 @@ void stack_cp_state_t::operator-=(int key) {
         m_interval_values.erase(key);
 }
 
+bool stack_cp_state_t::all_numeric(int start_loc, int width) const {
+    for (const auto& kv : m_interval_values) {
+        int key = kv.first;
+        auto interval_cells = kv.second;
+        int curr_width = interval_cells.second;
+        int curr_end = key+curr_width;
+        if (key <= start_loc && curr_end > start_loc) {
+            int curr_start = start_loc;
+            int curr_width_to_check = width;
+            while (curr_width_to_check > 0) {
+                if (curr_width_to_check <= curr_width) return true;
+                curr_start = curr_end;
+                auto it = find(curr_start);
+                if (!it) return false;
+                interval_cells = it.value();
+                curr_width_to_check -= curr_width;
+                curr_width = interval_cells.second;
+                curr_end = curr_start+curr_width;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
@@ -464,14 +489,10 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
         if (p_with_off.get_region() == crab::region_t::T_STACK) {
             auto it = m_stack_slots_interval_values.find(to_load);
             if (!it) {
-                // TODO: make stack class iterable
-                for (const auto& k : m_stack_slots_interval_values.get_keys()) {
-                    const auto v = m_stack_slots_interval_values.find(k).value();
-                    if (k < to_load && to_load+width <= k+v.second) {
-                        m_registers_interval_values.insert(target_reg.v, reg_with_loc,
-                                interval_t::top());
-                        return;
-                    }
+                if (m_stack_slots_interval_values.all_numeric(to_load, width)) {
+                    m_registers_interval_values.insert(target_reg.v, reg_with_loc,
+                            interval_t::top());
+                    return;
                 }
                 m_registers_interval_values -= target_reg.v;
                 return;
@@ -550,4 +571,8 @@ void interval_prop_domain_t::print_all_register_types() const {
 
 std::vector<int> interval_prop_domain_t::get_stack_keys() const {
     return m_stack_slots_interval_values.get_keys();
+}
+
+bool interval_prop_domain_t::all_numeric_in_stack(int start_loc, int width) const {
+    return m_stack_slots_interval_values.all_numeric(start_loc, width);
 }
