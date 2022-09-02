@@ -498,13 +498,14 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
                 return;
             }
             m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value().first);
-        }
-        else if (!targetreg_type) {
-            m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
+            return;
         }
     }
-    else if (!targetreg_type) {  // we are loading from packet or shared
+    if (!targetreg_type) {  // we are loading from ctx, packet or shared
         m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
+    }
+    else {
+        m_registers_interval_values -= target_reg.v;
     }
 }
 

@@ -14,17 +14,26 @@ bool dist_t::operator==(const dist_t& d) const {
     return (m_dist == d.m_dist && m_slack == d.m_slack);
 }
 
+weight_t dist_t::offset_from_reference() const {
+    if (is_meta_pointer()) {
+        return (-m_dist+PACKET_META);
+    }
+    if (is_backward_pointer()) {
+        return (m_dist-PACKET_END);
+    }
+    return m_dist;
+}
+
 void dist_t::write(std::ostream& o) const {
     if (m_slack != -1)
         o << "s" << m_slack << "+";
-    if (is_meta_pointer())
-        o << "meta";
-    else if (is_forward_pointer()) {
-        o << "begin+" << m_dist;
-    }
-    else if (is_backward_pointer()) {
-        o << "end-" << (-1)*m_dist-4099;
-    }
+    if (is_forward_pointer()) o << "begin+";
+    else if (is_meta_pointer()) o << "meta+";
+    else if (is_backward_pointer()) o << "end+";
+    auto offset = offset_from_reference();
+    auto singleton_val = offset.singleton();
+    if (singleton_val) o << singleton_val.value();
+    else o << offset;
 }
 
 bool dist_t::is_top() const {
@@ -47,13 +56,13 @@ void dist_t::set_to_bottom() {
 }
 
 bool dist_t::is_meta_pointer() const {
-    return (m_dist.lb() >= -4098 && m_dist.ub() < 0);
+    return (m_dist.lb() > PACKET_END && m_dist.ub() <= PACKET_META);
 }
 bool dist_t::is_forward_pointer() const {
-    return (m_dist.lb() >= 0);
+    return (m_dist.lb() >= PACKET_BEGIN);
 }
 bool dist_t::is_backward_pointer() const {
-    return (m_dist.ub() < 4098);
+    return (m_dist.ub() <= PACKET_END);
 }
 
 std::ostream& operator<<(std::ostream& o, const dist_t& d) {
@@ -80,23 +89,45 @@ void inequality_t::set_to_bottom() {
     m_is_bottom = true;
 }
 
-bool forward_and_backward_eq_t::is_top() const {
-    if (m_is_bottom) return false;
-    return (m_forw.is_top() && m_backw.is_top());
+
+std::ostream& operator<<(std::ostream& o, const inequality_t& ineq) {
+    ineq.write(o);
+    return o;
 }
 
-bool forward_and_backward_eq_t::is_bottom() const {
+void inequality_t::write(std::ostream& o) const {
+    o << m_slack << (m_rel == rop_t::R_GT ? ">" :
+            m_rel == rop_t::R_GE ? ">=" :
+            m_rel == rop_t::R_LT ? "<" : "<=")
+        << m_value;
+}
+
+bool equality_t::is_top() const {
+    if (m_is_bottom) return false;
+    return (m_lhs.is_top() && m_rhs.is_top());
+}
+
+bool equality_t::is_bottom() const {
     return m_is_bottom;
 }
 
-void forward_and_backward_eq_t::set_to_top() {
-    m_forw.set_to_top();
-    m_backw.set_to_top();
+void equality_t::set_to_top() {
+    m_lhs.set_to_top();
+    m_rhs.set_to_top();
     m_is_bottom = false;
 }
 
-void forward_and_backward_eq_t::set_to_bottom() {
+void equality_t::set_to_bottom() {
     m_is_bottom = true;
+}
+
+std::ostream& operator<<(std::ostream& o, const equality_t& eq) {
+    eq.write(o);
+    return o;
+}
+
+void equality_t::write(std::ostream& o) const {
+    o << m_lhs << " = " << m_rhs;
 }
 
 void registers_state_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc,
@@ -271,25 +302,25 @@ void extra_constraints_t::set_to_bottom() {
     m_is_bottom = true;
 }
 
-void extra_constraints_t::add_meta_and_begin_constraint(forward_and_backward_eq_t&& eq,
+void extra_constraints_t::add_meta_and_begin_constraint(equality_t&& eq,
         inequality_t&& ineq) {
-    m_meta_and_begin = packet_constraint_t(std::move(eq), std::move(ineq), false);
+    m_meta_and_begin = packet_constraint_t(std::move(eq), std::move(ineq), true);
 }
 
-void extra_constraints_t::add_begin_and_end_constraint(forward_and_backward_eq_t&& eq,
+void extra_constraints_t::add_begin_and_end_constraint(equality_t&& eq,
         inequality_t&& ineq) {
     m_begin_and_end = packet_constraint_t(std::move(eq), std::move(ineq), false);
 }
 /*
 void extra_constraints_t::normalize() {
-    weight_t dist_forw = m_eq.m_forw.m_dist - m_eq.m_backw.m_dist - 4099;
-    weight_t dist_backw = -4099;
-    slack_var_t s = m_eq.m_forw.m_slack;
-    dist_forw += m_ineq.m_value;
+    weight_t dist_lhs = m_eq.m_lhs.m_dist - m_eq.m_rhs.m_dist - 4099;
+    weight_t dist_rhs = -4099;
+    slack_var_t s = m_eq.m_lhs.m_slack;
+    dist_lhs += m_ineq.m_value;
     weight_t ineq_val = 0;
     rop_t ineq_rel = m_ineq.m_rel;
 
-    m_eq = forward_and_backward_eq_t(dist_t(dist_forw, s), dist_t(dist_backw));
+    m_eq = equality_t(dist_t(dist_lhs, s), dist_t(dist_rhs));
     m_ineq = inequality_t(s, ineq_rel, ineq_val);
 }
 */
@@ -298,18 +329,29 @@ packet_constraint_t packet_constraint_t::operator|(const packet_constraint_t& ot
     //normalize();
     //other.normalize();
 
-    weight_t dist1 = m_eq.m_forw.m_dist;
-    weight_t dist2 = other.m_eq.m_forw.m_dist;
-    slack_var_t s = m_eq.m_forw.m_slack;
+    weight_t dist1 = m_eq.m_lhs.m_dist;
+    weight_t dist2 = other.m_eq.m_lhs.m_dist;
+    slack_var_t s = m_eq.m_lhs.m_slack;
 
-    dist_t f = dist_t(dist1 | dist2, s);
-    dist_t b = dist_t(weight_t(number_t(-4099)));
+    dist_t lhs = dist_t(dist1 | dist2, s);
+    dist_t rhs;
+    if (m_is_meta_constraint) rhs = dist_t(weight_t(number_t(PACKET_BEGIN)));
+    else rhs = dist_t(weight_t(number_t(PACKET_END)));
 
-    forward_and_backward_eq_t out_eq(f, b);
+    equality_t out_eq(lhs, rhs);
     inequality_t out_ineq(s, m_ineq.m_rel, weight_t(number_t(0)));
-
-    return packet_constraint_t(std::move(out_eq), std::move(out_ineq), false);
+    return packet_constraint_t(std::move(out_eq), std::move(out_ineq), m_is_meta_constraint);
         // have to handle case for different slack vars
+}
+
+std::ostream& operator<<(std::ostream& o, const packet_constraint_t& p) {
+    p.write(o);
+    return o;
+}
+
+void packet_constraint_t::write(std::ostream& o) const {
+    o << m_eq << "\n";
+    o << m_ineq << "\n";
 }
 
 void packet_constraint_t::set_to_top() {
@@ -333,9 +375,9 @@ bool packet_constraint_t::is_bottom() const {
 
 std::optional<bound_t> packet_constraint_t::get_limit() const {
     // TODO: normalize constraint, if required
-    auto number_opt = m_eq.m_forw.m_dist.singleton();
-    if (number_opt) return bound_t(number_opt.value());
-    return {};
+    auto dist = m_eq.m_lhs.m_dist;
+    if (dist.is_top()) return {};
+    return dist.lb();
 }
 
 extra_constraints_t extra_constraints_t::operator|(const extra_constraints_t& other) const {
@@ -353,14 +395,14 @@ std::optional<bound_t> extra_constraints_t::get_meta_limit() const {
 }
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc) {
-    if (desc->data != -1) {
-        m_dists[desc->data] = dist_t(weight_t(number_t(0)));
+    if (desc->data >= 0) {
+        m_dists[desc->data] = dist_t(weight_t(number_t(PACKET_BEGIN)));
     }
-    if (desc->end != -1) {
-        m_dists[desc->end] = dist_t(weight_t(number_t(-4099)));
+    if (desc->end >= 0) {
+        m_dists[desc->end] = dist_t(weight_t(number_t(PACKET_END)));
     }
-    if (desc->meta != -1) {
-        m_dists[desc->meta] = dist_t(weight_t(number_t(-1)));
+    if (desc->meta >= 0) {
+        m_dists[desc->meta] = dist_t(weight_t(number_t(PACKET_META)));
     }
     m_size = desc->size;
 }
@@ -518,8 +560,8 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
             dist_t right_reg_dist = dist_right.value();
             slack_var_t s = m_slack++;
             dist_t f = dist_t(left_reg_dist.m_dist, s);
-            dist_t b = dist_t(right_reg_dist.m_dist, slack_var_t{-1});
-            auto eq = forward_and_backward_eq_t(f, b);
+            dist_t b = dist_t(right_reg_dist.m_dist);
+            auto eq = equality_t(f, b);
             auto ineq = inequality_t(s, rop_t::R_GE, weight_t(number_t(0)));
             if (f.is_meta_pointer() && b.is_forward_pointer()) {
                 m_extra_constraints.add_meta_and_begin_constraint(std::move(eq), std::move(ineq));
@@ -575,11 +617,9 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
                 auto it = m_reg_state.find(src.v);
                 if (!it) {
                     std::cout << "type_error: src is a packet_pointer and no offset info found\n";
-                    //exit(1);
                     return;
                 }
                 m_reg_state.insert(bin.dst.v, reg_with_loc, it.value());
-                //std::cout << "offset: " << (*m_reg_state.get(bin.dst.v)).m_dist << "\n";
                 break;
             }
             // ra += rb
@@ -591,16 +631,15 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
                 auto it = m_reg_state.find(bin.dst.v);
                 if (!it) {
                     std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
-                    //exit(1);
                     return;
                 }
                 auto dst_dist = it.value();
                 if (src_const_value) {
                     weight_t updated_dist;
-                    if (dst_dist.m_dist.lb() >= number_t(0)) {
+                    if (dst_dist.is_forward_pointer()) {
                         updated_dist = dst_dist.m_dist + src_const_value.value();
                     }
-                    else if (dst_dist.m_dist.lb() >= number_t(-4098)) {
+                    else if (dst_dist.is_backward_pointer()) {
                         // TODO: special handling of meta pointer required
                         updated_dist = dst_dist.m_dist - src_const_value.value();
                     }
@@ -639,10 +678,10 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
                 auto dst_dist = it.value();
 
                 weight_t updated_dist;
-                if (dst_dist.m_dist.lb() >= number_t(0)) {
+                if (dst_dist.is_forward_pointer()) {
                     updated_dist = dst_dist.m_dist + number_t(imm);
                 }
-                else if (dst_dist.m_dist.lb() >= number_t(-4098)) {
+                else if (dst_dist.is_meta_pointer()) {
                     // TODO: special handling of meta pointer required
                     updated_dist = dst_dist.m_dist - number_t(imm);
                 }
@@ -661,15 +700,27 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
     }
 }
 
-bool offset_domain_t::check_packet_access(const Reg& r, int width) const {
+bool offset_domain_t::check_packet_access(const Reg& r, int width, int offset) const {
     auto it = m_reg_state.find(r.v);
-    auto end_limit = m_extra_constraints.get_end_limit();
-    auto meta_limit = m_extra_constraints.get_meta_limit();
-    if (it && meta_limit && end_limit) {
+    if (it) {
         dist_t dist = it.value();
-        // TODO: handle meta and end pointers separately
-        if (dist.m_dist.lb() >= meta_limit.value()
-                && dist.m_dist.lb()+number_t(width) <= end_limit.value()) return true;
+        auto end_limit = m_extra_constraints.get_end_limit();
+        auto meta_limit = m_extra_constraints.get_meta_limit();
+        if ((!meta_limit && !end_limit) || (dist.is_meta_pointer() && !meta_limit) ||
+                (dist.is_backward_pointer() && !end_limit)) return false;
+        dist_t dist_from_begin = dist;
+        bound_t init_limit = bound_t(PACKET_BEGIN), final_limit = bound_t(PACKET_BEGIN);
+
+        if (meta_limit) init_limit = meta_limit.value()-PACKET_META;
+        if (end_limit) final_limit = end_limit.value();
+
+        if (dist.is_meta_pointer())
+            dist_from_begin = dist_t(dist.offset_from_reference()+weight_t(init_limit));
+        else if (dist.is_backward_pointer())
+            dist_from_begin = dist_t(dist.offset_from_reference()+weight_t(end_limit.value()));
+
+        if (dist_from_begin.m_dist.lb()+offset >= init_limit
+                && dist_from_begin.m_dist.lb()+offset+bound_t(width) <= final_limit) return true;
     }
     return false;
 }
@@ -680,7 +731,6 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
         int w = std::get<Imm>(s.width).v;
         if (w == 0 || !reg_type) return;
 
-        //m_extra_constraints.normalize();
         auto reg_ptr_or_mapfd_type = reg_type.value();
         if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
@@ -697,7 +747,7 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
         else if (std::holds_alternative<ptr_no_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_or_mapfd_type);
             if (reg_no_off_ptr_type.get_region() == crab::region_t::T_PACKET) {
-                if (check_packet_access(s.reg, w)) return;
+                if (check_packet_access(s.reg, w, s.offset)) return;
             }
             else {
                 return;

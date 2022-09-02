@@ -197,13 +197,13 @@ std::size_t reg_with_loc_t::hash() const {
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
 {
-    if (desc->data != -1) {
+    if (desc->data >= 0) {
         m_packet_ptrs[desc->data] = crab::ptr_no_off_t(crab::region_t::T_PACKET);
     }
-    if (desc->end != -1) {
+    if (desc->end >= 0) {
         m_packet_ptrs[desc->end] = crab::ptr_no_off_t(crab::region_t::T_PACKET);
     }
-    if (desc->meta != -1) {
+    if (desc->meta >= 0) {
         m_packet_ptrs[desc->meta] = crab::ptr_no_off_t(crab::region_t::T_PACKET);
     }
 }

@@ -15,6 +15,8 @@
 constexpr int STACK_BEGIN = 0;
 constexpr int CTX_BEGIN = 0;
 constexpr int PACKET_BEGIN = 0;
+constexpr int PACKET_END = -4100;
+constexpr int PACKET_META = -1;
 
 using crab::ptr_or_mapfd_t;
 using crab::ptr_t;
@@ -53,7 +55,8 @@ struct dist_t {
     bool is_meta_pointer() const;
     bool is_forward_pointer() const;
     bool is_backward_pointer() const;
-};      // if dist is +ve, represents `begin+dist+slack;`, if dist is -ve, represents `end+dist+1`
+    weight_t offset_from_reference() const;
+};
 
 struct inequality_t {
     slack_var_t m_slack;
@@ -68,24 +71,29 @@ struct inequality_t {
     bool is_bottom() const;
     void set_to_top();
     void set_to_bottom();
+    void write(std::ostream&) const;
+    friend std::ostream& operator<<(std::ostream&, const inequality_t&);
 };    // represents `slack rel value;`, e.g., `s >= 0`
 
-struct forward_and_backward_eq_t {
-    dist_t m_forw;
-    dist_t m_backw;
+struct equality_t {
+    dist_t m_lhs;
+    dist_t m_rhs;
     bool m_is_bottom = false;
 
-    forward_and_backward_eq_t(dist_t forw, dist_t backw) : m_forw(forw), m_backw(backw) {}
-    forward_and_backward_eq_t() = default;
+    equality_t(dist_t lhs, dist_t rhs) : m_lhs(lhs), m_rhs(rhs) {}
+    equality_t() = default;
     bool is_top() const;
     bool is_bottom() const;
     void set_to_top();
     void set_to_bottom();
+    void write(std::ostream&) const;
+    friend std::ostream& operator<<(std::ostream&, const equality_t&);
 };  // represents constraint `p[0] = p[1];`, e.g., `begin+8+s = end`
 
 struct packet_constraint_t {
-    forward_and_backward_eq_t m_eq;
+    equality_t m_eq;
     inequality_t m_ineq;
+    bool m_is_meta_constraint;
     bool m_is_bottom = false;
 
     bool is_bottom() const;
@@ -94,10 +102,12 @@ struct packet_constraint_t {
     void set_to_top();
     std::optional<bound_t> get_limit() const;
     packet_constraint_t() = default;
-    packet_constraint_t(forward_and_backward_eq_t&& eq, inequality_t&& ineq,
-            bool is_bottom = false)
-        : m_eq(eq), m_ineq(ineq), m_is_bottom(is_bottom) {}
+    packet_constraint_t(equality_t&& eq, inequality_t&& ineq, bool is_meta_constraint,
+            bool is_bottom = false) : m_eq(eq), m_ineq(ineq),
+    m_is_meta_constraint(is_meta_constraint), m_is_bottom(is_bottom) {}
     packet_constraint_t operator|(const packet_constraint_t&) const;
+    void write(std::ostream&) const;
+    friend std::ostream& operator<<(std::ostream&, const packet_constraint_t&);
 };
 
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
@@ -166,8 +176,8 @@ class extra_constraints_t {
         void normalize();
         std::optional<bound_t> get_end_limit() const;
         std::optional<bound_t> get_meta_limit() const;
-        void add_meta_and_begin_constraint(forward_and_backward_eq_t&&, inequality_t&&);
-        void add_begin_and_end_constraint(forward_and_backward_eq_t&&, inequality_t&&);
+        void add_meta_and_begin_constraint(equality_t&&, inequality_t&&);
+        void add_begin_and_end_constraint(equality_t&&, inequality_t&&);
         extra_constraints_t operator|(const extra_constraints_t&) const;
         explicit extra_constraints_t(packet_constraint_t&& meta_and_begin,
                 packet_constraint_t&& begin_and_end, bool is_bottom = false)
@@ -267,7 +277,7 @@ class offset_domain_t final {
             std::optional<ptr_or_mapfd_t>&);
     void do_bin(const Bin&, std::optional<interval_t>, std::optional<ptr_or_mapfd_t>,
             std::optional<ptr_or_mapfd_t>, location_t);
-    bool check_packet_access(const Reg&, int) const;
+    bool check_packet_access(const Reg&, int, int) const;
     void check_valid_access(const ValidAccess&, std::optional<ptr_or_mapfd_t>&) const;
 
     std::optional<dist_t> find_in_ctx(int) const;
