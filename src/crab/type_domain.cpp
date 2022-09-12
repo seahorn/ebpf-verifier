@@ -313,7 +313,12 @@ void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
     auto reg_type = m_region.find_ptr_or_mapfd_type(s.reg.v);
-    m_offset.check_valid_access(s, reg_type);
+    auto interval_type = m_interval.find_interval_value(s.reg.v);
+    std::optional<interval_t> width_interval = {};
+    if (std::holds_alternative<Reg>(s.width)) {
+        width_interval = m_interval.find_interval_value(std::get<Reg>(s.width).v);
+    }
+    m_offset.check_valid_access(s, reg_type, interval_type, width_interval);
 }
 
 void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
@@ -407,7 +412,6 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
     }
     int width;
     auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
-    auto maybe_dist = m_offset.find_offset_info(u.access_reg.v);
     auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
     if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
         auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
@@ -435,8 +439,7 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
             else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_basereg)) {
                 auto ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_basereg);
                 if (ptr_no_off.get_region() == region_t::T_PACKET) {
-                    // TODO: check bounds
-                    return;
+                    if (m_offset.check_packet_access(u.access_reg, width, 0, true)) return;
                 }
             }
         }

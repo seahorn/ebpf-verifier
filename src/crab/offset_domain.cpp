@@ -640,7 +640,6 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
                         updated_dist = dst_dist.m_dist + src_const_value.value();
                     }
                     else if (dst_dist.is_backward_pointer()) {
-                        // TODO: special handling of meta pointer required
                         updated_dist = dst_dist.m_dist - src_const_value.value();
                     }
                     else {
@@ -682,7 +681,6 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
                     updated_dist = dst_dist.m_dist + number_t(imm);
                 }
                 else if (dst_dist.is_meta_pointer()) {
-                    // TODO: special handling of meta pointer required
                     updated_dist = dst_dist.m_dist - number_t(imm);
                 }
                 else {
@@ -700,63 +698,116 @@ void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const
     }
 }
 
-bool offset_domain_t::check_packet_access(const Reg& r, int width, int offset) const {
-    auto it = m_reg_state.find(r.v);
-    if (it) {
-        dist_t dist = it.value();
-        auto end_limit = m_extra_constraints.get_end_limit();
-        auto meta_limit = m_extra_constraints.get_meta_limit();
-        if ((!meta_limit && !end_limit) || (dist.is_meta_pointer() && !meta_limit) ||
-                (dist.is_backward_pointer() && !end_limit)) return false;
-        dist_t dist_from_begin = dist;
-        bound_t init_limit = bound_t(PACKET_BEGIN), final_limit = bound_t(PACKET_BEGIN);
+bool offset_domain_t::lower_bound_satisfied(const dist_t& dist, int offset) const {
+    auto meta_limit = m_extra_constraints.get_meta_limit();
+    auto end_limit = m_extra_constraints.get_end_limit();
 
-        if (meta_limit) init_limit = meta_limit.value()-PACKET_META;
-        if (end_limit) final_limit = end_limit.value();
-
-        if (dist.is_meta_pointer())
-            dist_from_begin = dist_t(dist.offset_from_reference()+weight_t(init_limit));
-        else if (dist.is_backward_pointer())
-            dist_from_begin = dist_t(dist.offset_from_reference()+weight_t(end_limit.value()));
-
-        if (dist_from_begin.m_dist.lb()+offset >= init_limit
-                && dist_from_begin.m_dist.lb()+offset+bound_t(width) <= final_limit) return true;
+    dist_t dist1 = dist;
+    if (dist.is_meta_pointer()) {
+        dist1 = dist_t(dist.offset_from_reference()
+                + (meta_limit ? weight_t(meta_limit.value()-PACKET_META) : weight_t(bound_t(0))));
     }
-    return false;
+    if (dist.is_backward_pointer()) {
+        dist1 = dist_t(dist.offset_from_reference()
+                + (end_limit ? weight_t(end_limit.value()) : weight_t(bound_t(0))));
+    }
+
+    bound_t lb = meta_limit ? meta_limit.value()-PACKET_META : bound_t(0);
+    return (dist1.m_dist.lb()+offset >= lb);
+}
+
+bool offset_domain_t::upper_bound_satisfied(const dist_t& dist, int offset, int width,
+        bool is_comparison_check) const {
+    auto meta_limit = m_extra_constraints.get_meta_limit();
+    auto end_limit = m_extra_constraints.get_end_limit();
+
+    dist_t dist1 = dist;
+    if (dist.is_meta_pointer()) {
+        dist1 = dist_t(dist.offset_from_reference() + (meta_limit ?
+                    weight_t(meta_limit.value()-PACKET_META) : weight_t(bound_t((0)))));
+    }
+    if (dist.is_backward_pointer()) {
+        dist1 = dist_t(dist.offset_from_reference()
+                + (end_limit ? weight_t(end_limit.value()) :
+                    weight_t(bound_t(is_comparison_check ? MAX_PACKET_SIZE : 0))));
+    }
+
+    bound_t ub = is_comparison_check ? bound_t(MAX_PACKET_SIZE)
+        : (end_limit ? end_limit.value() : bound_t(0));
+    return (dist1.m_dist.lb()+offset+width <= ub);
+}
+
+bool offset_domain_t::check_packet_access(const Reg& r, int width, int offset,
+        bool is_comparison_check) const {
+    auto it = m_reg_state.find(r.v);
+    if (!it) return false;
+    dist_t dist = it.value();
+
+    return (lower_bound_satisfied(dist, offset)
+            && upper_bound_satisfied(dist, offset, width, is_comparison_check));
 }
 
 void offset_domain_t::check_valid_access(const ValidAccess& s,
-        std::optional<ptr_or_mapfd_t>& reg_type) const {
-    if (std::holds_alternative<Imm>(s.width)) {
-        int w = std::get<Imm>(s.width).v;
-        if (w == 0 || !reg_type) return;
+        std::optional<ptr_or_mapfd_t>& reg_type, std::optional<interval_t>& interval_type,
+        std::optional<interval_t>& width_interval) const {
 
+    bool is_comparison_check = s.width == (Value)Imm{0};
+    number_t width_from_interval;
+    if (width_interval) {
+        auto& val = width_interval.value();
+        std::optional<number_t> valid_num = val.ub().number();
+        if (!valid_num) {
+            std::cout << "width not known\n";
+            return;
+        }
+        width_from_interval = valid_num.value();
+    }
+    else if (std::holds_alternative<Reg>(s.width)) {
+        std::cout << "width not known\n";
+        return;
+    }
+    int width = std::holds_alternative<Imm>(s.width) ? std::get<Imm>(s.width).v
+        : int(width_from_interval);
+
+    if (reg_type) {
         auto reg_ptr_or_mapfd_type = reg_type.value();
         if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
             int offset = reg_with_off_ptr_type.get_offset();
             int offset_to_check = offset+s.offset;
             if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
-                if (offset_to_check >= STACK_BEGIN && offset_to_check+w <= EBPF_STACK_SIZE) return;
+                if (offset_to_check >= STACK_BEGIN && offset_to_check+width <= EBPF_STACK_SIZE)
+                    return;
             }
             else {
-                if (offset_to_check >= CTX_BEGIN && offset_to_check+w <= m_ctx_dists->get_size())
+                if (offset_to_check >= CTX_BEGIN && offset_to_check+width <= m_ctx_dists->get_size())
                     return;
             }
         }
         else if (std::holds_alternative<ptr_no_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_or_mapfd_type);
             if (reg_no_off_ptr_type.get_region() == crab::region_t::T_PACKET) {
-                if (check_packet_access(s.reg, w, s.offset)) return;
+                if (check_packet_access(s.reg, width, s.offset, is_comparison_check)) return;
             }
             else {
                 return;
             }
         }
-        else {}
+        else {
+            if (is_comparison_check) return;
+            std::cout << "FDs cannot be dereferenced directly\n";
+            // mapfd
+        }
     }
-    else {
-        return;
+    if (interval_type) {
+        auto &interval = interval_type.value();
+        if (is_comparison_check) return;
+        auto singleton = interval.singleton();
+        if (s.or_null) {
+            if (singleton && singleton.value() == number_t(0)) return;
+            std::cout << "type error: non-null number\n";
+        }
+        else std::cout << "type error: only pointers can be dereferenced\n";
     }
     std::cout << "valid access assert fail\n";
     //exit(1);

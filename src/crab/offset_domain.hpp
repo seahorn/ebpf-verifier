@@ -17,6 +17,7 @@ constexpr int CTX_BEGIN = 0;
 constexpr int PACKET_BEGIN = 0;
 constexpr int PACKET_END = -4100;
 constexpr int PACKET_META = -1;
+constexpr int MAX_PACKET_SIZE = 0xffff;
 
 using crab::ptr_or_mapfd_t;
 using crab::ptr_t;
@@ -277,8 +278,11 @@ class offset_domain_t final {
             std::optional<ptr_or_mapfd_t>&);
     void do_bin(const Bin&, std::optional<interval_t>, std::optional<ptr_or_mapfd_t>,
             std::optional<ptr_or_mapfd_t>, location_t);
-    bool check_packet_access(const Reg&, int, int) const;
-    void check_valid_access(const ValidAccess&, std::optional<ptr_or_mapfd_t>&) const;
+    bool upper_bound_satisfied(const dist_t&, int, int, bool) const;
+    bool lower_bound_satisfied(const dist_t&, int) const;
+    bool check_packet_access(const Reg&, int, int, bool) const;
+    void check_valid_access(const ValidAccess&, std::optional<ptr_or_mapfd_t>&,
+            std::optional<interval_t>&, std::optional<interval_t>&) const;
 
     std::optional<dist_t> find_in_ctx(int) const;
     std::optional<dist_t> find_in_stack(int) const;
