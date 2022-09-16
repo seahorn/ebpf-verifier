@@ -663,10 +663,10 @@ void region_domain_t::report_type_error(std::string s, location_t loc) {
 void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
     auto it = find_ptr_or_mapfd_type(s.reg.v);
     if (it) {
-        if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
         ptr_or_mapfd_t ptr_or_mapfd_type = it.value();
         if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type)) {
             if (s.types == TypeGroup::non_map_fd) return;
+            if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
             ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_type);
             if (ptr_with_off.get_region() == crab::region_t::T_CTX) {
                 if (s.types == TypeGroup::ctx) return;
@@ -685,6 +685,7 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
         }
         else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type)) {
             if (s.types == TypeGroup::non_map_fd) return;
+            if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
             ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_type);
             if (ptr_no_off.get_region() == crab::region_t::T_PACKET) {
                 if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
@@ -783,13 +784,15 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
                         // currently, we do not read any other pointers from CTX except the ones already stored
                         // in case we add the functionality, we will have to implement forgetting of CTX offsets
                     }
-                    else {}
+                    else {} // shared
                 }
                 else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
                     m_registers.insert(bin.dst.v, reg, dst_reg);
                 }
-                else {}
+                else {
+                    std::cout << "type error: mapfd should not be incremented\n";
+                }
                 break;
             }
             default:
@@ -812,7 +815,9 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
                     m_registers.insert(bin.dst.v, reg, dst_reg);
                 }
-                else {}
+                else {
+                    std::cout << "type error: mapfd should not be incremented\n";
+                }
                 break;
             }
             default: {
