@@ -760,31 +760,18 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
                 }
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
                     ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    if (dst_reg_with_off.get_region() == crab::region_t::T_STACK) {
-                        if (src_const_value) {
-                            auto src_const_maybe_number = src_const_value.value().singleton();
-                            if (!src_const_maybe_number) {
-                                m_stack.set_to_top();
-                                return;
-                            }
 
-                            int updated_offset = dst_reg_with_off.get_offset()
-                                + int(src_const_maybe_number.value());
-                            dst_reg_with_off.set_offset(updated_offset);
-                            auto reg = reg_with_loc_t(bin.dst.v, loc);
-                            m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
+                    if (!src_const_value || !src_const_value.value().singleton()) {
+                        if (is_stack_pointer(bin.dst.v)) m_stack.set_to_top();
+                        m_registers -= bin.dst.v;
+                        return;
+                    }
+                    auto src_const = src_const_value.value().singleton().value();
 
-                        }
-                        else {
-                            m_stack.set_to_top();
-                            return;
-                        }
-                    }
-                    else if (dst_reg_with_off.get_region() == crab::region_t::T_CTX) {
-                        // currently, we do not read any other pointers from CTX except the ones already stored
-                        // in case we add the functionality, we will have to implement forgetting of CTX offsets
-                    }
-                    else {} // shared
+                    int updated_offset = dst_reg_with_off.get_offset() + int(src_const);
+                    dst_reg_with_off.set_offset(updated_offset);
+                    auto reg = reg_with_loc_t(bin.dst.v, loc);
+                    m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
                 }
                 else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
@@ -806,10 +793,10 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
         {
             case Bin::Op::ADD: {
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
-                    auto ptr_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    ptr_with_off.set_offset(ptr_with_off.get_offset() + imm);
+                    auto dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
+                    dst_reg_with_off.set_offset(dst_reg_with_off.get_offset() + imm);
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_registers.insert(bin.dst.v, reg, ptr_with_off);
+                    m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
                 }
                 else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
