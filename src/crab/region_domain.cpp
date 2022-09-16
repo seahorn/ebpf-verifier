@@ -826,6 +826,7 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
         std::string desc = std::string("\tloading from an unknown pointer, or from number - r") + s + "\n";
         //report_type_error(desc, loc);
         std::cout << desc;
+        m_registers -= target_reg.v;
         return;
     }
     auto type_basereg = it.value();
