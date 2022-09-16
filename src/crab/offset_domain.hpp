@@ -15,6 +15,7 @@
 constexpr int STACK_BEGIN = 0;
 constexpr int CTX_BEGIN = 0;
 constexpr int PACKET_BEGIN = 0;
+constexpr int SHARED_BEGIN = 0;
 constexpr int PACKET_END = -4100;
 constexpr int PACKET_META = -1;
 constexpr int MAX_PACKET_SIZE = 0xffff;

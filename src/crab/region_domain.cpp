@@ -100,7 +100,8 @@ inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
 }
 
 bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset());
+    return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset()
+            && p1.get_region_size() == p2.get_region_size());
 }
 
 bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
@@ -108,7 +109,9 @@ bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
 }
 
 void ptr_with_off_t::write(std::ostream& o) const {
-    o << get_reg_ptr(m_r) << "<" << m_offset << ">";
+    o << get_reg_ptr(m_r) << "<" << m_offset;
+    if (m_region_size >= 0) o << "," << m_region_size;
+    o << ">";
 }
 
 std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
@@ -117,6 +120,8 @@ std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
 }
 
 void ptr_with_off_t::set_offset(int off) { m_offset = off; }
+
+void ptr_with_off_t::set_region_size(int region_sz) { m_region_size = region_sz; }
 
 void ptr_with_off_t::set_region(region_t r) { m_r = r; }
 
@@ -252,11 +257,24 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
             if (ptr_or_mapfd1 == ptr_or_mapfd2) {
                 out_vars[i] = m_cur_def[i];
             }
-            else {
+            else if (!std::holds_alternative<mapfd_t>(ptr_or_mapfd1)
+                    && !std::holds_alternative<mapfd_t>(ptr_or_mapfd2)) {
                 auto ptr1 = get_ptr(ptr_or_mapfd1);
                 auto ptr2 = get_ptr(ptr_or_mapfd2);
                 crab::region_t reg1 = get_region(ptr1);
                 crab::region_t reg2 = get_region(ptr2);
+                if (std::holds_alternative<ptr_with_off_t>(ptr1)
+                        && std::holds_alternative<ptr_with_off_t>(ptr2)) {
+                    ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr1);
+                    ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr2);
+                    int off1 = ptr_with_off1.get_offset();
+                    int off2 = ptr_with_off2.get_offset();
+                    if (off1 == off2 && reg1 == reg2) {
+                        out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
+                        (*m_region_env)[reg] = ptr_with_off_t(reg1, off1);
+                        continue;
+                    }
+                }
                 if (reg1 == reg2) {
                     out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
                     (*m_region_env)[reg] = ptr_no_off_t(reg1);
@@ -583,7 +601,7 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
             m_registers.insert(r0_reg, r0, type);
         }
         else {
-            auto type = ptr_no_off_t(crab::region_t::T_SHARED);
+            auto type = ptr_with_off_t(crab::region_t::T_SHARED, 0, mapfd.get_value_size());
             m_registers.insert(r0_reg, r0, type);
         }
     }
@@ -653,6 +671,10 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
             if (ptr_with_off.get_region() == crab::region_t::T_CTX) {
                 if (s.types == TypeGroup::ctx) return;
             }
+            else if (ptr_with_off.get_region() == crab::region_t::T_SHARED) {
+                if (s.types == TypeGroup::shared || s.types == TypeGroup::mem
+                        || s.types == TypeGroup::mem_or_num) return;
+            }
             else {
                 if (s.types == TypeGroup::stack || s.types == TypeGroup::mem
                         || s.types == TypeGroup::stack_or_packet
@@ -668,21 +690,15 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
                 if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
                         || s.types == TypeGroup::mem_or_num) return;
             }
-            else if (ptr_no_off.get_region() == crab::region_t::T_SHARED) {
-                if (s.types == TypeGroup::shared || s.types == TypeGroup::mem
-                        || s.types == TypeGroup::mem_or_num) return;
-            }
-            else {
-                // we might have the case where we add an unknown number to
-                // stack or ctx's offset and we do not know the offset now
-                if (ptr_no_off.get_region() == crab::region_t::T_STACK) {
+            // we might have the case where we add an unknown number to
+            // stack or ctx's offset and we do not know the offset now
+            else if (ptr_no_off.get_region() == crab::region_t::T_STACK) {
                     if (s.types == TypeGroup::stack || s.types == TypeGroup::stack_or_packet
                             || s.types == TypeGroup::mem || s.types == TypeGroup::mem_or_num)
                         return;
-                }
-                else {
-                    if (s.types == TypeGroup::ctx) return;
-                }
+            }
+            else if (ptr_no_off.get_region() == crab::region_t::T_CTX) {
+                if (s.types == TypeGroup::ctx) return;
             }
         }
         else {
@@ -695,12 +711,9 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
         }
     }
     else {
-        // map_fd, non_map_fd, map_fd_programs, and numbers, all should come here
-        // right now, pass any such cases, add more strict checks later
-        // TODO
         if (s.types == TypeGroup::number || s.types == TypeGroup::ptr_or_num
-                || s.types == TypeGroup::map_fd_programs || s.types == TypeGroup::non_map_fd
-                || s.types == TypeGroup::ptr_or_num || s.types == TypeGroup::mem_or_num)
+                || s.types == TypeGroup::non_map_fd || s.types == TypeGroup::ptr_or_num
+                || s.types == TypeGroup::mem_or_num)
             return;
     }
     std::cout << "type constraint assert fail: " << s << "\n";
@@ -766,10 +779,11 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
                             return;
                         }
                     }
-                    else {
+                    else if (dst_reg_with_off.get_region() == crab::region_t::T_CTX) {
                         // currently, we do not read any other pointers from CTX except the ones already stored
                         // in case we add the functionality, we will have to implement forgetting of CTX offsets
                     }
+                    else {}
                 }
                 else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
@@ -824,7 +838,8 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     }
     auto type_basereg = it.value();
 
-    if (!std::holds_alternative<ptr_with_off_t>(type_basereg)) {
+    if (!std::holds_alternative<ptr_with_off_t>(type_basereg)
+            || std::get<ptr_with_off_t>(type_basereg).get_region() == crab::region_t::T_SHARED) {
         // loading from either packet, shared region or mapfd not allowed
         m_registers -= target_reg.v;
         return;
@@ -907,7 +922,6 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         return;
     }
     auto basereg_type = maybe_basereg_type.value();
-
     auto targetreg_type = m_registers.find(target_reg.v);
 
     if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
@@ -934,8 +948,10 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
                 return;
             }
         }
-        else
-            assert(false);
+        else {
+            std::cout << "\twe cannot store a pointer into shared\n";
+            return;
+        }
     }
     else if (std::holds_alternative<ptr_no_off_t>(basereg_type)) {
         // base register type is either PACKET_P, SHARED_P or STACK_P without known offset
@@ -945,13 +961,16 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         // if we later load with that pointer, we read nothing -- load is no-op
         if (targetreg_type && basereg_type_no_off.get_region() != crab::region_t::T_STACK) {
             std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
-            std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet or shared\n";
+            std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet\n";
             //report_type_error(desc, loc);
             std::cout << desc;
             return;
         }
     }
-    else {}
+    else {
+        std::cout << "\twe cannot store a pointer into a mapfd\n";
+        return;
+    }
 }
 
 

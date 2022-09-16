@@ -776,21 +776,24 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
             int offset = reg_with_off_ptr_type.get_offset();
             int offset_to_check = offset+s.offset;
             if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
-                if (offset_to_check >= STACK_BEGIN && offset_to_check+width <= EBPF_STACK_SIZE)
+                if (offset_to_check >= STACK_BEGIN
+                        && offset_to_check+width <= EBPF_STACK_SIZE) return;
+            }
+            else if (reg_with_off_ptr_type.get_region() == crab::region_t::T_CTX) {
+                if (offset_to_check >= CTX_BEGIN
+                        && offset_to_check+width <= m_ctx_dists->get_size())
                     return;
             }
-            else {
-                if (offset_to_check >= CTX_BEGIN && offset_to_check+width <= m_ctx_dists->get_size())
-                    return;
+            else { // shared
+                if (offset_to_check >= SHARED_BEGIN &&
+                        offset_to_check+width <= reg_with_off_ptr_type.get_region_size()) return;
+                // TODO: check null access
             }
         }
         else if (std::holds_alternative<ptr_no_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_no_off_ptr_type = std::get<ptr_no_off_t>(reg_ptr_or_mapfd_type);
             if (reg_no_off_ptr_type.get_region() == crab::region_t::T_PACKET) {
                 if (check_packet_access(s.reg, width, s.offset, is_comparison_check)) return;
-            }
-            else {
-                return;
             }
         }
         else {
@@ -870,8 +873,11 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
             auto reg = reg_with_loc_t(target_reg.v, loc);
             m_reg_state.insert(target_reg.v, reg, dist_t(d));
         }
+        else {  // shared
+            m_reg_state -= target_reg.v;
+        }
     }
-    else {  // we are loading from packet or shared, or we have mapfd
+    else {  // we are loading from packet, or we have mapfd
         m_reg_state -= target_reg.v;
     }
 }

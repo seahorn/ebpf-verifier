@@ -47,6 +47,7 @@ class ptr_no_off_t {
 class ptr_with_off_t {
     region_t m_r;
     int m_offset;
+    int m_region_size;
 
   public:
     ptr_with_off_t() = default;
@@ -54,8 +55,10 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, int _off) : m_r(_r), m_offset(_off) {}
-
+    ptr_with_off_t(region_t _r, int _off, int _region_sz=-1) : m_r(_r), m_offset(_off),
+        m_region_size(_region_sz) {}
+    constexpr int get_region_size() const { return m_region_size; }
+    void set_region_size(int);
     constexpr int get_offset() const { return m_offset; }
     void set_offset(int);
     constexpr region_t get_region() const { return m_r; }
