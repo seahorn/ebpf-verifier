@@ -14,6 +14,7 @@
 #include "platform.hpp"
 
 using crab::interval_t;
+using crab::bound_t;
 
 namespace crab {
 
@@ -47,7 +48,7 @@ class ptr_no_off_t {
 class ptr_with_off_t {
     region_t m_r;
     int m_offset;
-    int m_region_size;
+    interval_t m_region_size;
 
   public:
     ptr_with_off_t() = default;
@@ -55,10 +56,10 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, int _off, int _region_sz=-1) : m_r(_r), m_offset(_off),
-        m_region_size(_region_sz) {}
-    constexpr int get_region_size() const { return m_region_size; }
-    void set_region_size(int);
+    ptr_with_off_t(region_t _r, int _off, interval_t _region_sz=interval_t::top())
+        : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
+    interval_t get_region_size() const;
+    void set_region_size(interval_t);
     constexpr int get_offset() const { return m_offset; }
     void set_offset(int);
     constexpr region_t get_region() const { return m_r; }

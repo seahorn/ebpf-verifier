@@ -110,7 +110,7 @@ bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
 
 void ptr_with_off_t::write(std::ostream& o) const {
     o << get_reg_ptr(m_r) << "<" << m_offset;
-    if (m_region_size >= 0) o << "," << m_region_size;
+    if (m_region_size.lb() >= bound_t(0)) o << "," << m_region_size;
     o << ">";
 }
 
@@ -119,9 +119,11 @@ std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
     return o;
 }
 
+interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
+
 void ptr_with_off_t::set_offset(int off) { m_offset = off; }
 
-void ptr_with_off_t::set_region_size(int region_sz) { m_region_size = region_sz; }
+void ptr_with_off_t::set_region_size(interval_t region_sz) { m_region_size = region_sz; }
 
 void ptr_with_off_t::set_region(region_t r) { m_r = r; }
 
@@ -269,9 +271,11 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
                     ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr2);
                     int off1 = ptr_with_off1.get_offset();
                     int off2 = ptr_with_off2.get_offset();
+                    auto region_sz1 = ptr_with_off1.get_region_size();
+                    auto region_sz2 = ptr_with_off2.get_region_size();
                     if (off1 == off2 && reg1 == reg2) {
                         out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
-                        (*m_region_env)[reg] = ptr_with_off_t(reg1, off1);
+                        (*m_region_env)[reg] = ptr_with_off_t(reg1, off1, region_sz1 | region_sz2);
                         continue;
                     }
                 }
@@ -565,6 +569,8 @@ void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) 
         get_map_type(desc.type).value_type;
     map_key_size_t map_key_size = desc.key_size;
     map_value_size_t map_value_size = desc.value_size;
+    std::cout << "map key size: " << map_key_size << "\n";
+    std::cout << "map value size: " << map_value_size << "\n";
     auto type = mapfd_t(u.mapfd, map_value_type, map_key_size, map_value_size);
     m_registers.insert(reg, reg_with_loc, type);
 }
@@ -601,7 +607,8 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
             m_registers.insert(r0_reg, r0, type);
         }
         else {
-            auto type = ptr_with_off_t(crab::region_t::T_SHARED, 0, mapfd.get_value_size());
+            auto type = ptr_with_off_t(crab::region_t::T_SHARED, 0,
+                    interval_t(bound_t(mapfd.get_value_size())));
             m_registers.insert(r0_reg, r0, type);
         }
     }

@@ -757,13 +757,11 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
         auto& val = width_interval.value();
         std::optional<number_t> valid_num = val.ub().number();
         if (!valid_num) {
-            std::cout << "width not known\n";
             return;
         }
         width_from_interval = valid_num.value();
     }
     else if (std::holds_alternative<Reg>(s.width)) {
-        std::cout << "width not known\n";
         return;
     }
     int width = std::holds_alternative<Imm>(s.width) ? std::get<Imm>(s.width).v
@@ -785,9 +783,11 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
                     return;
             }
             else { // shared
+                //std::cout << "offset to check: " << offset_to_check << ", width: " << width << ", region_size: " << reg_with_off_ptr_type.get_region_size() << "\n";
                 if (offset_to_check >= SHARED_BEGIN &&
-                        offset_to_check+width <= reg_with_off_ptr_type.get_region_size()) return;
+                        bound_t(offset_to_check+width) <= reg_with_off_ptr_type.get_region_size().lb()) return;
                 // TODO: check null access
+                //return;
             }
         }
         else if (std::holds_alternative<ptr_no_off_t>(reg_ptr_or_mapfd_type)) {
