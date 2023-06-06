@@ -601,8 +601,6 @@ void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) 
         get_map_type(desc.type).value_type;
     map_key_size_t map_key_size = desc.key_size;
     map_value_size_t map_value_size = desc.value_size;
-    std::cout << "map key size: " << map_key_size << "\n";
-    std::cout << "map value size: " << map_value_size << "\n";
     auto type = mapfd_t(u.mapfd, map_value_type, map_key_size, map_value_size);
     m_registers.insert(reg, reg_with_loc, type);
 }
