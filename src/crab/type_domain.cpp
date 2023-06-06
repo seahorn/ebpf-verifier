@@ -596,7 +596,7 @@ void type_domain_t::print_stack() const {
     std::vector<int> stack_keys_region = m_region.get_stack_keys();
     std::vector<int> stack_keys_interval = m_interval.get_stack_keys();
     std::cout << "\tstack: {\n";
-    for (auto const k : stack_keys_region) {
+    for (auto const& k : stack_keys_region) {
         auto maybe_ptr_or_mapfd_cells = m_region.find_in_stack(k);
         auto dist = m_offset.find_in_stack(k);
         if (maybe_ptr_or_mapfd_cells) {

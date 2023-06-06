@@ -393,6 +393,12 @@ void stack_t::operator-=(int key) {
         m_ptrs.erase(key);
 }
 
+void stack_t::operator-=(const std::vector<int>& keys) {
+    for (auto &key : keys) {
+       *this -= key;
+    }
+}
+
 void stack_t::set_to_bottom() {
     m_ptrs.clear();
     m_is_bottom = true;
@@ -438,6 +444,32 @@ std::optional<ptr_or_mapfd_cells_t> stack_t::find(int key) const {
     auto it = m_ptrs.find(key);
     if (it == m_ptrs.end()) return {};
     return it->second;
+}
+
+std::vector<int> stack_t::find_overlapping_cells(int start, int width) const {
+    std::vector<int> overlapping_cells;
+    for (int i = start-1; i >= 0; ) {
+        auto type = find(i);
+        if (type) {
+            auto width_cell = type.value().second;
+            if (i + width_cell > start) {
+                overlapping_cells.push_back(i);
+            }
+            break;
+        }
+        i--;
+    }
+    for (int i = start; i < start+width; ) {
+        auto type = find(i);
+        if (type) {
+            overlapping_cells.push_back(i);
+            i += type.value().second;
+        }
+        else {
+            i++;
+        }
+    }
+    return overlapping_cells;
 }
 
 }
@@ -887,25 +919,6 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     }
 }
 
-void region_domain_t::do_stack_store(int store_at, ptr_or_mapfd_t to_store, int width) {
-    for (int i = 0; i < width;) {
-        auto type = m_stack.find(store_at+i);
-        if (type) {
-            auto type_stored = type.value();
-            int width_stored = type_stored.second;
-            m_stack -= store_at+i;
-            if (i+width_stored > width) {
-                return;
-            }
-            i += width_stored;
-        }
-        else {
-            i++;
-        }
-    }
-    m_stack.store(store_at, to_store, width);
-}
-
 void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
 
     int offset = b.access.offset;
@@ -931,12 +944,14 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         int store_at = offset+basereg_type_with_off.get_offset();
         if (basereg_type_with_off.get_region() == crab::region_t::T_STACK) {
             // type of basereg is STACK_P
-            if (!targetreg_type) {
-                m_stack -= store_at;
-                return;
-            }
+            auto overlapping_cells = m_stack.find_overlapping_cells(store_at, width);
+            m_stack -= overlapping_cells;
+
+            // if targetreg_type is empty, we are storing a number
+            if (!targetreg_type) return;
+
             auto type_to_store = targetreg_type.value();
-            do_stack_store(store_at, type_to_store, width);
+            m_stack.store(store_at, type_to_store, width);
         }
         else if (basereg_type_with_off.get_region() == crab::region_t::T_CTX) {
             // type of basereg is CTX_P

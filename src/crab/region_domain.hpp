@@ -140,6 +140,7 @@ class stack_t {
     
     stack_t operator|(const stack_t& other) const;
     void operator-=(int);
+    void operator-=(const std::vector<int>&);
     void set_to_bottom();
     void set_to_top();
     static stack_t bottom();
@@ -150,6 +151,7 @@ class stack_t {
     void store(int, ptr_or_mapfd_t, int);
     std::optional<ptr_or_mapfd_cells_t> find(int) const;
     std::vector<int> get_keys() const;
+    std::vector<int> find_overlapping_cells(int, int) const;
     size_t size() const;
 };
 
@@ -273,5 +275,4 @@ class region_domain_t final {
     bool is_stack_pointer(register_t) const;
     void adjust_bb_for_types(location_t loc);
     void print_all_register_types() const;
-    void do_stack_store(int, crab::ptr_or_mapfd_t, int);
 }; // end region_domain_t

@@ -1,8 +1,6 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 
-#include <unordered_map>
-
 #include "crab/interval_prop_domain.hpp"
 
 namespace std {
@@ -146,28 +144,89 @@ void stack_cp_state_t::operator-=(int key) {
 }
 
 bool stack_cp_state_t::all_numeric(int start_loc, int width) const {
-    for (const auto& kv : m_interval_values) {
-        int key = kv.first;
-        auto interval_cells = kv.second;
-        int curr_width = interval_cells.second;
-        int curr_end = key+curr_width;
-        if (key <= start_loc && curr_end > start_loc) {
-            int curr_start = start_loc;
-            int curr_width_to_check = width;
-            while (curr_width_to_check > 0) {
-                if (curr_width_to_check <= curr_width) return true;
-                curr_start = curr_end;
-                auto it = find(curr_start);
-                if (!it) return false;
-                interval_cells = it.value();
-                curr_width_to_check -= curr_width;
-                curr_width = interval_cells.second;
-                curr_end = curr_start+curr_width;
-            }
-            return true;
+    auto overlapping_cells = find_overlapping_cells(start_loc, width);
+    if (overlapping_cells.empty()) return false;
+    for (std::size_t i = 0; i < overlapping_cells.size()-1; i++) {
+        int width_i = find(overlapping_cells[i]).value().second;
+        if (overlapping_cells[i]+width_i != overlapping_cells[i+1]) return false;
+    }
+    return true;
+}
+
+void stack_cp_state_t::remove_overlap(const std::vector<int>& keys, int start, int width) {
+    for (auto& key : keys) {
+        auto type = find(key);
+        auto width_key = type.value().second;
+        if (key < start) {
+            int new_width = start-key;
+            store(key, interval_t::top(), new_width);
+        }
+        if (key+width_key > start+width) {
+            int new_width = key+width_key-(start+width);
+            store(start+width, interval_t::top(), new_width);
+        }
+        if (key >= start) *this -= key;
+    }
+}
+
+std::vector<int> stack_cp_state_t::find_overlapping_cells(int start, int width) const {
+    std::vector<int> overlapping_cells;
+    // using lower_bound method for maps gives unpredictable results
+    // hence, using a naive way to compute overlaps
+    auto it = m_interval_values.begin();
+    while (it != m_interval_values.end() && it->first < start) {
+        it++;
+    }
+    if (it != m_interval_values.begin()) {
+        it--;
+        auto key = it->first;
+        auto width_key = it->second.second;
+        if (key < start && key+width_key > start) overlapping_cells.push_back(key);
+    }
+
+    for (; it != m_interval_values.end(); it++) {
+        auto key = it->first;
+        if (key >= start && key < start+width) overlapping_cells.push_back(key);
+        if (key >= start+width) break;
+    }
+    return overlapping_cells;
+}
+
+void join_stack(const stack_cp_state_t& stack1, int key1, int& loc1,
+        const stack_cp_state_t& stack2, int key2, int& loc2,
+        interval_values_stack_t& interval_values_joined) {
+    auto type1 = stack1.find(key1);    auto type2 = stack2.find(key2);
+    auto& cells1 = type1.value();   auto& cells2 = type2.value();
+    int width1 = cells1.second; int width2 = cells2.second;
+    auto& interval1 = cells1.first; auto& interval2 = cells2.first;
+    if (key1 == key2) {
+        if (width1 == width2) {
+            interval_values_joined[key1] = std::make_pair(interval1 | interval2, width1);
+            loc1++; loc2++;
+        }
+        else if (width1 < width2) {
+            interval_values_joined[key1] = std::make_pair(interval_t::top(), width1);
+            loc1++;
+        }
+        else {
+            interval_values_joined[key1] = std::make_pair(interval_t::top(), width2);
+            loc2++;
         }
     }
-    return false;
+    else if (key1 > key2) {
+        if (key2+width2 > key1+width1) {
+            interval_values_joined[key1] = std::make_pair(interval_t::top(), width1);
+            loc1++;
+        }
+        else if (key2+width2 > key1) {
+            interval_values_joined[key1] = std::make_pair(interval_t::top(), key2+width2-key1);
+            loc2++;
+        }
+        else loc2++;
+    }
+    else {
+        join_stack(stack2, key2, loc2, stack1, key1, loc1, interval_values_joined);
+    }
 }
 
 stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) const {
@@ -177,15 +236,12 @@ stack_cp_state_t stack_cp_state_t::operator|(const stack_cp_state_t& other) cons
         return *this;
     }
     interval_values_stack_t interval_values_joined;
-    for (auto const&kv: m_interval_values) {
-        auto maybe_interval_cells = other.find(kv.first);
-        if (maybe_interval_cells) {
-            auto interval_cells1 = kv.second, interval_cells2 = maybe_interval_cells.value();
-            auto interval1 = interval_cells1.first, interval2 = interval_cells2.first;
-            int width1 = interval_cells1.second, width2 = interval_cells2.second;
-            int width_joined = std::max(width1, width2);
-            interval_values_joined[kv.first] = std::make_pair(interval1 | interval2, width_joined);
-        }
+    auto stack1_keys = get_keys();
+    auto stack2_keys = other.get_keys();
+    int i = 0, j = 0;
+    while (i < static_cast<int>(stack1_keys.size()) && j < static_cast<int>(stack2_keys.size())) {
+        int key1 = stack1_keys[i], key2 = stack2_keys[j];
+        join_stack(*this, key1, i, other, key2, j, interval_values_joined);
     }
     return stack_cp_state_t(std::move(interval_values_joined));
 }
@@ -341,6 +397,11 @@ void interval_prop_domain_t::do_call(const Call& u, const interval_values_stack_
 
     auto r0 = register_t{R0_RETURN_VALUE};
     for (const auto& kv : store_in_stack) {
+        auto key = kv.first;
+        auto width = kv.second.second;
+        auto overlapping_cells
+            = m_stack_slots_interval_values.find_overlapping_cells(key, width);
+        m_stack_slots_interval_values.remove_overlap(overlapping_cells, key, width);
         m_stack_slots_interval_values.store(kv.first, kv.second.first, kv.second.second);
     }
     if (u.is_map_lookup) {
@@ -509,30 +570,6 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
     }
 }
 
-void interval_prop_domain_t::do_stack_store(int store_at, interval_t to_store, int width) {
-    for (auto i = 0; i < width;) {
-        auto type = m_stack_slots_interval_values.find(store_at+i);
-        if (type) {
-            auto type_stored = type.value();
-            int width_stored = type_stored.second;
-            m_stack_slots_interval_values -= store_at+i;
-            if (i+width_stored > width) {
-                // case where type already stored has width that does not align with `width`
-                // in such case, we forget the stored type, at the remainder of location,
-                // we store a `top` interval, and as required we store `to_store` at `store_at`
-                // with width `width` (last operation in the method)
-                m_stack_slots_interval_values.store(store_at+width, interval_t::top(),
-                        i+width_stored-width);
-            }
-            i += width_stored;
-        }
-        else {
-            i++;
-        }
-    }
-    m_stack_slots_interval_values.store(store_at, to_store, width);
-}
-
 void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         std::optional<ptr_or_mapfd_t> basereg_type) {
     int offset = b.access.offset;
@@ -547,12 +584,15 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
         int store_at = basereg_ptr_with_off_type.get_offset() + offset;
         if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
-            if (!targetreg_type) {
-                m_stack_slots_interval_values -= store_at;
-                return;
-            }
+            auto overlapping_cells
+                = m_stack_slots_interval_values.find_overlapping_cells(store_at, width);
+            m_stack_slots_interval_values.remove_overlap(overlapping_cells, store_at, width);
+
+            // if targetreg_type is empty, we are storing a pointer
+            if (!targetreg_type) return;
+
             auto type_to_store = targetreg_type.value();
-            do_stack_store(store_at, type_to_store, width);
+            m_stack_slots_interval_values.store(store_at, type_to_store, width);
         }
     }
     else {}

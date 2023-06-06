@@ -4,6 +4,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <map>
 
 #include "crab/abstract_domain.hpp"
 #include "crab/region_domain.hpp"
@@ -53,7 +54,7 @@ class registers_cp_state_t {
 };
 
 using interval_cells_t = std::pair<interval_t, int>;    // intervals with width
-using interval_values_stack_t = std::unordered_map<int, interval_cells_t>;
+using interval_values_stack_t = std::map<int, interval_cells_t>;
 
 class stack_cp_state_t {
 
@@ -76,6 +77,8 @@ class stack_cp_state_t {
             : m_interval_values(std::move(interval_values)), m_is_bottom(is_bottom) {}
         std::vector<int> get_keys() const;
         size_t size() const;
+        std::vector<int> find_overlapping_cells(int, int) const;
+        void remove_overlap(const std::vector<int>&, int, int);
 };
 
 class interval_prop_domain_t final {
@@ -156,6 +159,5 @@ class interval_prop_domain_t final {
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     std::vector<int> get_stack_keys() const;
-    void do_stack_store(int, interval_t, int);
     bool all_numeric_in_stack(int, int) const;
 }; // end interval_prop_domain_t
