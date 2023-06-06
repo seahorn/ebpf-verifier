@@ -171,8 +171,6 @@ void stack_cp_state_t::remove_overlap(const std::vector<uint64_t>& keys, uint64_
 
 std::vector<uint64_t> stack_cp_state_t::find_overlapping_cells(uint64_t start, int width) const {
     std::vector<uint64_t> overlapping_cells;
-    // using lower_bound method for maps gives unpredictable results
-    // hence, using a naive way to compute overlaps
     auto it = m_interval_values.begin();
     while (it != m_interval_values.end() && it->first < start) {
         it++;

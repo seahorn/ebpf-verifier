@@ -1,8 +1,6 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 
-#include <unordered_map>
-
 #include "crab/region_domain.hpp"
 
 using crab::___print___;
@@ -448,28 +446,21 @@ std::optional<ptr_or_mapfd_cells_t> stack_t::find(uint64_t key) const {
 
 std::vector<uint64_t> stack_t::find_overlapping_cells(uint64_t start, int width) const {
     std::vector<uint64_t> overlapping_cells;
-    auto i = start-1;
-    while (true) {
-        auto type = find(i);
-        if (type) {
-            auto width_cell = type.value().second;
-            if (i + width_cell > start) {
-                overlapping_cells.push_back(i);
-            }
-            break;
-        }
-        if (i == 0) break;
-        i--;
+    auto it = m_ptrs.begin();
+    while (it != m_ptrs.end() && it->first < start) {
+        it++;
     }
-    for (uint64_t i = start; i < start+width; ) {
-        auto type = find(i);
-        if (type) {
-            overlapping_cells.push_back(i);
-            i += type.value().second;
-        }
-        else {
-            i++;
-        }
+    if (it != m_ptrs.begin()) {
+        it--;
+        auto key = it->first;
+        auto width_key = it->second.second;
+        if (key < start && key+width_key > start) overlapping_cells.push_back(key);
+    }
+
+    for (; it != m_ptrs.end(); it++) {
+        auto key = it->first;
+        if (key >= start && key < start+width) overlapping_cells.push_back(key);
+        if (key >= start+width) break;
     }
     return overlapping_cells;
 }

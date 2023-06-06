@@ -4,6 +4,7 @@
 #pragma once
 
 #include <unordered_map>
+#include <map>
 
 #include "crab/abstract_domain.hpp"
 #include "crab/cfg.hpp"
@@ -127,7 +128,7 @@ class ctx_t {
 
 using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
 using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
-using ptr_or_mapfd_types_t = std::unordered_map<uint64_t, ptr_or_mapfd_cells_t>;
+using ptr_or_mapfd_types_t = std::map<uint64_t, ptr_or_mapfd_cells_t>;
 
 class stack_t {
     ptr_or_mapfd_types_t m_ptrs;
