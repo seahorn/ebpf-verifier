@@ -771,21 +771,23 @@ void offset_domain_t::check_valid_access(const ValidAccess& s,
         auto reg_ptr_or_mapfd_type = reg_type.value();
         if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
-            int offset = reg_with_off_ptr_type.get_offset();
-            int offset_to_check = offset+s.offset;
+            auto offset = reg_with_off_ptr_type.get_offset();
+            auto offset_to_check = offset+interval_t(number_t(s.offset));
+            auto offset_lb = offset_to_check.lb();
+            auto offset_plus_width_ub = offset_to_check.ub()+bound_t(width);
             if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
-                if (offset_to_check >= STACK_BEGIN
-                        && offset_to_check+width <= EBPF_STACK_SIZE) return;
+                if (bound_t(STACK_BEGIN) <= offset_lb
+                        && offset_plus_width_ub <= bound_t(EBPF_STACK_SIZE))
+                    return;
             }
             else if (reg_with_off_ptr_type.get_region() == crab::region_t::T_CTX) {
-                if (offset_to_check >= CTX_BEGIN
-                        && offset_to_check+width <= m_ctx_dists->get_size())
+                if (bound_t(CTX_BEGIN) <= offset_lb
+                        && offset_plus_width_ub <= bound_t(m_ctx_dists->get_size()))
                     return;
             }
             else { // shared
-                //std::cout << "offset to check: " << offset_to_check << ", width: " << width << ", region_size: " << reg_with_off_ptr_type.get_region_size() << "\n";
-                if (offset_to_check >= SHARED_BEGIN &&
-                        bound_t(offset_to_check+width) <= reg_with_off_ptr_type.get_region_size().lb()) return;
+                if (bound_t(SHARED_BEGIN) <= offset_lb &&
+                        offset_plus_width_ub <= reg_with_off_ptr_type.get_region_size().lb()) return;
                 // TODO: check null access
                 //return;
             }
@@ -823,7 +825,12 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
 
     if (is_stack_pointer(basereg_type)) {
         auto basereg_with_off = std::get<ptr_with_off_t>(basereg_type.value());
-        int store_at = basereg_with_off.get_offset() + offset;
+        auto offset_singleton = basereg_with_off.get_offset().singleton();
+        if (!offset_singleton) {
+            std::cout << "store at an unknown offset\n";
+            return;
+        }
+        auto store_at = (uint64_t)offset_singleton.value() + (uint64_t)offset;
         if (is_packet_pointer(targetreg_type)) {
             auto it = m_reg_state.find(target_reg.v);
             if (!it) {
@@ -850,7 +857,13 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
     
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
-        int to_load = p_with_off.get_offset() + offset;
+        auto offset_singleton = p_with_off.get_offset().singleton();
+        if (!offset_singleton) {
+            std::cout << "load at an unknown offset\n";
+            m_reg_state -= target_reg.v;
+            return;
+        }
+        auto to_load = (uint64_t)offset_singleton.value() + (uint64_t)offset;
 
         if (p_with_off.get_region() == crab::region_t::T_CTX) {
             auto it = m_ctx_dists->find(to_load);

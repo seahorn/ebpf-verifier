@@ -47,7 +47,7 @@ class ptr_no_off_t {
 
 class ptr_with_off_t {
     region_t m_r;
-    int m_offset;
+    interval_t m_offset;
     interval_t m_region_size;
 
   public:
@@ -56,12 +56,12 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, int _off, interval_t _region_sz=interval_t::top())
+    ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz=interval_t::top())
         : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
     interval_t get_region_size() const;
     void set_region_size(interval_t);
-    constexpr int get_offset() const { return m_offset; }
-    void set_offset(int);
+    interval_t get_offset() const { return m_offset; }
+    void set_offset(interval_t);
     constexpr region_t get_region() const { return m_r; }
     void set_region(region_t);
     void write(std::ostream&) const;
@@ -114,20 +114,20 @@ class reg_with_loc_t {
 };
 
 class ctx_t {
-    using ptr_types_t = std::unordered_map<int, ptr_no_off_t>;
+    using ptr_types_t = std::unordered_map<uint64_t, ptr_no_off_t>;
 
     ptr_types_t m_packet_ptrs;
 
   public:
     ctx_t(const ebpf_context_descriptor_t* desc);
     size_t size() const;
-    std::vector<int> get_keys() const;
-    std::optional<ptr_no_off_t> find(int key) const;
+    std::vector<uint64_t> get_keys() const;
+    std::optional<ptr_no_off_t> find(uint64_t key) const;
 };
 
 using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
 using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
-using ptr_or_mapfd_types_t = std::unordered_map<int, ptr_or_mapfd_cells_t>;
+using ptr_or_mapfd_types_t = std::unordered_map<uint64_t, ptr_or_mapfd_cells_t>;
 
 class stack_t {
     ptr_or_mapfd_types_t m_ptrs;
@@ -139,8 +139,8 @@ class stack_t {
     : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
     
     stack_t operator|(const stack_t& other) const;
-    void operator-=(int);
-    void operator-=(const std::vector<int>&);
+    void operator-=(uint64_t);
+    void operator-=(const std::vector<uint64_t>&);
     void set_to_bottom();
     void set_to_top();
     static stack_t bottom();
@@ -148,10 +148,10 @@ class stack_t {
     bool is_bottom() const;
     bool is_top() const;
     const ptr_or_mapfd_types_t &get_ptrs() { return m_ptrs; }
-    void store(int, ptr_or_mapfd_t, int);
-    std::optional<ptr_or_mapfd_cells_t> find(int) const;
-    std::vector<int> get_keys() const;
-    std::vector<int> find_overlapping_cells(int, int) const;
+    void store(uint64_t, ptr_or_mapfd_t, int);
+    std::optional<ptr_or_mapfd_cells_t> find(uint64_t) const;
+    std::vector<uint64_t> get_keys() const;
+    std::vector<uint64_t> find_overlapping_cells(uint64_t, int) const;
     size_t size() const;
 };
 
@@ -267,11 +267,11 @@ class region_domain_t final {
     void report_type_error(std::string, location_t);
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t) const;
     size_t ctx_size() const;
-    std::optional<crab::ptr_no_off_t> find_in_ctx(int key) const;
-    std::vector<int> get_ctx_keys() const;
-    std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(int key) const;
+    std::optional<crab::ptr_no_off_t> find_in_ctx(uint64_t key) const;
+    std::vector<uint64_t> get_ctx_keys() const;
+    std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(uint64_t key) const;
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
-    std::vector<int> get_stack_keys() const;
+    std::vector<uint64_t> get_stack_keys() const;
     bool is_stack_pointer(register_t) const;
     void adjust_bb_for_types(location_t loc);
     void print_all_register_types() const;

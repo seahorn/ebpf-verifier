@@ -54,7 +54,7 @@ class registers_cp_state_t {
 };
 
 using interval_cells_t = std::pair<interval_t, int>;    // intervals with width
-using interval_values_stack_t = std::map<int, interval_cells_t>;
+using interval_values_stack_t = std::map<uint64_t, interval_cells_t>;
 
 class stack_cp_state_t {
 
@@ -67,18 +67,18 @@ class stack_cp_state_t {
         void set_to_bottom();
         void set_to_top();
         static stack_cp_state_t top();
-        std::optional<interval_cells_t> find(int) const;
-        void store(int, interval_t, int);
-        void operator-=(int);
-        bool all_numeric(int, int) const;
+        std::optional<interval_cells_t> find(uint64_t) const;
+        void store(uint64_t, interval_t, int);
+        void operator-=(uint64_t);
+        bool all_numeric(uint64_t, int) const;
         stack_cp_state_t operator|(const stack_cp_state_t& other) const;
         stack_cp_state_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
         explicit stack_cp_state_t(interval_values_stack_t&& interval_values, bool is_bottom = false)
             : m_interval_values(std::move(interval_values)), m_is_bottom(is_bottom) {}
-        std::vector<int> get_keys() const;
+        std::vector<uint64_t> get_keys() const;
         size_t size() const;
-        std::vector<int> find_overlapping_cells(int, int) const;
-        void remove_overlap(const std::vector<int>&, int, int);
+        std::vector<uint64_t> find_overlapping_cells(uint64_t, int) const;
+        void remove_overlap(const std::vector<uint64_t>&, uint64_t, int);
 };
 
 class interval_prop_domain_t final {
@@ -155,9 +155,9 @@ class interval_prop_domain_t final {
     void do_call(const Call&, const interval_values_stack_t&, location_t);
     std::optional<interval_t> find_interval_value(register_t) const;
     std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
-    std::optional<interval_cells_t> find_in_stack(int) const;
+    std::optional<interval_cells_t> find_in_stack(uint64_t) const;
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
-    std::vector<int> get_stack_keys() const;
-    bool all_numeric_in_stack(int, int) const;
+    std::vector<uint64_t> get_stack_keys() const;
+    bool all_numeric_in_stack(uint64_t, int) const;
 }; // end interval_prop_domain_t

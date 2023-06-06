@@ -127,23 +127,23 @@ stack_cp_state_t stack_cp_state_t::top() {
     return stack_cp_state_t(false);
 }
 
-std::optional<interval_cells_t> stack_cp_state_t::find(int key) const {
+std::optional<interval_cells_t> stack_cp_state_t::find(uint64_t key) const {
     auto it = m_interval_values.find(key);
     if (it == m_interval_values.end()) return {};
     return it->second;
 }
 
-void stack_cp_state_t::store(int key, interval_t val, int width) {
+void stack_cp_state_t::store(uint64_t key, interval_t val, int width) {
     m_interval_values[key] = std::make_pair(val, width);
 }
 
-void stack_cp_state_t::operator-=(int key) {
+void stack_cp_state_t::operator-=(uint64_t key) {
     auto it = find(key);
     if (it)
         m_interval_values.erase(key);
 }
 
-bool stack_cp_state_t::all_numeric(int start_loc, int width) const {
+bool stack_cp_state_t::all_numeric(uint64_t start_loc, int width) const {
     auto overlapping_cells = find_overlapping_cells(start_loc, width);
     if (overlapping_cells.empty()) return false;
     for (std::size_t i = 0; i < overlapping_cells.size()-1; i++) {
@@ -153,7 +153,7 @@ bool stack_cp_state_t::all_numeric(int start_loc, int width) const {
     return true;
 }
 
-void stack_cp_state_t::remove_overlap(const std::vector<int>& keys, int start, int width) {
+void stack_cp_state_t::remove_overlap(const std::vector<uint64_t>& keys, uint64_t start, int width) {
     for (auto& key : keys) {
         auto type = find(key);
         auto width_key = type.value().second;
@@ -169,8 +169,8 @@ void stack_cp_state_t::remove_overlap(const std::vector<int>& keys, int start, i
     }
 }
 
-std::vector<int> stack_cp_state_t::find_overlapping_cells(int start, int width) const {
-    std::vector<int> overlapping_cells;
+std::vector<uint64_t> stack_cp_state_t::find_overlapping_cells(uint64_t start, int width) const {
+    std::vector<uint64_t> overlapping_cells;
     // using lower_bound method for maps gives unpredictable results
     // hence, using a naive way to compute overlaps
     auto it = m_interval_values.begin();
@@ -192,8 +192,8 @@ std::vector<int> stack_cp_state_t::find_overlapping_cells(int start, int width) 
     return overlapping_cells;
 }
 
-void join_stack(const stack_cp_state_t& stack1, int key1, int& loc1,
-        const stack_cp_state_t& stack2, int key2, int& loc2,
+void join_stack(const stack_cp_state_t& stack1, uint64_t key1, int& loc1,
+        const stack_cp_state_t& stack2, uint64_t key2, int& loc2,
         interval_values_stack_t& interval_values_joined) {
     auto type1 = stack1.find(key1);    auto type2 = stack2.find(key2);
     auto& cells1 = type1.value();   auto& cells2 = type2.value();
@@ -250,8 +250,8 @@ size_t stack_cp_state_t::size() const {
     return m_interval_values.size();
 }
 
-std::vector<int> stack_cp_state_t::get_keys() const {
-    std::vector<int> keys;
+std::vector<uint64_t> stack_cp_state_t::get_keys() const {
+    std::vector<uint64_t> keys;
     keys.reserve(size());
 
     for (auto const&kv : m_interval_values) {
@@ -545,7 +545,13 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
     auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
-        int to_load = p_with_off.get_offset() + offset;
+        auto offset_singleton = p_with_off.get_offset().singleton();
+        if (!offset_singleton) {
+            m_registers_interval_values -= target_reg.v;
+            std::cout << "doing a load with unknown offset\n";
+            return;
+        }
+        auto to_load = (uint64_t)offset_singleton.value() + (uint64_t)offset;
 
         if (p_with_off.get_region() == crab::region_t::T_STACK) {
             auto it = m_stack_slots_interval_values.find(to_load);
@@ -582,7 +588,12 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
     auto targetreg_type = m_registers_interval_values.find(target_reg.v);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
         auto basereg_ptr_with_off_type = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
-        int store_at = basereg_ptr_with_off_type.get_offset() + offset;
+        auto offset_singleton = basereg_ptr_with_off_type.get_offset().singleton();
+        if (!offset_singleton) {
+            std::cout << "doing a store with unknown offset\n";
+            return;
+        }
+        auto store_at = (uint64_t)offset_singleton.value() + (uint64_t)offset;
         if (basereg_ptr_with_off_type.get_region() == crab::region_t::T_STACK) {
             auto overlapping_cells
                 = m_stack_slots_interval_values.find_overlapping_cells(store_at, width);
@@ -598,7 +609,7 @@ void interval_prop_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
     else {}
 }
 
-std::optional<interval_cells_t> interval_prop_domain_t::find_in_stack(int key) const {
+std::optional<interval_cells_t> interval_prop_domain_t::find_in_stack(uint64_t key) const {
     return m_stack_slots_interval_values.find(key);
 }
 
@@ -610,10 +621,10 @@ void interval_prop_domain_t::print_all_register_types() const {
     m_registers_interval_values.print_all_register_types();
 }
 
-std::vector<int> interval_prop_domain_t::get_stack_keys() const {
+std::vector<uint64_t> interval_prop_domain_t::get_stack_keys() const {
     return m_stack_slots_interval_values.get_keys();
 }
 
-bool interval_prop_domain_t::all_numeric_in_stack(int start_loc, int width) const {
+bool interval_prop_domain_t::all_numeric_in_stack(uint64_t start_loc, int width) const {
     return m_stack_slots_interval_values.all_numeric(start_loc, width);
 }

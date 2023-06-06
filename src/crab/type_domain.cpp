@@ -235,7 +235,7 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
         return;
     }
 
-    using interval_values_stack_t = std::map<int, interval_cells_t>;
+    using interval_values_stack_t = std::map<uint64_t, interval_cells_t>;
     interval_values_stack_t stack_values;
     for (ArgPair param : u.pairs) {
         if (param.kind == ArgPair::Kind::PTR_TO_UNINIT_MEM) {
@@ -247,7 +247,12 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
-                    int offset = ptr_with_off.get_offset();
+                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    if (!offset_singleton) {
+                        std::cout << "storing at an unknown offset in stack\n";
+                        continue;
+                    }
+                    auto offset = (uint64_t)offset_singleton.value();
                     if (auto single_width = width_interval.singleton(); single_width) {
                         int width = (int)single_width.value();
                         stack_values[offset] = std::make_pair(interval_t::top(), width);
@@ -426,12 +431,17 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
             }
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
-                int offset_to_check = ptr_with_off.get_offset();
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
+                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    if (!offset_singleton) {
+                        std::cout << "reading the stack at an unknown offset\n";
+                        return;
+                    }
+                    auto offset_to_check = (uint64_t)offset_singleton.value();
                     auto it = m_interval.all_numeric_in_stack(offset_to_check, width);
-                    auto it2 = m_region.find_in_stack(offset_to_check);
                     if (it) return;
-                    else if (it2) {
+                    auto it2 = m_region.find_in_stack(offset_to_check);
+                    if (it2) {
                         std::cout << "type error: map update with a non-numerical value\n";
                     }
                 }
@@ -456,7 +466,7 @@ void type_domain_t::operator()(const ZeroOffset& u, location_t loc, int print) {
     if (maybe_ptr_or_mapfd) {
         if (std::holds_alternative<ptr_with_off_t>(maybe_ptr_or_mapfd.value())) {
             auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
-            if (ptr_type_with_off.get_offset() == 0) return;
+            if (ptr_type_with_off.get_offset() == interval_t(number_t(0))) return;
         }
         auto maybe_dist = m_offset.find_offset_info(u.reg.v);
         if (maybe_dist) {
@@ -578,7 +588,7 @@ void type_domain_t::print_registers() const {
 }
 
 void type_domain_t::print_ctx() const {
-    std::vector<int> ctx_keys = m_region.get_ctx_keys();
+    std::vector<uint64_t> ctx_keys = m_region.get_ctx_keys();
     std::cout << "\tctx: {\n";
     for (auto const& k : ctx_keys) {
         auto ptr = m_region.find_in_ctx(k);
@@ -593,8 +603,8 @@ void type_domain_t::print_ctx() const {
 }
 
 void type_domain_t::print_stack() const {
-    std::vector<int> stack_keys_region = m_region.get_stack_keys();
-    std::vector<int> stack_keys_interval = m_interval.get_stack_keys();
+    std::vector<uint64_t> stack_keys_region = m_region.get_stack_keys();
+    std::vector<uint64_t> stack_keys_interval = m_interval.get_stack_keys();
     std::cout << "\tstack: {\n";
     for (auto const& k : stack_keys_region) {
         auto maybe_ptr_or_mapfd_cells = m_region.find_in_stack(k);

@@ -121,7 +121,7 @@ std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
 
 interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
 
-void ptr_with_off_t::set_offset(int off) { m_offset = off; }
+void ptr_with_off_t::set_offset(interval_t off) { m_offset = off; }
 
 void ptr_with_off_t::set_region_size(interval_t region_sz) { m_region_size = region_sz; }
 
@@ -219,8 +219,8 @@ size_t ctx_t::size() const {
     return m_packet_ptrs.size();
 }
 
-std::vector<int> ctx_t::get_keys() const {
-    std::vector<int> keys;
+std::vector<uint64_t> ctx_t::get_keys() const {
+    std::vector<uint64_t> keys;
     keys.reserve(size());
 
     for (auto const&kv : m_packet_ptrs) {
@@ -229,7 +229,7 @@ std::vector<int> ctx_t::get_keys() const {
     return keys;
 }
 
-std::optional<ptr_no_off_t> ctx_t::find(int key) const {
+std::optional<ptr_no_off_t> ctx_t::find(uint64_t key) const {
     auto it = m_packet_ptrs.find(key);
     if (it == m_packet_ptrs.end()) return {};
     return it->second;
@@ -269,8 +269,8 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
                         && std::holds_alternative<ptr_with_off_t>(ptr2)) {
                     ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr1);
                     ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr2);
-                    int off1 = ptr_with_off1.get_offset();
-                    int off2 = ptr_with_off2.get_offset();
+                    auto off1 = ptr_with_off1.get_offset();
+                    auto off2 = ptr_with_off2.get_offset();
                     auto region_sz1 = ptr_with_off1.get_region_size();
                     auto region_sz2 = ptr_with_off2.get_region_size();
                     if (off1 == off2 && reg1 == reg2) {
@@ -387,13 +387,13 @@ stack_t stack_t::operator|(const stack_t& other) const {
     return stack_t(std::move(out_ptrs), false);
 }
 
-void stack_t::operator-=(int key) {
+void stack_t::operator-=(uint64_t key) {
     auto it = find(key);
     if (it)
         m_ptrs.erase(key);
 }
 
-void stack_t::operator-=(const std::vector<int>& keys) {
+void stack_t::operator-=(const std::vector<uint64_t>& keys) {
     for (auto &key : keys) {
        *this -= key;
     }
@@ -421,7 +421,7 @@ bool stack_t::is_top() const {
     return m_ptrs.empty();
 }
 
-void stack_t::store(int key, ptr_or_mapfd_t value, int width) {
+void stack_t::store(uint64_t key, ptr_or_mapfd_t value, int width) {
     m_ptrs[key] = std::make_pair(value, width);
 }
 
@@ -429,8 +429,8 @@ size_t stack_t::size() const {
     return m_ptrs.size();
 }
 
-std::vector<int> stack_t::get_keys() const {
-    std::vector<int> keys;
+std::vector<uint64_t> stack_t::get_keys() const {
+    std::vector<uint64_t> keys;
     keys.reserve(size());
 
     for (auto const&kv : m_ptrs) {
@@ -440,15 +440,16 @@ std::vector<int> stack_t::get_keys() const {
 }
 
 
-std::optional<ptr_or_mapfd_cells_t> stack_t::find(int key) const {
+std::optional<ptr_or_mapfd_cells_t> stack_t::find(uint64_t key) const {
     auto it = m_ptrs.find(key);
     if (it == m_ptrs.end()) return {};
     return it->second;
 }
 
-std::vector<int> stack_t::find_overlapping_cells(int start, int width) const {
-    std::vector<int> overlapping_cells;
-    for (int i = start-1; i >= 0; ) {
+std::vector<uint64_t> stack_t::find_overlapping_cells(uint64_t start, int width) const {
+    std::vector<uint64_t> overlapping_cells;
+    auto i = start-1;
+    while (true) {
         auto type = find(i);
         if (type) {
             auto width_cell = type.value().second;
@@ -457,9 +458,10 @@ std::vector<int> stack_t::find_overlapping_cells(int start, int width) const {
             }
             break;
         }
+        if (i == 0) break;
         i--;
     }
-    for (int i = start; i < start+width; ) {
+    for (uint64_t i = start; i < start+width; ) {
         auto type = find(i);
         if (type) {
             overlapping_cells.push_back(i);
@@ -511,19 +513,19 @@ size_t region_domain_t::ctx_size() const {
     return m_ctx->size();
 }
 
-std::vector<int> region_domain_t::get_ctx_keys() const {
+std::vector<uint64_t> region_domain_t::get_ctx_keys() const {
     return m_ctx->get_keys();
 }
 
-std::vector<int> region_domain_t::get_stack_keys() const {
+std::vector<uint64_t> region_domain_t::get_stack_keys() const {
     return m_stack.get_keys();
 }
 
-std::optional<ptr_no_off_t> region_domain_t::find_in_ctx(int key) const {
+std::optional<ptr_no_off_t> region_domain_t::find_in_ctx(uint64_t key) const {
     return m_ctx->find(key);
 }
 
-std::optional<ptr_or_mapfd_cells_t> region_domain_t::find_in_stack(int key) const {
+std::optional<ptr_or_mapfd_cells_t> region_domain_t::find_in_stack(uint64_t key) const {
     return m_stack.find(key);
 }
 
@@ -637,8 +639,8 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
             m_registers.insert(r0_reg, r0, type);
         }
         else {
-            auto type = ptr_with_off_t(crab::region_t::T_SHARED, 0,
-                    interval_t(bound_t(mapfd.get_value_size())));
+            auto type = ptr_with_off_t(crab::region_t::T_SHARED, interval_t(number_t(0)),
+                    interval_t(number_t(mapfd.get_value_size())));
             m_registers.insert(r0_reg, r0, type);
         }
     }
@@ -683,8 +685,8 @@ region_domain_t region_domain_t::setup_entry() {
     auto r1 = reg_with_loc_t(R1_ARG, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
     auto r10 = reg_with_loc_t(R10_STACK_POINTER, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
 
-    typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region_t::T_CTX, 0));
-    typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region_t::T_STACK, 512));
+    typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region_t::T_CTX, interval_t(number_t(0))));
+    typ.insert(R10_STACK_POINTER, r10, ptr_with_off_t(crab::region_t::T_STACK, interval_t(number_t(512))));
 
     region_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
     return inv;
@@ -758,7 +760,7 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
     //exit(1);
 }
 
-void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const_value, location_t loc) {
+void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_interval, location_t loc) {
     ptr_or_mapfd_t dst_reg;
     if (bin.op == Bin::Op::ADD) {
         auto it = m_registers.find(bin.dst.v);
@@ -798,14 +800,13 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
                     ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
 
-                    if (!src_const_value || !src_const_value.value().singleton()) {
+                    if (!src_interval) {
                         if (is_stack_pointer(bin.dst.v)) m_stack.set_to_top();
                         m_registers -= bin.dst.v;
                         return;
                     }
-                    auto src_const = src_const_value.value().singleton().value();
 
-                    int updated_offset = dst_reg_with_off.get_offset() + int(src_const);
+                    auto updated_offset = dst_reg_with_off.get_offset() + src_interval.value();
                     dst_reg_with_off.set_offset(updated_offset);
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
                     m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
@@ -831,7 +832,7 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_const
             case Bin::Op::ADD: {
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
                     auto dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    dst_reg_with_off.set_offset(dst_reg_with_off.get_offset() + imm);
+                    dst_reg_with_off.set_offset(dst_reg_with_off.get_offset() + interval_t(number_t(imm)));
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
                     m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
                 }
@@ -876,7 +877,14 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     }
 
     auto type_with_off = std::get<ptr_with_off_t>(type_basereg);
-    int load_at = offset+type_with_off.get_offset();
+    auto offset_singleton = type_with_off.get_offset().singleton();
+    if (!offset_singleton) {
+        std::cout << "type error: loading from a pointer with unknown offset\n";
+        m_registers -= target_reg.v;
+        return;
+    }
+    auto offset_const = (uint64_t)offset_singleton.value();
+    auto load_at = (uint64_t)offset+offset_const;
 
     switch (type_with_off.get_region()) {
         case crab::region_t::T_STACK: {
@@ -939,7 +947,12 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         // base register is either CTX_P or STACK_P
         auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
 
-        int store_at = offset+basereg_type_with_off.get_offset();
+        auto offset_singleton = basereg_type_with_off.get_offset().singleton();
+        if (!offset_singleton) {
+            std::cout << "type error: storing to a pointer with unknown offset\n";
+            return;
+        }
+        auto store_at = (uint64_t)offset+(uint64_t)offset_singleton.value();
         if (basereg_type_with_off.get_region() == crab::region_t::T_STACK) {
             // type of basereg is STACK_P
             auto overlapping_cells = m_stack.find_overlapping_cells(store_at, width);
