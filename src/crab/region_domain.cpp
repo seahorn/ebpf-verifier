@@ -935,7 +935,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     auto targetreg_type = m_registers.find(target_reg.v);
 
     if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
-        // base register is either CTX_P or STACK_P
+        // base register is either CTX_P, STACK_P or SHARED_P
         auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
 
         auto offset_singleton = basereg_type_with_off.get_offset().singleton();
@@ -966,12 +966,12 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
             }
         }
         else {
-            std::cout << "\twe cannot store a pointer into shared\n";
-            return;
+            // type of basereg is SHARED_P
+            if (targetreg_type) std::cout << "\twe cannot store a pointer into shared\n";
         }
     }
     else if (std::holds_alternative<ptr_no_off_t>(basereg_type)) {
-        // base register type is either PACKET_P, SHARED_P or STACK_P without known offset
+        // base register type is either a PACKET_P, or SHARED_P/STACK_P/CTX_P without known offset
         auto basereg_type_no_off = std::get<ptr_no_off_t>(basereg_type);
 
         // if basereg is a stack_p with no offset, we do not store anything, and no type errors
