@@ -125,6 +125,10 @@ void ptr_with_off_t::set_region_size(interval_t region_sz) { m_region_size = reg
 
 void ptr_with_off_t::set_region(region_t r) { m_r = r; }
 
+ptr_with_off_t ptr_with_off_t::operator|(const ptr_with_off_t& other) const {
+    return ptr_with_off_t(m_r, m_offset | other.m_offset, m_region_size | other.m_region_size);
+}
+
 bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
     return (p1.get_region() == p2.get_region());
 }
@@ -261,25 +265,14 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
                     && !std::holds_alternative<mapfd_t>(ptr_or_mapfd2)) {
                 auto ptr1 = get_ptr(ptr_or_mapfd1);
                 auto ptr2 = get_ptr(ptr_or_mapfd2);
-                crab::region_t reg1 = get_region(ptr1);
-                crab::region_t reg2 = get_region(ptr2);
                 if (std::holds_alternative<ptr_with_off_t>(ptr1)
                         && std::holds_alternative<ptr_with_off_t>(ptr2)) {
                     ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr1);
                     ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr2);
-                    auto off1 = ptr_with_off1.get_offset();
-                    auto off2 = ptr_with_off2.get_offset();
-                    auto region_sz1 = ptr_with_off1.get_region_size();
-                    auto region_sz2 = ptr_with_off2.get_region_size();
-                    if (off1 == off2 && reg1 == reg2) {
+                    if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
                         out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
-                        (*m_region_env)[reg] = ptr_with_off_t(reg1, off1, region_sz1 | region_sz2);
-                        continue;
+                        (*m_region_env)[reg] = std::move(ptr_with_off1 | ptr_with_off2);
                     }
-                }
-                if (reg1 == reg2) {
-                    out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
-                    (*m_region_env)[reg] = ptr_no_off_t(reg1);
                 }
             }
         }
@@ -378,8 +371,18 @@ stack_t stack_t::operator|(const stack_t& other) const {
             int width1 = ptr_or_mapfd_cells1.second;
             int width2 = ptr_or_mapfd_cells2.second;
             int width_joined = std::max(width1, width2);
-            if (ptr_or_mapfd1 == ptr_or_mapfd2)
+            if (ptr_or_mapfd1 == ptr_or_mapfd2) {
                 out_ptrs[kv.first] = std::make_pair(ptr_or_mapfd1, width_joined);
+            }
+            else if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd1) &&
+                    std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd2)) {
+                auto ptr_with_off1 = std::get<ptr_with_off_t>(ptr_or_mapfd1);
+                auto ptr_with_off2 = std::get<ptr_with_off_t>(ptr_or_mapfd2);
+                if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
+                    out_ptrs[kv.first]
+                        = std::make_pair(ptr_with_off1 | ptr_with_off2, width_joined);
+                }
+            }
         }
     }
     return stack_t(std::move(out_ptrs), false);
@@ -693,6 +696,7 @@ void region_domain_t::report_type_error(std::string s, location_t loc) {
 void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
     auto it = find_ptr_or_mapfd_type(s.reg.v);
     if (it) {
+        // it is a pointer or mapfd
         ptr_or_mapfd_t ptr_or_mapfd_type = it.value();
         if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type)) {
             if (s.types == TypeGroup::non_map_fd) return;
@@ -716,21 +720,8 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
         else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type)) {
             if (s.types == TypeGroup::non_map_fd) return;
             if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
-            ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_type);
-            if (ptr_no_off.get_region() == crab::region_t::T_PACKET) {
-                if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
-                        || s.types == TypeGroup::mem_or_num) return;
-            }
-            // we might have the case where we add an unknown number to
-            // stack or ctx's offset and we do not know the offset now
-            else if (ptr_no_off.get_region() == crab::region_t::T_STACK) {
-                    if (s.types == TypeGroup::stack || s.types == TypeGroup::stack_or_packet
-                            || s.types == TypeGroup::mem || s.types == TypeGroup::mem_or_num)
-                        return;
-            }
-            else if (ptr_no_off.get_region() == crab::region_t::T_CTX) {
-                if (s.types == TypeGroup::ctx) return;
-            }
+            if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
+                    || s.types == TypeGroup::mem_or_num) return;
         }
         else {
             auto map_fd = std::get<mapfd_t>(ptr_or_mapfd_type);
@@ -742,6 +733,7 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
         }
     }
     else {
+        // if we don't know the type, we assume it is a number
         if (s.types == TypeGroup::number || s.types == TypeGroup::ptr_or_num
                 || s.types == TypeGroup::non_map_fd || s.types == TypeGroup::ptr_or_num
                 || s.types == TypeGroup::mem_or_num)
@@ -771,7 +763,7 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_inter
                 auto it1 = m_registers.find(src.v);
                 if (!it1) {
                     m_registers -= bin.dst.v;
-                    break;
+                    return;
                 }
                 auto reg = reg_with_loc_t(bin.dst.v, loc);
                 m_registers.insert(bin.dst.v, reg, it1.value());
@@ -823,7 +815,8 @@ void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_inter
             case Bin::Op::ADD: {
                 if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
                     auto dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    dst_reg_with_off.set_offset(dst_reg_with_off.get_offset() + interval_t(number_t(imm)));
+                    auto updated_offset = dst_reg_with_off.get_offset() + interval_t(number_t(imm));
+                    dst_reg_with_off.set_offset(updated_offset);
                     auto reg = reg_with_loc_t(bin.dst.v, loc);
                     m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
                 }
@@ -971,12 +964,8 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         }
     }
     else if (std::holds_alternative<ptr_no_off_t>(basereg_type)) {
-        // base register type is either a PACKET_P, or SHARED_P/STACK_P/CTX_P without known offset
-        auto basereg_type_no_off = std::get<ptr_no_off_t>(basereg_type);
-
-        // if basereg is a stack_p with no offset, we do not store anything, and no type errors
-        // if we later load with that pointer, we read nothing -- load is no-op
-        if (targetreg_type && basereg_type_no_off.get_region() != crab::region_t::T_STACK) {
+        // base register type is a PACKET_P
+        if (targetreg_type) {
             std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
             std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet\n";
             //report_type_error(desc, loc);
@@ -996,12 +985,9 @@ bool region_domain_t::is_stack_pointer(register_t reg) const {
     if (!type) {    // not a pointer
         return false;
     }
-    auto ptr_type = type.value();
-    if (std::holds_alternative<ptr_with_off_t>(ptr_type)
-        && std::get<ptr_with_off_t>(ptr_type).get_region() == crab::region_t::T_STACK) {
-        return true;
-    }
-    return false;
+    auto ptr_or_mapfd_type = type.value();
+    return (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type) &&
+            std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_STACK);
 }
 
 void region_domain_t::adjust_bb_for_types(location_t loc) {

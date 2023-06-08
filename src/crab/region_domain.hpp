@@ -59,6 +59,7 @@ class ptr_with_off_t {
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
     ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz=interval_t::top())
         : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
+    ptr_with_off_t operator|(const ptr_with_off_t&) const;
     interval_t get_region_size() const;
     void set_region_size(interval_t);
     interval_t get_offset() const { return m_offset; }
