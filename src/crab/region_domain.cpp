@@ -152,15 +152,6 @@ bool operator==(const mapfd_t& m1, const mapfd_t& m2) {
     return (m1.get_value_type() == m2.get_value_type());
 }
 
-static region_t get_region(const ptr_t& ptr) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        return std::get<ptr_with_off_t>(ptr).get_region();
-    }
-    else {
-        return std::get<ptr_no_off_t>(ptr).get_region();
-    }
-}
-
 std::ostream& operator<<(std::ostream& o, const mapfd_t& m) {
     m.write(o);
     return o;

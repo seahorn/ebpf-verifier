@@ -417,114 +417,236 @@ void interval_prop_domain_t::operator()(const Packet &u, location_t loc, int pri
     m_registers_interval_values.insert(r0, r0_with_loc, interval_t::top());
 }
 
-void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    auto dst_v = m_registers_interval_values.find(bin.dst.v);
-    std::optional<interval_t> updated_dst_interval = {};
+void interval_prop_domain_t::operator()(const Assume &s, location_t loc, int print) {
+    // TODO: generalize for intervals
+    using Op = Condition::Op;
+    Condition cond = s.cond;
+    int64_t imm = 0;
+    bool is_imm = false;
+    auto reg_with_loc = reg_with_loc_t(cond.left.v, loc);
+    auto left_reg_optional = m_registers_interval_values.find(cond.left.v);
+    if (!left_reg_optional) {
+        return;
+    }
+    auto left_value = left_reg_optional.value();
+    bound_t right_value = bound_t(-1);
+    if (std::holds_alternative<Reg>(cond.right)) {
+        auto reg = std::get<Reg>(cond.right).v;
+        auto right_reg_optional = m_registers_interval_values.find(reg);
+        if (!right_reg_optional) {
+            std::cout << "type error: assumption for an unknown register\n";
+            return;
+        }
+        auto right_reg = right_reg_optional.value();
+        auto right_reg_singleton = right_reg.singleton();
+        if (!right_reg_singleton) {
+            std::cout << "assumption for a non-singleton register\n";
+            return;
+        }
+        right_value = right_reg_singleton.value();
+    }
+    else {
+        imm = std::get<Imm>(cond.right).v;
+        is_imm = true;
+        right_value = bound_t(static_cast<int>(imm));
+    }
+    bool is_right_within_left_interval = left_value.lb() <= right_value
+        && right_value <= left_value.ub();
+    switch (cond.op) {
+        case Op::EQ: {
+            if (is_right_within_left_interval)
+                m_registers_interval_values.insert(cond.left.v, reg_with_loc, interval_t(right_value));
+            return;
+        }
+        case Op::NE: {
+            if (right_value <= left_value.lb() || right_value >= left_value.ub()) {
+                if (right_value == left_value.lb())
+                    m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                            interval_t(bound_t(left_value.lb() + 1), left_value.ub()));
+                else if (right_value == left_value.ub())
+                    m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                            interval_t(left_value.lb(), bound_t(left_value.ub() - 1)));
+                return;
+            }
+            break;
+        }
+        case Op::SGE:
+        case Op::GE:
+        {
+            if (is_right_within_left_interval || right_value < left_value.lb()) {
+                if (is_right_within_left_interval) {
+                    if (cond.op == Op::GE && is_imm) {
+                        auto value = bound_t(static_cast<unsigned int>(imm));
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(value, left_value.ub()));
+                    }
+                    else {
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(right_value, left_value.ub()));
+                    }
+                }
+                return;
+            }
+            break;
+        }
+        case Op::SLE:
+        case Op::LE:
+        {
+            if (is_right_within_left_interval || right_value > left_value.ub()) {
+                if (is_right_within_left_interval) {
+                    if (cond.op == Op::LE && is_imm && left_value.lb() < bound_t(0)) {
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(bound_t(0), right_value));
+                    }
+                    else {
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(left_value.lb(), right_value));
+                    }
+                }
+                return;
+            }
+            break;
+        }
+        case Op::SGT:
+        case Op::GT: {
+            auto right_value_plus_1 = right_value + bound_t(1);
+            bool is_right_plus_1_within_left_interval = left_value.lb() <= right_value_plus_1
+                && right_value_plus_1 <= left_value.ub();
+            if (is_right_plus_1_within_left_interval || right_value_plus_1 < left_value.lb()) {
+                if (is_right_plus_1_within_left_interval) {
+                    if (cond.op == Op::GT && is_imm) {
+                        auto value = bound_t(static_cast<unsigned int>(imm));
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(value + bound_t(1), left_value.ub()));
+                    }
+                    else {
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(right_value_plus_1, left_value.ub()));
+                    }
+                }
+                return;
+            }
+            break;
+        }
+        case Op::SLT:
+        case Op::LT: {
+            auto right_value_minus_1 = right_value - bound_t(1);
+            bool is_right_minus_1_within_left_interval = left_value.lb() <= right_value_minus_1
+                && right_value_minus_1 <= left_value.ub();
+            if (is_right_minus_1_within_left_interval || right_value_minus_1 > left_value.ub()) {
+                if (is_right_minus_1_within_left_interval) {
+                    if (cond.op == Op::LT && is_imm) {
+                        auto value = bound_t(static_cast<unsigned int>(imm));
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(left_value.lb(), value - bound_t(1)));
+                    }
+                    else {
+                        m_registers_interval_values.insert(cond.left.v, reg_with_loc,
+                                interval_t(left_value.lb(), right_value_minus_1));
+                    }
+                }
+                return;
+            }
+            break;
+        }
+        default: return;
+        m_registers_interval_values.insert(cond.left.v, reg_with_loc, interval_t::bottom());
+    }
+}
 
+void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
+    interval_t src_interval = interval_t::top();
+    uint64_t imm = 0;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         auto src_v = m_registers_interval_values.find(src.v);
-
         if (!src_v) {
             m_registers_interval_values -= bin.dst.v;;
             return;
         }
-
-        auto src_interval = src_v.value();
-        switch (bin.op)
-        {
-            // ra = rb;
-            case Bin::Op::MOV: {
-                updated_dst_interval = src_interval;
-                break;
-            }
-            // ra += rb
-            case Bin::Op::ADD: {
-                // both ra and rb are numbers, so handle here
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() + src_interval;
-                }
-                break;
-            }
-            // ra -= rb
-            case Bin::Op::SUB: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() - src_interval;
-                }
-                break;
-            }
-            // ra *= rb
-            case Bin::Op::MUL:
-            // ra /= rb
-            case Bin::Op::DIV:
-            // ra %= rb
-            case Bin::Op::MOD:
-            // ra |= rb
-            case Bin::Op::OR:
-            // ra &= rb
-            case Bin::Op::AND:
-            // ra <<= rb
-            case Bin::Op::LSH:
-            // ra >>= rb
-            case Bin::Op::RSH:
-            // ra >>>= rb
-            case Bin::Op::ARSH:
-            // ra ^= rb
-            case Bin::Op::XOR:
-                updated_dst_interval = interval_t::top();
-                break;
-        }
-        //std::cout << "value of vb: " << *src_interval << "\n";
+        src_interval = src_v.value();
     }
     else {
-        auto imm = interval_t(number_t(static_cast<int>(std::get<Imm>(bin.v).v)));
-        switch (bin.op)
-        {
-            // ra = c, where c is a interval
-            case Bin::Op::MOV: {
+        imm = std::get<Imm>(bin.v).v;
+        src_interval = interval_t(number_t(static_cast<int>(imm)));
+    }
 
-                updated_dst_interval = imm;
-                break;
-            }
-            // ra += c, where c is a interval
-            case Bin::Op::ADD: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() + imm;
-                }
-                break;
-            }
-            // ra -= c
-            case Bin::Op::SUB: {
-                if (dst_v) {
-                    updated_dst_interval = dst_v.value() - imm;
-                }
-                break;
-            }
-            // ra *= rb
-            case Bin::Op::MUL:
-            // ra /= rb
-            case Bin::Op::DIV:
-            // ra %= rb
-            case Bin::Op::MOD:
-            // ra |= rb
-            case Bin::Op::OR:
-            // ra &= rb
-            case Bin::Op::AND:
-            // ra <<= rb
-            case Bin::Op::LSH:
-            // ra >>= rb
-            case Bin::Op::RSH:
-            // ra >>>= rb
-            case Bin::Op::ARSH:
-            // ra ^= rb
-            case Bin::Op::XOR:
-                updated_dst_interval = interval_t::top();
-                break;
+    auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
+    // ra = b;
+    if (bin.op == Bin::Op::MOV) {
+        m_registers_interval_values.insert(bin.dst.v, reg_with_loc, src_interval);
+        return;
+    }
+
+    auto dst_v = m_registers_interval_values.find(bin.dst.v);
+    if (!dst_v) return;
+    auto dst_interval = dst_v.value();
+
+    switch (bin.op)
+    {
+        // ra += b
+        case Bin::Op::ADD: {
+            dst_interval += src_interval;
+            break;
+        }
+        // ra -= b
+        case Bin::Op::SUB: {
+            dst_interval =- src_interval;
+            break;
+        }
+        // ra *= b
+        case Bin::Op::MUL: {
+            dst_interval *= src_interval;
+            break;
+        }
+        // ra /= b
+        case Bin::Op::DIV: {
+            dst_interval /= src_interval;
+            break;
+        }
+        // ra %= b
+        case Bin::Op::MOD: {
+            dst_interval = dst_interval.SRem(src_interval);
+            break;
+        }
+        // ra |= b
+        case Bin::Op::OR: {
+            dst_interval = dst_interval.Or(src_interval);
+            break;
+        }
+        // ra &= b
+        case Bin::Op::AND: {
+            dst_interval = dst_interval.And(src_interval);
+            if ((int32_t)imm > 0)
+                dst_interval = interval_t(number_t(0), number_t(static_cast<int>(imm)));
+            break;
+        }
+        // ra <<= b
+        case Bin::Op::LSH: {
+            dst_interval = dst_interval.Shl(src_interval);
+            break;
+        }
+        // ra >>= b
+        case Bin::Op::RSH: {
+            dst_interval = dst_interval.LShr(src_interval);
+            break;
+        }
+        // ra >>>= b
+        case Bin::Op::ARSH: {
+            dst_interval = dst_interval.AShr(src_interval);
+            break;
+        }
+        // ra ^= b
+        case Bin::Op::XOR: {
+            dst_interval = dst_interval.Xor(src_interval);
+            break;
+        }
+        default: {
+            dst_interval = interval_t::top();
+            break;
         }
     }
-    auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-    if (updated_dst_interval)
-        m_registers_interval_values.insert(bin.dst.v, reg_with_loc, updated_dst_interval.value());
+    m_registers_interval_values.insert(bin.dst.v, reg_with_loc, dst_interval);
 }
 
 

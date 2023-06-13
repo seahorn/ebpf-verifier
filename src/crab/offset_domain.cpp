@@ -546,10 +546,7 @@ void offset_domain_t::operator()(const Assume &b, location_t loc, int print) {
             auto right_reg = std::get<Reg>(cond.right).v;
             auto dist_left = m_reg_state.find(cond.left.v);
             auto dist_right = m_reg_state.find(right_reg);
-            if (!dist_left && !dist_right) {
-                return;
-            }
-            else if (!dist_left || !dist_right) {
+            if (!dist_left || !dist_right) {
                 // this should not happen, comparison between a packet pointer and either
                 // other region's pointers or numbers; possibly raise type error
                 //exit(1);

@@ -132,7 +132,7 @@ class interval_prop_domain_t final {
     void operator()(const Mem &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Packet &, location_t loc = boost::none, int print = 0);
     void operator()(const LockAdd &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Assume &, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Assume &, location_t loc = boost::none, int print = 0);
     void operator()(const Assert &, location_t loc = boost::none, int print = 0) {}
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0) {}
     void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
