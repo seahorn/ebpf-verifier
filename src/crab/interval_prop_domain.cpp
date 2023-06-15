@@ -684,29 +684,44 @@ void interval_prop_domain_t::do_load(const Mem& b, const Reg& target_reg,
     auto reg_with_loc = reg_with_loc_t(target_reg.v, loc);
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_or_mapfd_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_or_mapfd_type);
-        auto offset_singleton = p_with_off.get_offset().singleton();
-        if (!offset_singleton) {
-            m_registers_interval_values -= target_reg.v;
-            std::cout << "doing a load with unknown offset\n";
-            return;
-        }
-        auto to_load = (uint64_t)offset_singleton.value() + (uint64_t)offset;
-
         if (p_with_off.get_region() == crab::region_t::T_STACK) {
-            auto it = m_stack_slots_interval_values.find(to_load);
-            if (!it) {
-                if (m_stack_slots_interval_values.all_numeric(to_load, width)) {
+            auto ptr_offset = p_with_off.get_offset();
+            auto load_at_interval = ptr_offset + number_t(static_cast<int>(offset));
+            auto load_at_singleton = load_at_interval.singleton();
+            if (load_at_singleton) {
+                auto load_at = load_at_singleton.value();
+                auto loaded = m_stack_slots_interval_values.find((uint64_t)load_at);
+                if (loaded) {
+                    auto loaded_cells = loaded.value();
                     m_registers_interval_values.insert(target_reg.v, reg_with_loc,
-                            interval_t::top());
+                            loaded_cells.first);
                     return;
                 }
+            }
+            auto load_at_lb_opt = load_at_interval.lb().number();
+            auto load_at_ub_opt = load_at_interval.ub().number();
+            if (!load_at_lb_opt || !load_at_ub_opt) {
                 m_registers_interval_values -= target_reg.v;
+                std::cout << "type error: missing offset information\n";
                 return;
             }
-            m_registers_interval_values.insert(target_reg.v, reg_with_loc, it.value().first);
+            auto load_at_lb = load_at_lb_opt.value();
+            auto load_at_ub = load_at_ub_opt.value();
+            auto start = (uint64_t)load_at_lb;
+            auto width_to_check = (int)(load_at_ub+number_t(width)-load_at_lb);
+
+            if (m_stack_slots_interval_values.all_numeric(start, width_to_check)) {
+                m_registers_interval_values.insert(target_reg.v, reg_with_loc,
+                        interval_t::top());
+            }
+            else {
+                m_registers_interval_values -= target_reg.v;
+            }
             return;
         }
     }
+    // we check targetreg_type because in case we already loaded a pointer from ctx,
+        // we then do not store a number
     if (!targetreg_type) {  // we are loading from ctx, packet or shared
         m_registers_interval_values.insert(target_reg.v, reg_with_loc, interval_t::top());
     }

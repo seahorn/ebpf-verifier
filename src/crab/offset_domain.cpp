@@ -411,7 +411,7 @@ int ctx_t::get_size() const {
     return m_size;
 }
 
-std::optional<dist_t> ctx_t::find(int key) const {
+std::optional<dist_t> ctx_t::find(uint64_t key) const {
     auto it = m_dists.find(key);
     if (it == m_dists.end()) return {};
     return it->second;
@@ -846,10 +846,12 @@ void offset_domain_t::do_mem_store(const Mem& b, const Reg& target_reg,
         auto basereg_with_off = std::get<ptr_with_off_t>(basereg_type.value());
         auto offset_singleton = basereg_with_off.get_offset().singleton();
         if (!offset_singleton) {
-            std::cout << "store at an unknown offset\n";
+            std::cout << "doing a stack store at an unknown offset\n";
+            m_reg_state -= target_reg.v;
             return;
         }
-        auto store_at = (uint64_t)offset_singleton.value() + (uint64_t)offset;
+        auto ptr_offset = offset_singleton.value();
+        auto store_at = (uint64_t)(ptr_offset + offset);
         if (is_packet_pointer(targetreg_type)) {
             auto it = m_reg_state.find(target_reg.v);
             if (!it) {
@@ -876,16 +878,16 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
     
     if (std::holds_alternative<ptr_with_off_t>(basereg_ptr_type)) {
         auto p_with_off = std::get<ptr_with_off_t>(basereg_ptr_type);
-        auto offset_singleton = p_with_off.get_offset().singleton();
-        if (!offset_singleton) {
-            std::cout << "load at an unknown offset\n";
-            m_reg_state -= target_reg.v;
-            return;
-        }
-        auto to_load = (uint64_t)offset_singleton.value() + (uint64_t)offset;
+        auto p_offset = p_with_off.get_offset();
+        auto offset_singleton = p_offset.singleton();
 
         if (p_with_off.get_region() == crab::region_t::T_CTX) {
-            auto it = m_ctx_dists->find(to_load);
+            if (!offset_singleton) {
+                m_reg_state -= target_reg.v;
+                return;
+            }
+            auto load_at = (uint64_t)offset_singleton.value() + (uint64_t)offset;
+            auto it = m_ctx_dists->find(load_at);
             if (!it) {
                 m_reg_state -= target_reg.v;
                 return;
@@ -895,7 +897,13 @@ void offset_domain_t::do_load(const Mem& b, const Reg& target_reg,
             m_reg_state.insert(target_reg.v, reg, dist_t(d));
         }
         else if (p_with_off.get_region() == crab::region_t::T_STACK) {
-            auto it = m_stack_state.find(to_load);
+            if (!offset_singleton) {
+                m_reg_state -= target_reg.v;
+                return;
+            }
+            auto ptr_offset = offset_singleton.value();
+            auto load_at = (uint64_t)(ptr_offset + offset);
+            auto it = m_stack_state.find(load_at);
 
             if (!it) {
                 m_reg_state -= target_reg.v;

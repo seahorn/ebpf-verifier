@@ -188,13 +188,13 @@ class extra_constraints_t {
 };
 
 class ctx_t {
-    using ctx_dists_t = std::unordered_map<int, dist_t>;    // represents `cp[n] = dist;`
+    using ctx_dists_t = std::unordered_map<uint64_t, dist_t>;    // represents `cp[n] = dist;`
     ctx_dists_t m_dists;
     int m_size;
 
     public:
         ctx_t(const ebpf_context_descriptor_t* desc);
-        std::optional<dist_t> find(int) const;
+        std::optional<dist_t> find(uint64_t) const;
         int get_size() const;
 };
 

@@ -868,6 +868,7 @@ interval_t region_domain_t::do_bin(const Bin& bin,
 
 void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
 
+    int width = b.access.width;
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
@@ -884,51 +885,76 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
 
     if (!std::holds_alternative<ptr_with_off_t>(type_basereg)
             || std::get<ptr_with_off_t>(type_basereg).get_region() == crab::region_t::T_SHARED) {
-        // loading from either packet, shared region or mapfd not allowed
+        // loading from either packet, shared region or mapfd does not happen in region domain
         m_registers -= target_reg.v;
         return;
     }
 
     auto type_with_off = std::get<ptr_with_off_t>(type_basereg);
-    auto offset_singleton = type_with_off.get_offset().singleton();
-    if (!offset_singleton) {
-        std::cout << "type error: loading from a pointer with unknown offset\n";
-        m_registers -= target_reg.v;
-        return;
-    }
-    auto offset_const = (uint64_t)offset_singleton.value();
-    auto load_at = (uint64_t)offset+offset_const;
+    auto p_offset = type_with_off.get_offset();
+    auto offset_singleton = p_offset.singleton();
 
     switch (type_with_off.get_region()) {
         case crab::region_t::T_STACK: {
-
-            auto it = m_stack.find(load_at);
-
-            if (!it) {
-                // no field at loaded offset in stack
+            if (!offset_singleton) {
+                for (auto const& k : m_stack.get_keys()) {
+                    auto start = p_offset.lb();
+                    auto end = p_offset.ub()+bound_t(offset+width);
+                    if (bound_t((int)k) >= start && bound_t((int)k) < end) {
+                        std::cout <<
+                            "stack load at unknown offset, and offset range contains pointers\n";
+                        break;
+                    }
+                }
                 m_registers -= target_reg.v;
-                return;
             }
-            auto type_loaded = it.value();
+            else {
+                auto ptr_offset = offset_singleton.value();
+                auto load_at = (uint64_t)(ptr_offset + offset);
 
-            auto reg = reg_with_loc_t(target_reg.v, loc);
-            m_registers.insert(target_reg.v, reg, type_loaded.first);
+                auto it = m_stack.find(load_at);
 
+                if (!it) {
+                    // no field at loaded offset in stack
+                    m_registers -= target_reg.v;
+                    return;
+                }
+                auto type_loaded = it.value();
+
+                auto reg = reg_with_loc_t(target_reg.v, loc);
+                m_registers.insert(target_reg.v, reg, type_loaded.first);
+            }
             break;
         }
         case crab::region_t::T_CTX: {
 
-            auto it = m_ctx->find(load_at);
-
-            if (!it) {
-                // no field at loaded offset in ctx
+            if (!offset_singleton) {
+                for (auto const& k : m_ctx->get_keys()) {
+                    auto start = p_offset.lb();
+                    auto end = p_offset.ub()+bound_t(offset+width);
+                    if (bound_t((int)k) >= start && bound_t((int)k) < end) {
+                        std::cout <<
+                            "ctx load at unknown offset, and offset range contains pointers\n";
+                        break;
+                    }
+                }
                 m_registers -= target_reg.v;
-                return;
             }
-            ptr_no_off_t type_loaded = it.value();
+            else {
+                auto ptr_offset = offset_singleton.value();
+                auto load_at = (uint64_t)(ptr_offset + offset);
+                auto it = m_ctx->find(load_at);
 
-            auto reg = reg_with_loc_t(target_reg.v, loc);
-            m_registers.insert(target_reg.v, reg, type_loaded);
+                if (!it) {
+                    // no field at loaded offset in ctx
+                    m_registers -= target_reg.v;
+                    return;
+                }
+                ptr_no_off_t type_loaded = it.value();
+
+                auto reg = reg_with_loc_t(target_reg.v, loc);
+                m_registers.insert(target_reg.v, reg, type_loaded);
+            }
             break;
         }
 
@@ -960,13 +986,13 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         // base register is either CTX_P, STACK_P or SHARED_P
         auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
 
-        auto offset_singleton = basereg_type_with_off.get_offset().singleton();
-        if (!offset_singleton) {
-            std::cout << "type error: storing to a pointer with unknown offset\n";
-            return;
-        }
-        auto store_at = (uint64_t)offset+(uint64_t)offset_singleton.value();
         if (basereg_type_with_off.get_region() == crab::region_t::T_STACK) {
+            auto offset_singleton = basereg_type_with_off.get_offset().singleton();
+            if (!offset_singleton) {
+                std::cout << "type error: storing to a pointer with unknown offset\n";
+                return;
+            }
+            auto store_at = (uint64_t)offset+(uint64_t)offset_singleton.value();
             // type of basereg is STACK_P
             auto overlapping_cells = m_stack.find_overlapping_cells(store_at, width);
             m_stack -= overlapping_cells;
