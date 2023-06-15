@@ -232,6 +232,7 @@ class region_domain_t final {
     region_domain_t narrow(const region_domain_t& other) const;
     //forget
     void operator-=(variable_t var);
+    void operator-=(register_t var) { m_registers -= var; }
 
     //// abstract transformers
     void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
@@ -264,7 +265,12 @@ class region_domain_t final {
 
     void do_load(const Mem&, const Reg&, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
-    void do_bin(const Bin&, std::optional<interval_t>, location_t);
+    interval_t do_bin(const Bin&, const std::optional<interval_t>&,
+            const std::optional<interval_t>&,
+            const std::optional<crab::ptr_or_mapfd_t>&,
+            const std::optional<crab::ptr_or_mapfd_t>&, location_t);
+    void update_ptr_or_mapfd(crab::ptr_or_mapfd_t&&, const interval_t&&, Bin::Op,
+            const crab::reg_with_loc_t&, uint8_t);
 
     void report_type_error(std::string, location_t);
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t) const;

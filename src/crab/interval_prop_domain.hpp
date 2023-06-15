@@ -120,10 +120,11 @@ class interval_prop_domain_t final {
     interval_prop_domain_t narrow(const interval_prop_domain_t& other) const;
     //forget
     void operator-=(variable_t var);
+    void operator-=(register_t reg) { m_registers_interval_values -= reg; }
 
     //// abstract transformers
     void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Bin &, location_t loc = boost::none, int print = 0);
+    void operator()(const Bin &, location_t loc = boost::none, int print = 0) {}
     void operator()(const Un &, location_t loc = boost::none, int print = 0);
     void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
     void operator()(const Call &, location_t loc = boost::none, int print = 0) {}
@@ -153,6 +154,9 @@ class interval_prop_domain_t final {
             std::optional<ptr_or_mapfd_t>, location_t);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>);
     void do_call(const Call&, const interval_values_stack_t&, location_t);
+    void do_bin(const Bin&, const std::optional<interval_t>&, const std::optional<interval_t>&,
+            const std::optional<ptr_or_mapfd_t>&, const std::optional<ptr_or_mapfd_t>&,
+            const interval_t&, location_t);
     std::optional<interval_t> find_interval_value(register_t) const;
     std::optional<interval_t> find_interval_at_loc(const reg_with_loc_t reg) const;
     std::optional<interval_cells_t> find_in_stack(uint64_t) const;

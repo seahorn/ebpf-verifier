@@ -245,6 +245,7 @@ class offset_domain_t final {
     offset_domain_t narrow(const offset_domain_t& other) const;
     //forget
     void operator-=(variable_t var);
+    void operator-=(register_t reg) { m_reg_state -= reg; }
 
     //// abstract transformers
     void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
@@ -277,8 +278,10 @@ class offset_domain_t final {
     void do_load(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&, location_t loc);
     void do_mem_store(const Mem&, const Reg&, std::optional<ptr_or_mapfd_t>&,
             std::optional<ptr_or_mapfd_t>&);
-    void do_bin(const Bin&, std::optional<interval_t>, std::optional<ptr_or_mapfd_t>,
-            std::optional<ptr_or_mapfd_t>, location_t);
+    interval_t do_bin(const Bin&, const std::optional<interval_t>&,
+            const std::optional<interval_t>&,
+            std::optional<ptr_or_mapfd_t>&,
+            std::optional<ptr_or_mapfd_t>&, location_t);
     bool upper_bound_satisfied(const dist_t&, int, int, bool) const;
     bool lower_bound_satisfied(const dist_t&, int) const;
     bool check_packet_access(const Reg&, int, int, bool) const;
@@ -289,6 +292,9 @@ class offset_domain_t final {
     std::optional<dist_t> find_in_stack(int) const;
     std::optional<dist_t> find_offset_at_loc(const reg_with_loc_t) const;
     std::optional<dist_t> find_offset_info(register_t reg) const;
+    void update_offset_info(const dist_t&&, const interval_t&&,
+        const reg_with_loc_t&, uint8_t, Bin::Op);
+    dist_t update_offset(const dist_t&, const weight_t&, const interval_t&, Bin::Op);
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
 }; // end offset_domain_t

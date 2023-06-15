@@ -589,104 +589,132 @@ bool is_stack_pointer(std::optional<ptr_or_mapfd_t>& type) {
         && std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_STACK);
 }
 
-void offset_domain_t::do_bin(const Bin &bin, std::optional<interval_t> src_const_value,
-        std::optional<ptr_or_mapfd_t> src_type, std::optional<ptr_or_mapfd_t> dst_type,
-        location_t loc) {
-    if (is_bottom()) return;
+void offset_domain_t::update_offset_info(const dist_t&& dist, const interval_t&& change,
+        const reg_with_loc_t& reg_with_loc, uint8_t reg, Bin::Op op) {
+    auto offset = dist.m_dist;
+    if (op == Bin::Op::ADD) {
+        if (dist.is_forward_pointer()) offset += change;
+        else if (dist.is_backward_pointer()) offset -= change;
+        else offset -= change;
+    }
+    else if (op == Bin::Op::SUB) {
+        // TODO: needs precise handling of subtraction
+        offset = interval_t::top();
+    }
+    m_reg_state.insert(reg, reg_with_loc, dist_t(offset));
+}
+
+interval_t offset_domain_t::do_bin(const Bin &bin,
+        const std::optional<interval_t>& src_interval_opt,
+        const std::optional<interval_t>& dst_interval_opt,
+        std::optional<ptr_or_mapfd_t>& src_ptr_or_mapfd_opt,
+        std::optional<ptr_or_mapfd_t>& dst_ptr_or_mapfd_opt, location_t loc) {
+    using Op = Bin::Op;
+    // if both src and dst are numbers, nothing to do in offset domain
+    // if we are doing a move, where src is a number and dst is not set, nothing to do
+    if ((dst_interval_opt && src_interval_opt)
+            || (src_interval_opt && !dst_ptr_or_mapfd_opt && bin.op == Op::MOV))
+        return interval_t::bottom();
+    // offset domain only handles packet pointers
+    if (!is_packet_pointer(src_ptr_or_mapfd_opt) && !is_packet_pointer(dst_ptr_or_mapfd_opt))
+        return interval_t::bottom();
+
+    interval_t src_interval, dst_interval;
+    if (src_interval_opt) src_interval = std::move(src_interval_opt.value());
+    if (dst_interval_opt) dst_interval = std::move(dst_interval_opt.value());
+
+    Reg src;
+    if (std::holds_alternative<Reg>(bin.v)) src = std::get<Reg>(bin.v);
 
     auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-    if (std::holds_alternative<Reg>(bin.v)) {
-        Reg src = std::get<Reg>(bin.v);
-        switch (bin.op)
-        {
-            // ra = rb;
-            case Bin::Op::MOV: {
-                if (!is_packet_pointer(src_type)) {
+    switch (bin.op)
+    {
+        // ra = rb;
+        case Op::MOV: {
+            if (!is_packet_pointer(src_ptr_or_mapfd_opt)) {
+                m_reg_state -= bin.dst.v;
+                return interval_t::bottom();
+            }
+            auto src_offset_opt = m_reg_state.find(src.v);
+            if (!src_offset_opt) {
+                std::cout << "type_error: src is a packet_pointer and no offset info found\n";
+                return interval_t::bottom();
+            }
+            m_reg_state.insert(bin.dst.v, reg_with_loc, src_offset_opt.value());
+            break;
+        }
+        // ra += rb
+        case Op::ADD: {
+            dist_t dist_to_update;
+            interval_t interval_to_add;
+            if (is_packet_pointer(dst_ptr_or_mapfd_opt)
+                    && is_packet_pointer(src_ptr_or_mapfd_opt)) {
+                m_reg_state -= bin.dst.v;
+                return interval_t::bottom();
+            }
+            else if (is_packet_pointer(dst_ptr_or_mapfd_opt) && src_interval_opt) {
+                auto dst_offset_opt = m_reg_state.find(bin.dst.v);
+                if (!dst_offset_opt) {
+                    std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
                     m_reg_state -= bin.dst.v;
-                    return;
+                    return interval_t::bottom();
                 }
-                auto it = m_reg_state.find(src.v);
-                if (!it) {
+                dist_to_update = std::move(dst_offset_opt.value());
+                interval_to_add = std::move(src_interval_opt.value());
+            }
+            else {
+                auto src_offset_opt = m_reg_state.find(src.v);
+                if (!src_offset_opt) {
                     std::cout << "type_error: src is a packet_pointer and no offset info found\n";
-                    return;
-                }
-                m_reg_state.insert(bin.dst.v, reg_with_loc, it.value());
-                break;
-            }
-            // ra += rb
-            case Bin::Op::ADD: {
-                if (!is_packet_pointer(dst_type)) {
                     m_reg_state -= bin.dst.v;
-                    return;
+                    return interval_t::bottom();
                 }
-                auto it = m_reg_state.find(bin.dst.v);
-                if (!it) {
-                    std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
-                    return;
-                }
-                auto dst_dist = it.value();
-                if (src_const_value) {
-                    weight_t updated_dist;
-                    if (dst_dist.is_forward_pointer()) {
-                        updated_dist = dst_dist.m_dist + src_const_value.value();
-                    }
-                    else if (dst_dist.is_backward_pointer()) {
-                        updated_dist = dst_dist.m_dist - src_const_value.value();
-                    }
-                    else {
-                        updated_dist = dst_dist.m_dist - src_const_value.value();
-                    }
-                    m_reg_state.insert(bin.dst.v, reg_with_loc, dist_t(updated_dist));
-                }
-                else {
-                    m_reg_state -= bin.dst.v;
-                }
-                break;
+                dist_to_update = std::move(src_offset_opt.value());
+                interval_to_add = std::move(dst_interval_opt.value());
             }
-
-            default: {
+            update_offset_info(std::move(dist_to_update), std::move(interval_to_add),
+                    reg_with_loc, bin.dst.v, bin.op);
+            break;
+        }
+        // ra -= rb
+        case Op::SUB: {
+            dist_t dist_to_update;
+            interval_t interval_to_sub;
+            if (is_packet_pointer(dst_ptr_or_mapfd_opt)
+                    && is_packet_pointer(src_ptr_or_mapfd_opt)) {
                 m_reg_state -= bin.dst.v;
-                break;
+                return interval_t::top();
             }
+            else if (is_packet_pointer(dst_ptr_or_mapfd_opt) && src_interval_opt) {
+                auto dst_offset_opt = m_reg_state.find(bin.dst.v);
+                if (!dst_offset_opt) {
+                    std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
+                    m_reg_state -= bin.dst.v;
+                    return interval_t::bottom();
+                }
+                dist_to_update = std::move(dst_offset_opt.value());
+                interval_to_sub = std::move(src_interval_opt.value());
+            }
+            else {
+                auto src_offset_opt = m_reg_state.find(src.v);
+                if (!src_offset_opt) {
+                    std::cout << "type_error: src is a packet_pointer and no offset info found\n";
+                    m_reg_state -= bin.dst.v;
+                    return interval_t::bottom();
+                }
+                dist_to_update = std::move(src_offset_opt.value());
+                interval_to_sub = std::move(dst_interval_opt.value());
+            }
+            update_offset_info(std::move(dist_to_update), std::move(interval_to_sub),
+                    reg_with_loc, bin.dst.v, bin.op);
+            break;
+        }
+        default: {
+            m_reg_state -= bin.dst.v;
+            break;
         }
     }
-    else {
-        int imm = static_cast<int>(std::get<Imm>(bin.v).v);
-        auto it = m_reg_state.find(bin.dst.v);
-        switch (bin.op)
-        {
-            case Bin::Op::ADD: {
-                if (!is_packet_pointer(dst_type)) {
-                    m_reg_state -= bin.dst.v;
-                    return;
-                }
-                if (!it) {
-                    std::cout << "type_error: dst is a packet_pointer and no offset info found\n";
-                    //exit(1);
-                    return;
-                }
-                auto dst_dist = it.value();
-
-                weight_t updated_dist;
-                if (dst_dist.is_forward_pointer()) {
-                    updated_dist = dst_dist.m_dist + number_t(imm);
-                }
-                else if (dst_dist.is_meta_pointer()) {
-                    updated_dist = dst_dist.m_dist - number_t(imm);
-                }
-                else {
-                    updated_dist = dst_dist.m_dist - number_t(imm);
-                }
-                m_reg_state.insert(bin.dst.v, reg_with_loc, dist_t(updated_dist));
-                break;
-            }
-
-            default: {
-                m_reg_state -= bin.dst.v;
-                break;
-            }
-        }
-    }
+    return interval_t::bottom();
 }
 
 bool offset_domain_t::lower_bound_satisfied(const dist_t& dist, int offset) const {

@@ -71,6 +71,13 @@ inline std::string get_reg_ptr(const region_t& r) {
     }
 }
 
+static bool same_region(const ptr_t& ptr1, const ptr_t& ptr2) {
+    return ((std::holds_alternative<ptr_with_off_t>(ptr1)
+                && std::holds_alternative<ptr_with_off_t>(ptr2))
+            || (std::holds_alternative<ptr_no_off_t>(ptr1)
+                && std::holds_alternative<ptr_no_off_t>(ptr2)));
+}
+
 static void print_ptr_type(const ptr_t& ptr) {
     if (std::holds_alternative<ptr_with_off_t>(ptr)) {
         ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
@@ -734,98 +741,129 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
     //exit(1);
 }
 
-void region_domain_t::do_bin(const Bin& bin, std::optional<interval_t> src_interval, location_t loc) {
-    ptr_or_mapfd_t dst_reg;
-    if (bin.op == Bin::Op::ADD) {
-        auto it = m_registers.find(bin.dst.v);
-        if (!it) {
-            m_registers -= bin.dst.v;
-            return;
-        }
-        dst_reg = it.value();
+void region_domain_t::update_ptr_or_mapfd(ptr_or_mapfd_t&& ptr_or_mapfd, const interval_t&& change,
+        Bin::Op op, const reg_with_loc_t& reg_with_loc, uint8_t reg) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
+        auto ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
+        auto offset = ptr_or_mapfd_with_off.get_offset();
+        auto updated_offset = op == Bin::Op::ADD ? offset + change : offset - change;
+        ptr_or_mapfd_with_off.set_offset(updated_offset);
+        m_registers.insert(reg, reg_with_loc, ptr_or_mapfd_with_off);
     }
-
-    if (std::holds_alternative<Reg>(bin.v)) {
-        Reg src = std::get<Reg>(bin.v);
-        switch (bin.op)
-        {
-            // ra = rb
-            case Bin::Op::MOV: {
-                auto it1 = m_registers.find(src.v);
-                if (!it1) {
-                    m_registers -= bin.dst.v;
-                    return;
-                }
-                auto reg = reg_with_loc_t(bin.dst.v, loc);
-                m_registers.insert(bin.dst.v, reg, it1.value());
-                break;
-            }
-            // ra += rb
-            case Bin::Op::ADD: {
-                auto it1 = m_registers.find(src.v);
-                if (it1) {
-                    std::string s = std::to_string(static_cast<unsigned int>(src.v));
-                    std::string s1 = std::to_string(static_cast<unsigned int>(bin.dst.v));
-                    std::string desc = std::string("\taddition of two pointers, r") + s + " and r" + s1 + " not allowed\n";
-                    //report_type_error(desc, loc);
-                    std::cout << desc;
-                    return;
-                }
-                if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
-                    ptr_with_off_t dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-
-                    if (!src_interval) {
-                        if (is_stack_pointer(bin.dst.v)) m_stack.set_to_top();
-                        m_registers -= bin.dst.v;
-                        return;
-                    }
-
-                    auto updated_offset = dst_reg_with_off.get_offset() + src_interval.value();
-                    dst_reg_with_off.set_offset(updated_offset);
-                    auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
-                }
-                else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
-                    auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_registers.insert(bin.dst.v, reg, dst_reg);
-                }
-                else {
-                    std::cout << "type error: mapfd should not be incremented\n";
-                }
-                break;
-            }
-            default:
-                m_registers -= bin.dst.v;
-                break;
-        }
+    else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd)) {
+        m_registers.insert(reg, reg_with_loc, ptr_or_mapfd);
     }
     else {
-        int imm = static_cast<int>(std::get<Imm>(bin.v).v);
-        switch (bin.op)
-        {
-            case Bin::Op::ADD: {
-                if (std::holds_alternative<ptr_with_off_t>(dst_reg)) {
-                    auto dst_reg_with_off = std::get<ptr_with_off_t>(dst_reg);
-                    auto updated_offset = dst_reg_with_off.get_offset() + interval_t(number_t(imm));
-                    dst_reg_with_off.set_offset(updated_offset);
-                    auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_registers.insert(bin.dst.v, reg, dst_reg_with_off);
-                }
-                else if (std::holds_alternative<ptr_no_off_t>(dst_reg)) {
-                    auto reg = reg_with_loc_t(bin.dst.v, loc);
-                    m_registers.insert(bin.dst.v, reg, dst_reg);
-                }
-                else {
-                    std::cout << "type error: mapfd should not be incremented\n";
-                }
-                break;
-            }
-            default: {
+        std::cout << "type error: mapfd register cannot be incremented/decremented\n";
+        m_registers -= reg;
+    }
+}
+
+interval_t region_domain_t::do_bin(const Bin& bin,
+        const std::optional<interval_t>& src_interval_opt,
+        const std::optional<interval_t>& dst_interval_opt,
+        const std::optional<ptr_or_mapfd_t>& src_ptr_or_mapfd_opt,
+        const std::optional<ptr_or_mapfd_t>& dst_ptr_or_mapfd_opt, location_t loc) {
+
+    using Op = Bin::Op;
+    // if both src and dst are numbers, nothing to do in region domain
+    // if we are doing a move, where src is a number and dst is not set, nothing to do
+    if ((dst_interval_opt && src_interval_opt)
+            || (src_interval_opt && !dst_ptr_or_mapfd_opt && bin.op == Op::MOV))
+        return interval_t::bottom();
+
+    ptr_or_mapfd_t src_ptr_or_mapfd, dst_ptr_or_mapfd;
+    interval_t src_interval, dst_interval;
+    if (src_ptr_or_mapfd_opt) src_ptr_or_mapfd = std::move(src_ptr_or_mapfd_opt.value());
+    if (dst_ptr_or_mapfd_opt) dst_ptr_or_mapfd = std::move(dst_ptr_or_mapfd_opt.value());
+    if (src_interval_opt) src_interval = std::move(src_interval_opt.value());
+    if (dst_interval_opt) dst_interval = std::move(dst_interval_opt.value());
+
+    auto reg = reg_with_loc_t(bin.dst.v, loc);
+
+    switch (bin.op)
+    {
+        // ra = b, where b is a pointer/mapfd, a numerical register, or a constant;
+        case Op::MOV: {
+            // b is a pointer/mapfd
+            if (src_ptr_or_mapfd_opt)
+                m_registers.insert(bin.dst.v, reg, src_ptr_or_mapfd);
+            // b is a numerical register, or constant
+            else if (dst_ptr_or_mapfd_opt) {
                 m_registers -= bin.dst.v;
-                break;
             }
+            break;
+        }
+        // ra += b, where ra is a pointer/mapfd, or a numerical register,
+        // b is a pointer/mapfd, a numerical register, or a constant;
+        case Op::ADD: {
+            // adding pointer to another
+            if (src_ptr_or_mapfd_opt && dst_ptr_or_mapfd_opt) {
+                if (is_stack_pointer(bin.dst.v))
+                    m_stack.set_to_top();
+                else {
+                    // TODO: handle other cases properly
+                    std::cout << "type error: addition of two pointers\n";
+                }
+                m_registers -= bin.dst.v;
+            }
+            // ra is a pointer/mapfd
+            // b is a numerical register, or a constant
+            else if (dst_ptr_or_mapfd_opt && src_interval_opt) {
+                update_ptr_or_mapfd(std::move(dst_ptr_or_mapfd), std::move(src_interval),
+                        bin.op, reg, bin.dst.v);
+            }
+            // b is a pointer/mapfd
+            // ra is a numerical register
+            else if (src_ptr_or_mapfd_opt && dst_interval_opt) {
+                update_ptr_or_mapfd(std::move(src_ptr_or_mapfd), std::move(dst_interval),
+                        bin.op, reg, bin.dst.v);
+            }
+            // this should not occur
+            else assert(false);
+            break;
+        }
+        // ra -= b, where ra is a pointer/mapfd
+        // b is a pointer/mapfd, numerical register, or a constant;
+        case Op::SUB: {
+            // b is a pointer/mapfd
+            if (dst_ptr_or_mapfd_opt && src_ptr_or_mapfd_opt) {
+                if (std::holds_alternative<mapfd_t>(dst_ptr_or_mapfd) &&
+                        std::holds_alternative<mapfd_t>(src_ptr_or_mapfd)) {
+                    std::cout << "type error: mapfd registers subtraction not defined\n";
+                }
+                else if (std::holds_alternative<ptr_with_off_t>(dst_ptr_or_mapfd) &&
+                        std::holds_alternative<ptr_with_off_t>(src_ptr_or_mapfd)) {
+                    auto dst_ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(dst_ptr_or_mapfd);
+                    auto src_ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(src_ptr_or_mapfd);
+                    if (dst_ptr_or_mapfd_with_off.get_region()
+                            == src_ptr_or_mapfd_with_off.get_region()) {
+                        m_registers -= bin.dst.v;
+                        return (dst_ptr_or_mapfd_with_off.get_offset() -
+                            src_ptr_or_mapfd_with_off.get_offset());
+                    }
+                    else
+                        std::cout <<
+                            "type error: subtraction between pointers of different region\n";
+                }
+                else if (!same_region(get_ptr(dst_ptr_or_mapfd), get_ptr(src_ptr_or_mapfd))) {
+                    std::cout << "type error: subtraction between pointers of different region\n";
+                }
+                m_registers -= bin.dst.v;
+            }
+            // b is a numerical register, or a constant
+            else if (dst_ptr_or_mapfd_opt && src_interval_opt) {
+                update_ptr_or_mapfd(std::move(dst_ptr_or_mapfd), std::move(src_interval),
+                        bin.op, reg, bin.dst.v);
+            }
+            break;
+        }
+        default: {
+            m_registers -= bin.dst.v;
+            break;
         }
     }
+    return interval_t::bottom();
 }
 
 void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {

@@ -311,8 +311,13 @@ void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
         std::cout << "  " << u << "\n";
         return;
     }
-    m_region(u, loc);
-    m_offset(u, loc);
+    Condition cond = u.cond;
+    auto ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(cond.left.v);
+    if (ptr_or_mapfd) {
+        auto ptr_or_mapfd_type = ptr_or_mapfd.value();
+        if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type))
+            m_offset(u, loc);
+    }
     m_interval(u, loc);
 }
 
@@ -499,17 +504,43 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         return;
     }
 
-    std::optional<ptr_or_mapfd_t> src_type, dst_type;
-    std::optional<interval_t> src_interval_value;
+    auto dst_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(bin.dst.v);
+    auto dst_interval = m_interval.find_interval_value(bin.dst.v);
+    // both region domain and interval domain should not have a definition for the dst register
+    assert(!dst_ptr_or_mapfd || !dst_interval);
+
+    std::optional<ptr_or_mapfd_t> src_ptr_or_mapfd;
+    std::optional<interval_t> src_interval;
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg r = std::get<Reg>(bin.v);
-        src_type = m_region.find_ptr_or_mapfd_type(r.v);
-        src_interval_value = m_interval.find_interval_value(r.v);
+        src_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(r.v);
+        src_interval = m_interval.find_interval_value(r.v);
+        // both region domain and interval domain should not have a definition for the src register
+        assert(!src_ptr_or_mapfd || !src_interval);
     }
-    dst_type = m_region.find_ptr_or_mapfd_type(bin.dst.v);
-    m_region.do_bin(bin, src_interval_value, loc);
-    m_interval(bin, loc);
-    m_offset.do_bin(bin, src_interval_value, src_type, dst_type, loc);
+    else {
+        auto imm = std::get<Imm>(bin.v);
+        src_interval = interval_t(number_t(static_cast<int>(imm.v)));
+    }
+
+    using Op = Bin::Op;
+    // for all operations except mov, add, sub, the src and dst should be numbers
+    if ((src_ptr_or_mapfd || dst_ptr_or_mapfd)
+            && (bin.op != Op::MOV && bin.op != Op::ADD && bin.op != Op::SUB)) {
+        std::cout << "type error: operation on pointers not allowed\n";
+        m_region -= bin.dst.v;
+        m_offset -= bin.dst.v;
+        m_interval -= bin.dst.v;
+        return;
+    }
+
+    interval_t subtracted_reg =
+        m_region.do_bin(bin, src_interval, dst_interval, src_ptr_or_mapfd, dst_ptr_or_mapfd, loc);
+    interval_t subtracted_off =
+        m_offset.do_bin(bin, src_interval, dst_interval, src_ptr_or_mapfd, dst_ptr_or_mapfd, loc);
+    auto subtracted = subtracted_reg.is_bottom() ? subtracted_off : subtracted_reg;
+    m_interval.do_bin(bin, src_interval, dst_interval, src_ptr_or_mapfd, dst_ptr_or_mapfd,
+            subtracted, loc);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {

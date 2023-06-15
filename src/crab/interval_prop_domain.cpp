@@ -554,90 +554,109 @@ void interval_prop_domain_t::operator()(const Assume &s, location_t loc, int pri
     }
 }
 
-void interval_prop_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    interval_t src_interval = interval_t::top();
-    uint64_t imm = 0;
-    if (std::holds_alternative<Reg>(bin.v)) {
-        Reg src = std::get<Reg>(bin.v);
-        auto src_v = m_registers_interval_values.find(src.v);
-        if (!src_v) {
-            m_registers_interval_values -= bin.dst.v;;
-            return;
-        }
-        src_interval = src_v.value();
-    }
-    else {
-        imm = std::get<Imm>(bin.v).v;
-        src_interval = interval_t(number_t(static_cast<int>(imm)));
-    }
+void interval_prop_domain_t::do_bin(const Bin& bin,
+        const std::optional<interval_t>& src_interval_opt,
+        const std::optional<interval_t>& dst_interval_opt,
+        const std::optional<ptr_or_mapfd_t>& src_ptr_or_mapfd_opt,
+        const std::optional<ptr_or_mapfd_t>& dst_ptr_or_mapfd_opt,
+        const interval_t& subtract_interval, location_t loc) {
+    using Op = Bin::Op;
+    // if op is not MOV,
+        // we skip handling in this domain is when dst is pointer and src is numerical value
+    if (bin.op != Op::MOV && dst_ptr_or_mapfd_opt && src_interval_opt) return;
+    // if op is MOV,
+        // we skip handling in this domain is when both dst and src are pointers
+        // when dst is not known and src is pointer
+    if (bin.op == Op::MOV &&
+            ((dst_ptr_or_mapfd_opt && src_ptr_or_mapfd_opt)
+             || (!dst_interval_opt && src_ptr_or_mapfd_opt)))
+        return;
+
+    uint64_t imm = std::holds_alternative<Imm>(bin.v) ? std::get<Imm>(bin.v).v : 0;
+    interval_t src_interval, dst_interval;
+    if (src_interval_opt) src_interval = std::move(src_interval_opt.value());
+    if (dst_interval_opt) dst_interval = std::move(dst_interval_opt.value());
 
     auto reg_with_loc = reg_with_loc_t(bin.dst.v, loc);
-    // ra = b;
-    if (bin.op == Bin::Op::MOV) {
-        m_registers_interval_values.insert(bin.dst.v, reg_with_loc, src_interval);
-        return;
-    }
-
-    auto dst_v = m_registers_interval_values.find(bin.dst.v);
-    if (!dst_v) return;
-    auto dst_interval = dst_v.value();
-
     switch (bin.op)
     {
+        // ra = b
+        case Op::MOV: {
+            if (src_interval_opt)
+                dst_interval = src_interval;
+            else if (dst_interval_opt) {
+                m_registers_interval_values -= bin.dst.v;
+                return;
+            }
+            break;
+        }
         // ra += b
-        case Bin::Op::ADD: {
-            dst_interval += src_interval;
+        case Op::ADD: {
+            if (dst_ptr_or_mapfd_opt && src_ptr_or_mapfd_opt) return;
+            if (dst_interval_opt && src_interval_opt)
+                dst_interval += src_interval;
+            else if (dst_interval_opt && src_ptr_or_mapfd_opt) {
+                m_registers_interval_values -= bin.dst.v;
+                return;
+            }
             break;
         }
         // ra -= b
-        case Bin::Op::SUB: {
-            dst_interval =- src_interval;
+        case Op::SUB: {
+            if (dst_ptr_or_mapfd_opt && src_ptr_or_mapfd_opt)
+                dst_interval = subtract_interval;
+            else if (dst_interval_opt && src_interval_opt)
+                dst_interval -= src_interval;
+            else if (dst_interval_opt && src_ptr_or_mapfd_opt) {
+                m_registers_interval_values -= bin.dst.v;
+                return;
+            }
             break;
         }
         // ra *= b
-        case Bin::Op::MUL: {
+        case Op::MUL: {
             dst_interval *= src_interval;
             break;
         }
         // ra /= b
-        case Bin::Op::DIV: {
+        case Op::DIV: {
             dst_interval /= src_interval;
             break;
         }
         // ra %= b
-        case Bin::Op::MOD: {
+        case Op::MOD: {
             dst_interval = dst_interval.SRem(src_interval);
             break;
         }
         // ra |= b
-        case Bin::Op::OR: {
+        case Op::OR: {
             dst_interval = dst_interval.Or(src_interval);
             break;
         }
         // ra &= b
-        case Bin::Op::AND: {
+        case Op::AND: {
             dst_interval = dst_interval.And(src_interval);
             if ((int32_t)imm > 0)
                 dst_interval = interval_t(number_t(0), number_t(static_cast<int>(imm)));
             break;
         }
         // ra <<= b
-        case Bin::Op::LSH: {
+        case Op::LSH: {
             dst_interval = dst_interval.Shl(src_interval);
             break;
         }
         // ra >>= b
-        case Bin::Op::RSH: {
+        case Op::RSH: {
             dst_interval = dst_interval.LShr(src_interval);
             break;
         }
         // ra >>>= b
-        case Bin::Op::ARSH: {
+        case Op::ARSH: {
             dst_interval = dst_interval.AShr(src_interval);
             break;
         }
         // ra ^= b
-        case Bin::Op::XOR: {
+        case Op::XOR: {
             dst_interval = dst_interval.Xor(src_interval);
             break;
         }
