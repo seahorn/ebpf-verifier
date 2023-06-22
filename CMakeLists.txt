@@ -10,7 +10,8 @@ if (IS_DIRECTORY "${PROJECT_SOURCE_DIR}/.git")
 endif ()
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR
-    "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang")
+    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR
+    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
   find_package(yaml-cpp REQUIRED)
   find_package(Boost REQUIRED)
   set(CMAKE_CXX_STANDARD 17)
@@ -68,10 +69,11 @@ file(GLOB ALL_TEST
         )
 
 if ("${CMAKE_CXX_COMPILER_ID}" STREQUAL "GNU" OR
-    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
+    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang" OR
+    "${CMAKE_CXX_COMPILER_ID}" STREQUAL "AppleClang")
   set(COMMON_FLAGS -Wall -Wfatal-errors -DSIZEOF_VOID_P=8 -DSIZEOF_LONG=8)
 
-  set(RELEASE_FLAGS -O2 -flto -ffat-lto-objects)
+  set(RELEASE_FLAGS -O2 -flto)
 
   set(DEBUG_FLAGS -O0 -g3 -fno-omit-frame-pointer)
 

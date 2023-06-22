@@ -17,6 +17,10 @@
 
 #include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
+#include "crab/type_domain.hpp"
+#include "crab/interval_prop_domain.hpp"
+#include "crab/region_domain.hpp"
+#include "crab/offset_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 
 #include "asm_syntax.hpp"
@@ -125,7 +129,8 @@ static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
         return abstract_domain_t(entry_inv);
     }
     case abstract_domain_kind::TYPE_DOMAIN: {
-        // TODO
+        type_domain_t entry_inv = type_domain_t::setup_entry();
+        return abstract_domain_t(entry_inv);
     }
     default:
         // FIXME: supported abstract domains should be checked in check.cpp
@@ -168,12 +173,27 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
             crab::run_forward_analyzer(cfg, std::move(entry_dom), options->check_termination);
 
         // Analyze the control-flow graph.
-        checks_db db = generate_report(cfg, pre_invariants, post_invariants);
-        if (thread_local_options.print_invariants) {
+        //checks_db db = generate_report(cfg, pre_invariants, post_invariants);
+        checks_db db;
+        if (thread_local_options.abstract_domain == abstract_domain_kind::TYPE_DOMAIN) {
+            auto exit_state = post_invariants.at(label_t::exit);
+            // only to print ctx and stack, fix later
+            exit_state(cfg.get_node(label_t::exit), options->check_termination, -1);
             for (const label_t& label : cfg.sorted_labels()) {
-                s << "\nPre-invariant : " << pre_invariants.at(label) << "\n";
-                s << cfg.get_node(label);
-                s << "\nPost-invariant: " << post_invariants.at(label) << "\n";
+                auto pre_state = pre_invariants.at(label);
+                auto post_state = post_invariants.at(label);
+                pre_state(cfg.get_node(label), options->check_termination,
+                        thread_local_options.print_invariants);
+            }
+        }
+        else {
+            db = generate_report(cfg, pre_invariants, post_invariants);
+            if (thread_local_options.print_invariants) {
+                for (const label_t& label : cfg.sorted_labels()) {
+                    s << "\nPre-invariant : " << pre_invariants.at(label) << "\n";
+                    s << cfg.get_node(label);
+                    s << "\nPost-invariant: " << post_invariants.at(label) << "\n";
+                }
             }
         }
         return crab_results(std::move(cfg), std::move(pre_invariants), std::move(post_invariants), std::move(db));

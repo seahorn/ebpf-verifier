@@ -45,7 +45,7 @@ int main(int argc, char** argv) {
     app.add_flag("-l", list, "List sections");
 
     std::string domain = "zoneCrab";
-    std::set<string> doms{"stats", "linux", "zoneCrab", "cfg"};
+    std::set<string> doms{"stats", "linux", "zoneCrab", "cfg", "type"};
     app.add_set("-d,--dom,--domain", domain, doms, "Abstract domain")->type_name("DOMAIN");
 
     app.add_flag("--termination", ebpf_verifier_options.check_termination, "Verify termination");
@@ -145,8 +145,11 @@ int main(int argc, char** argv) {
         print_map_descriptors(global_program_info.map_descriptors, out);
     }
 
-    if (domain == "zoneCrab") {
+    if (domain == "zoneCrab" || domain == "type") {
         ebpf_verifier_stats_t verifier_stats;
+        if (domain == "type") {
+          ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
+        }
         auto [res, seconds] = timed_execution([&] {
             return ebpf_verify_program(std::cout, prog, raw_prog.info, &ebpf_verifier_options, &verifier_stats);
         });
@@ -155,9 +158,11 @@ int main(int argc, char** argv) {
         }
         std::cout << res.pass_verify() << "," << seconds << "," << resident_set_size_kb() << "\n";
 
+  /*
 	if (gen_proof) {
 	  ebpf_generate_proof(std::cout, prog, raw_prog.info, &ebpf_verifier_options, res);
 	}
+  */
 	
         return !res.pass_verify();
     } else if (domain == "linux") {

@@ -15,6 +15,7 @@
 #include "string_constraints.hpp"
 
 class ebpf_domain_t final {
+  using location_t = boost::optional<std::pair<label_t, uint32_t>>;
   public:
     ebpf_domain_t();
     // Create an instance ebpf domain that resembles the initial state
@@ -36,27 +37,27 @@ class ebpf_domain_t final {
     ebpf_domain_t narrow(const ebpf_domain_t& other) const;
 
     // Abstract transformers
-    void operator()(const basic_block_t& bb, bool check_termination);
-    void operator()(const Addable&);
-    void operator()(const Assert&);
-    void operator()(const Assume&);
-    void operator()(const Bin&);
-    void operator()(const Call&);
-    void operator()(const Comparable&);
-    void operator()(const Exit&);
-    void operator()(const Jmp&);
-    void operator()(const LoadMapFd&);
-    void operator()(const LockAdd&);
-    void operator()(const Mem&);
-    void operator()(const Packet&);
-    void operator()(const TypeConstraint&);
-    void operator()(const Un&);
-    void operator()(const Undefined&);
-    void operator()(const ValidAccess&);
-    void operator()(const ValidMapKeyValue&);
-    void operator()(const ValidSize&);
-    void operator()(const ValidStore&);
-    void operator()(const ZeroOffset&);
+    void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
+    void operator()(const Addable&, location_t loc = boost::none, int print = 0);
+    void operator()(const Assert&, location_t loc = boost::none, int print = 0);
+    void operator()(const Assume&, location_t loc = boost::none, int print = 0);
+    void operator()(const Bin&, location_t loc = boost::none, int print = 0);
+    void operator()(const Call&, location_t loc = boost::none, int print = 0);
+    void operator()(const Comparable&, location_t loc = boost::none, int print = 0);
+    void operator()(const Exit&, location_t loc = boost::none, int print = 0);
+    void operator()(const Jmp&, location_t loc = boost::none, int print = 0);
+    void operator()(const LoadMapFd&, location_t loc = boost::none, int print = 0);
+    void operator()(const LockAdd&, location_t loc = boost::none, int print = 0);
+    void operator()(const Mem&, location_t loc = boost::none, int print = 0);
+    void operator()(const Packet&, location_t loc = boost::none, int print = 0);
+    void operator()(const TypeConstraint&, location_t loc = boost::none, int print = 0);
+    void operator()(const Un&, location_t loc = boost::none, int print = 0);
+    void operator()(const Undefined&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidMapKeyValue&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidSize&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidStore&, location_t loc = boost::none, int print = 0);
+    void operator()(const ZeroOffset&, location_t loc = boost::none, int print = 0);
 
     void write(std::ostream& o) const;
     std::string domain_name() const;

@@ -1,9 +1,14 @@
+// Copyright (c) Prevail Verifier contributors.
+// SPDX-License-Identifier: MIT
+
 #include "ebpf_proof.hpp"
 
 bool ebpf_generate_proof(std::ostream& s, const InstructionSeq& prog, const program_info& info,
                          const ebpf_verifier_options_t* options, const crab_results& results) {
+
     if (!results.pass_verify()) {
         // If the program is not correct then we cannot generate a proof
+        std::cout << "Proof generation not implemented\n";
         return false;
     }
 
@@ -18,6 +23,5 @@ bool ebpf_generate_proof(std::ostream& s, const InstructionSeq& prog, const prog
       implement it so that we can be sure that our types are correct.
      */
 
-    s << "TODO: proof\n";
     return false;
 }

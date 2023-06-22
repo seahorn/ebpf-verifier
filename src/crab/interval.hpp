@@ -219,8 +219,6 @@ class interval_t final {
     [[nodiscard]] std::optional<number_t> finite_size() const { return (_ub - _lb).number(); }
 
   private:
-    interval_t() : _lb(0), _ub(-1) {}
-
     static number_t abs(const number_t& x) { return x < 0 ? -x : x; }
 
     static number_t max(const number_t& x, const number_t& y) { return x.operator<=(y) ? y : x; }
@@ -228,6 +226,8 @@ class interval_t final {
     static number_t min(const number_t& x, const number_t& y) { return x.operator<(y) ? x : y; }
 
   public:
+    interval_t() : _lb(0), _ub(-1) {}
+
     interval_t(const bound_t& lb, const bound_t& ub) : _lb(lb > ub ? bound_t{0}  : lb),
                                                        _ub(lb > ub ? bound_t{-1} : ub) {
     }
