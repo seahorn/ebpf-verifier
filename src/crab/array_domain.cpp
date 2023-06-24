@@ -108,7 +108,7 @@ class cell_t final {
     cell_t(offset_t offset, unsigned size) : _offset(offset), _size(size) {}
 
     static interval_t to_interval(const offset_t o, unsigned size) {
-        return {static_cast<int>(o), static_cast<int>(o) + static_cast<int>(size - 1)};
+        return {number_t{static_cast<int>(o)}, number_t{static_cast<int>(o)} + number_t{static_cast<int>(size - 1)}};
     }
 
     [[nodiscard]] interval_t to_interval() const { return to_interval(_offset, _size); }
@@ -118,7 +118,7 @@ class cell_t final {
 
     [[nodiscard]] offset_t get_offset() const { return _offset; }
 
-    [[nodiscard]] variable_t get_scalar(data_kind_t kind) const { return variable_t::cell_var(kind, _offset, _size); }
+    [[nodiscard]] variable_t get_scalar(data_kind_t kind) const { return variable_t::cell_var(kind, number_t{_offset}, _size); }
 
     // ignore the scalar variable
     bool operator==(const cell_t& o) const { return to_interval() == o.to_interval(); }
@@ -400,10 +400,15 @@ std::vector<cell_t> offset_map_t::get_overlap_cells(offset_t o, unsigned size) {
 // We use a global array map
 using array_map_t = std::unordered_map<data_kind_t, offset_map_t>;
 
-thread_local array_map_t global_array_map;
+static thread_local crab::lazy_allocator<array_map_t> global_array_map;
+
+void clear_thread_local_state()
+{
+    global_array_map.clear();
+}
 
 static offset_map_t& lookup_array_map(data_kind_t kind) {
-    return global_array_map[kind];
+    return (*global_array_map)[kind];
 }
 
 /**
@@ -411,12 +416,17 @@ static offset_map_t& lookup_array_map(data_kind_t kind) {
     run so we can clear the array map from one run to another.
 **/
 void clear_global_state() {
-    if (!global_array_map.empty()) {
+    if (!global_array_map->empty()) {
         if constexpr (crab::CrabSanityCheckFlag) {
             CRAB_WARN("array_expansion static variable map is being cleared");
         }
-        global_array_map.clear();
+        global_array_map->clear();
     }
+}
+
+void array_domain_t::initialize_numbers(int lb, int width) {
+    num_bytes.reset(lb, width);
+    lookup_array_map(data_kind_t::svalues).mk_cell(lb, width);
 }
 
 std::ostream& operator<<(std::ostream& o, offset_map_t& m) {
@@ -450,7 +460,7 @@ kill_and_find_var(NumAbsDomain& inv, data_kind_t kind, const linear_expression_t
         interval_t i_elem_size = inv.eval_interval(elem_size);
         std::optional<number_t> n_bytes = i_elem_size.singleton();
         if (n_bytes) {
-            unsigned int size = (unsigned int)(*n_bytes);
+            auto size = static_cast<unsigned int>(*n_bytes);
             // -- Constant index: kill overlapping cells
             offset_t o((uint64_t)*n);
             cells = offset_map.get_overlap_cells(o, size);
@@ -459,15 +469,21 @@ kill_and_find_var(NumAbsDomain& inv, data_kind_t kind, const linear_expression_t
     }
     if (!res) {
         // -- Non-constant index: kill overlapping cells
-        cells = offset_map.get_overlap_cells_symbolic_offset(inv, linear_expression_t(i),
-                                                             linear_expression_t(i + elem_size));
+        cells = offset_map.get_overlap_cells_symbolic_offset(inv, i, i.plus(elem_size));
     }
     if (!cells.empty()) {
         // Forget the scalars from the numerical domain
         for (auto const& c : cells) {
             inv -= c.get_scalar(kind);
+
+            // Forget signed and unsigned values together.
+            if (kind == data_kind_t::svalues) {
+                inv -= c.get_scalar(data_kind_t::uvalues);
+            } else if (kind == data_kind_t::uvalues) {
+                inv -= c.get_scalar(data_kind_t::svalues);
+            }
         }
-        // Remove the cells. If needed again they they will be re-created.
+        // Remove the cells. If needed again they will be re-created.
         offset_map -= cells;
     }
     return res;
@@ -476,9 +492,32 @@ kill_and_find_var(NumAbsDomain& inv, data_kind_t kind, const linear_expression_t
 bool array_domain_t::all_num(NumAbsDomain& inv, const linear_expression_t& lb, const linear_expression_t& ub) {
     auto min_lb = inv.eval_interval(lb).lb().number();
     auto max_ub = inv.eval_interval(ub).ub().number();
-    if (!min_lb || !max_ub || !min_lb->fits_sint() || !max_ub->fits_sint())
+    if (!min_lb || !max_ub || !min_lb->fits_sint32() || !max_ub->fits_sint32())
         return false;
-    return this->num_bytes.all_num((int)*min_lb, (int)*max_ub);
+    return this->num_bytes.all_num((int32_t)*min_lb, (int32_t)*max_ub);
+}
+
+// Get the number of bytes, starting at offset, that are known to be numbers.
+int array_domain_t::min_all_num_size(const NumAbsDomain& inv, variable_t offset) const {
+    auto min_lb = inv.eval_interval(offset).lb().number();
+    auto max_ub = inv.eval_interval(offset).ub().number();
+    if (!min_lb || !max_ub || !min_lb->fits_sint32() || !max_ub->fits_sint32())
+        return 0;
+    auto lb = (int)min_lb.value();
+    auto ub = (int)max_ub.value();
+    return std::max(0, this->num_bytes.all_num_width(lb) - (ub - lb));
+}
+
+// Get one byte of a value.
+std::optional<uint8_t> get_value_byte(NumAbsDomain& inv, offset_t o, int width) {
+    variable_t v = variable_t::cell_var(data_kind_t::svalues, (o / width) * width, width);
+    std::optional<number_t> t = inv.eval_interval(v).singleton();
+    if (!t) {
+        return {};
+    }
+    uint64_t n = t->cast_to_uint64();
+    uint8_t* bytes = (uint8_t*)&n;
+    return bytes[o % width];
 }
 
 std::optional<linear_expression_t> array_domain_t::load(NumAbsDomain& inv, data_kind_t kind, const linear_expression_t& i, int width) {
@@ -489,7 +528,7 @@ std::optional<linear_expression_t> array_domain_t::load(NumAbsDomain& inv, data_
         if (kind == data_kind_t::types) {
             auto [only_num, only_non_num] = num_bytes.uniformity(k, width);
             if (only_num) {
-                return T_NUM;
+                return number_t{T_NUM};
             }
             if (!only_non_num || width != 8) {
                 return {};
@@ -497,6 +536,55 @@ std::optional<linear_expression_t> array_domain_t::load(NumAbsDomain& inv, data_
         }
         offset_t o(k);
         unsigned size = (long)width;
+        if (auto cell = lookup_array_map(kind).get_cell(o, size)) {
+            return cell->get_scalar(kind);
+        }
+        if ((kind == data_kind_t::svalues) || (kind == data_kind_t::uvalues)) {
+            // Copy bytes into result_buffer, taking into account that the
+            // bytes might be in different stack variables and might be unaligned.
+            uint8_t result_buffer[8];
+            bool found = true;
+            for (unsigned int index = 0; index < size; index++) {
+                offset_t byte_offset = o + index;
+                std::optional<uint8_t> b = get_value_byte(inv, byte_offset, 8);
+                if (!b) {
+                    b = get_value_byte(inv, byte_offset, 4);
+                    if (!b) {
+                        b = get_value_byte(inv, byte_offset, 2);
+                        if (!b) {
+                            b = get_value_byte(inv, byte_offset, 1);
+                        }
+                    }
+                }
+                if (b) {
+                    result_buffer[index] = *b;
+                } else {
+                    found = false;
+                    break;
+                }
+            }
+            if (found) {
+                // We have an aligned result in result_buffer so we can now
+                // convert to an integer.
+                if (size == 1) {
+                    uint8_t b = *result_buffer;
+                    return number_t{b};
+                }
+                if (size == 2) {
+                    uint16_t b = *(uint16_t*)result_buffer;
+                    return number_t{b};
+                }
+                if (size == 4) {
+                    uint32_t b = *(uint32_t*)result_buffer;
+                    return number_t{b};
+                }
+                if (size == 8) {
+                    uint64_t b = *(uint64_t*)result_buffer;
+                    return (kind == data_kind_t::uvalues) ? number_t(b) : number_t((int64_t)b);
+                }
+            }
+        }
+
         std::vector<cell_t> cells = offset_map.get_overlap_cells(o, size);
         if (cells.empty()) {
             cell_t c = offset_map.mk_cell(o, size);
@@ -509,7 +597,8 @@ std::optional<linear_expression_t> array_domain_t::load(NumAbsDomain& inv, data_
                       " because it overlaps with ", cells.size(), " cells");
             /*
                 TODO: we can apply here "Value Recomposition" 'a la'
-                Mine'06 to construct values of some type from a sequence
+                Mine'06 (https://arxiv.org/pdf/cs/0703074.pdf)
+                to construct values of some type from a sequence
                 of bytes. It can be endian-independent but it would more
                 precise if we choose between little- and big-endian.
             */
@@ -520,10 +609,10 @@ std::optional<linear_expression_t> array_domain_t::load(NumAbsDomain& inv, data_
         auto ub = ii.ub().number();
         if (lb.has_value() && ub.has_value()) {
             z_number fullwidth = ub.value() - lb.value() + width;
-            if (lb.value().fits_uint() && fullwidth.fits_uint()) {
-                auto [only_num, only_non_num] = num_bytes.uniformity((unsigned int)lb.value(), (unsigned int)fullwidth);
+            if (lb.value().fits_uint32() && fullwidth.fits_uint32()) {
+                auto [only_num, only_non_num] = num_bytes.uniformity((uint32_t)lb.value(), (uint32_t)fullwidth);
                 if (only_num) {
-                    return T_NUM;
+                    return number_t{T_NUM};
                 }
             }
         }

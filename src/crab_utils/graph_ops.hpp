@@ -6,6 +6,7 @@
 #include <optional>
 
 #include "crab_utils/heap.hpp"
+#include "crab_utils/lazy_allocator.hpp"
 
 //============================
 // A set of utility algorithms for manipulating graphs.
@@ -510,11 +511,11 @@ class GraphOps {
     // Should really switch to some kind of arena allocator, rather
     // than having all these static structures.
     // ===========================================
-    static thread_local char* edge_marks;
+    static thread_local lazy_allocator<std::vector<char>> edge_marks;
 
     // Used for Bellman-Ford queueing
-    static thread_local vert_id* dual_queue;
-    static thread_local int* vert_marks;
+    static thread_local lazy_allocator<std::vector<vert_id>> dual_queue;
+    static thread_local lazy_allocator<std::vector<int>> vert_marks;
     static thread_local size_t scratch_sz;
 
     // For locality, should combine dists & dist_ts.
@@ -523,17 +524,23 @@ class GraphOps {
     // dist_ts tells us which distances are current,
     // and ts_idx prevents wraparound problems, in the unlikely
     // circumstance that we have more than 2^sizeof(uint) iterations.
-    static thread_local std::vector<Weight> dists;
-    static thread_local std::vector<Weight> dists_alt;
-    static thread_local std::vector<unsigned int> dist_ts;
+    static thread_local lazy_allocator<std::vector<Weight>> dists;
+    static thread_local lazy_allocator<std::vector<Weight>> dists_alt;
+    static thread_local lazy_allocator<std::vector<unsigned int>> dist_ts;
     static thread_local unsigned int ts;
     static thread_local unsigned int ts_idx;
 
-    static void check_realloc(void** ptr, size_t size) {
-        void* newptr = realloc(*ptr, size);
-        if (newptr == nullptr)
-            throw std::bad_alloc();
-        *ptr = newptr;
+    static void clear_thread_local_state()
+    {
+        dists.clear();
+        dists_alt.clear();
+        dist_ts.clear();
+        edge_marks.clear();
+        dual_queue.clear();
+        vert_marks.clear();
+        scratch_sz = 0;
+        ts = 0;
+        ts_idx = 0;
     }
 
     static void grow_scratch(size_t sz) {
@@ -546,16 +553,17 @@ class GraphOps {
         while (new_sz < sz)
             new_sz = static_cast<size_t>(new_sz * 1.5);
 
-        check_realloc((void**)&edge_marks, sizeof(char) * new_sz * new_sz);
-        check_realloc((void**)&dual_queue, sizeof(vert_id) * 2 * new_sz);
-        check_realloc((void**)&vert_marks, sizeof(int) * new_sz);
+        edge_marks->resize(new_sz * new_sz);
+        dual_queue->resize(2 * new_sz);
+        vert_marks->resize(new_sz);
+
         scratch_sz = new_sz;
 
         // Initialize new elements as necessary.
-        while (dists.size() < scratch_sz) {
-            dists.emplace_back();
-            dists_alt.emplace_back();
-            dist_ts.push_back(ts - 1);
+        while (dists->size() < scratch_sz) {
+            dists->emplace_back();
+            dists_alt->emplace_back();
+            dist_ts->push_back(ts - 1);
         }
     }
 
@@ -615,7 +623,7 @@ class GraphOps {
     }
 
     template <class G1, class G2>
-    static graph_t widen(const G1& l, const G2& r, std::vector<vert_id>& unstable) {
+    static graph_t widen(const G1& l, const G2& r, std::unordered_set<vert_id>& unstable) {
         assert(l.size() == r.size());
         size_t sz = l.size();
         graph_t g;
@@ -631,7 +639,7 @@ class GraphOps {
             // Check if this vertex is stable
             for (vert_id d : l.succs(s)) {
                 if (!g.elem(s, d)) {
-                    unstable.push_back(s);
+                    unstable.insert(s);
                     break;
                 }
             }
@@ -646,33 +654,33 @@ class GraphOps {
     template <class G>
     static void strong_connect(const G& x, std::vector<vert_id>& stack, int& index, vert_id v,
                                std::vector<std::vector<vert_id>>& sccs) {
-        vert_marks[v] = (index << 1) | 1;
-        // assert(vert_marks[v]&1);
-        dual_queue[v] = index;
+        vert_marks->at(v) = (index << 1) | 1;
+        // assert(vert_marks->at(v)&1);
+        dual_queue->at(v) = index;
         index++;
 
         stack.push_back(v);
 
         // Consider successors of v
         for (vert_id w : x.succs(v)) {
-            if (!vert_marks[w]) {
+            if (!vert_marks->at(w)) {
                 strong_connect(x, stack, index, w, sccs);
-                dual_queue[v] = std::min(dual_queue[v], dual_queue[w]);
-            } else if (vert_marks[w] & 1) {
+                dual_queue->at(v) = std::min(dual_queue->at(v), dual_queue->at(w));
+            } else if (vert_marks->at(w) & 1) {
                 // W is on the stack
-                dual_queue[v] = std::min(dual_queue[v], (vert_id)(vert_marks[w] >> 1));
+                dual_queue->at(v) = std::min(dual_queue->at(v), (vert_id)(vert_marks->at(w) >> 1));
             }
         }
 
         // If v is a root node, pop the stack and generate an SCC
-        if (dual_queue[v] == (vert_marks[v] >> 1)) {
+        if (dual_queue->at(v) == (vert_marks->at(v) >> 1)) {
             sccs.emplace_back();
             std::vector<vert_id>& scc(sccs.back());
             int w;
             do {
                 w = stack.back();
                 stack.pop_back();
-                vert_marks[w] &= (~1);
+                vert_marks->at(w) &= (~1);
                 scc.push_back(w);
             } while (v != w);
         }
@@ -684,11 +692,11 @@ class GraphOps {
         grow_scratch(sz);
 
         for (vert_id v : x.verts())
-            vert_marks[v] = 0;
+            vert_marks->at(v) = 0;
         int index = 1;
         std::vector<vert_id> stack;
         for (vert_id v : x.verts()) {
-            if (!vert_marks[v])
+            if (!vert_marks->at(v))
                 strong_connect(x, stack, index, v, out_scc);
         }
         /*
@@ -704,7 +712,7 @@ class GraphOps {
         */
 
         for (vert_id v : x.verts())
-            vert_marks[v] = 0;
+            vert_marks->at(v) = 0;
     }
 
     // Run Bellman-Ford to compute a valid model of a set of difference constraints.
@@ -736,15 +744,15 @@ class GraphOps {
         for (auto it = sccs.rbegin(); it != sccs.rend(); ++it) {
             std::vector<vert_id>& scc(*it);
 
-            vert_id* qhead = dual_queue;
-            vert_id* qtail = qhead;
+            auto qhead = dual_queue->begin();
+            auto qtail = qhead;
 
-            vert_id* next_head = dual_queue + sz;
-            vert_id* next_tail = next_head;
+            auto next_head = dual_queue->begin() + sz;
+            auto next_tail = next_head;
 
             for (vert_id v : scc) {
                 *qtail = v;
-                vert_marks[v] = BF_SCC | BF_QUEUED;
+                vert_marks->at(v) = BF_SCC | BF_QUEUED;
                 qtail++;
             }
 
@@ -752,7 +760,7 @@ class GraphOps {
                 for (; qtail != qhead;) {
                     vert_id s = *(--qtail);
                     // If it _was_ on the queue, it must be in the SCC
-                    vert_marks[s] = BF_SCC;
+                    vert_marks->at(s) = BF_SCC;
 
                     Weight s_pot = potentials[s];
 
@@ -761,9 +769,9 @@ class GraphOps {
                         Weight sd_pot = s_pot + e.val;
                         if (sd_pot < potentials[d]) {
                             potentials[d] = sd_pot;
-                            if (vert_marks[d] == BF_SCC) {
+                            if (vert_marks->at(d) == BF_SCC) {
                                 *next_tail = d;
-                                vert_marks[d] = (BF_SCC | BF_QUEUED);
+                                vert_marks->at(d) = (BF_SCC | BF_QUEUED);
                                 next_tail++;
                             }
                         }
@@ -785,7 +793,7 @@ class GraphOps {
                     if (s_pot + e.val < potentials[d]) {
                         // Cleanup vertex marks
                         for (vert_id v : g.verts())
-                            vert_marks[v] = BF_NONE;
+                            vert_marks->at(v) = BF_NONE;
                         return false;
                     }
                 }
@@ -795,14 +803,13 @@ class GraphOps {
     }
 
     template <class G, class G1, class G2, class P>
-    static void close_after_meet(const G& g, const P& pots, const G1& l, const G2& r, edge_vector& delta) {
+    static edge_vector close_after_meet(const G& g, const P& pots, const G1& l, const G2& r) {
         // We assume the syntactic meet has already been computed,
         // and potentials have been initialized.
         // We just want to restore closure.
         assert(l.size() == r.size());
         size_t sz = l.size();
         grow_scratch(sz);
-        delta.clear();
 
         std::vector<std::vector<vert_id>> colour_succs(2 * sz);
 
@@ -827,7 +834,7 @@ class GraphOps {
                 case E_RIGHT: colour_succs[2 * s + 1].push_back(d); break;
                 default: break;
                 }
-                edge_marks[sz * s + d] = mark;
+                edge_marks->at(sz * s + d) = mark;
             }
         }
 
@@ -835,6 +842,7 @@ class GraphOps {
         // on each source.
         std::vector<std::tuple<vert_id, Weight>> adjs;
         //      for(vert_id v = 0; v < sz; v++)
+        edge_vector delta;
         for (vert_id v : g.verts()) {
             adjs.clear();
             chrome_dijkstra(g, pots, colour_succs, v, adjs);
@@ -842,6 +850,7 @@ class GraphOps {
             for (const auto& [d, w] : adjs)
                 delta.emplace_back(v, d, w);
         }
+        return delta;
     }
 
     static void apply_delta(graph_t& g, const edge_vector& delta) {
@@ -864,27 +873,27 @@ class GraphOps {
         grow_scratch(sz);
 
         // Reset all vertices to infty.
-        dist_ts[ts_idx] = ts++;
-        ts_idx = (ts_idx + 1) % dists.size();
+        dist_ts->at(ts_idx) = ts++;
+        ts_idx = (ts_idx + 1) % dists->size();
 
-        dists[src] = Weight(0);
-        dist_ts[src] = ts;
+        dists->at(src) = Weight(0);
+        dist_ts->at(src) = ts;
 
-        WtComp comp(dists);
+        WtComp comp(*dists);
         WtHeap heap(comp);
 
         for (auto e : g.e_succs(src)) {
             vert_id dest = e.vert;
-            dists[dest] = p[src] + e.val - p[dest];
-            dist_ts[dest] = ts;
+            dists->at(dest) = p[src] + e.val - p[dest];
+            dist_ts->at(dest) = ts;
 
-            vert_marks[dest] = edge_marks[sz * src + dest];
+            vert_marks->at(dest) = edge_marks->at(sz * src + dest);
             heap.insert(dest);
         }
 
         while (!heap.empty()) {
             int es = heap.removeMin();
-            Weight es_cost = dists[es] + p[es]; // If it's on the queue, distance is not infinite.
+            Weight es_cost = dists->at(es) + p[es]; // If it's on the queue, distance is not infinite.
             Weight es_val = es_cost - p[src];
             {
                 auto w = g.lookup(src, es);
@@ -892,26 +901,26 @@ class GraphOps {
                     out.emplace_back(es, es_val);
             }
 
-            if (vert_marks[es] == (E_LEFT | E_RIGHT))
+            if (vert_marks->at(es) == (E_LEFT | E_RIGHT))
                 continue;
 
             // Pick the appropriate set of successors
             std::vector<vert_id>& es_succs =
-                (vert_marks[es] == E_LEFT) ? colour_succs[2 * es + 1] : colour_succs[2 * es];
+                (vert_marks->at(es) == E_LEFT) ? colour_succs[2 * es + 1] : colour_succs[2 * es];
             for (vert_id ed : es_succs) {
                 Weight v = es_cost + g.edge_val(es, ed) - p[ed];
-                if (dist_ts[ed] != ts || v < dists[ed]) {
-                    dists[ed] = v;
-                    dist_ts[ed] = ts;
-                    vert_marks[ed] = edge_marks[sz * es + ed];
+                if (dist_ts->at(ed) != ts || v < dists->at(ed)) {
+                    dists->at(ed) = v;
+                    dist_ts->at(ed) = ts;
+                    vert_marks->at(ed) = edge_marks->at(sz * es + ed);
 
                     if (heap.inHeap(ed)) {
                         heap.decrease(ed);
                     } else {
                         heap.insert(ed);
                     }
-                } else if (v == dists[ed]) {
-                    vert_marks[ed] |= edge_marks[sz * es + ed];
+                } else if (v == dists->at(ed)) {
+                    vert_marks->at(ed) |= edge_marks->at(sz * es + ed);
                 }
             }
         }
@@ -932,34 +941,34 @@ class GraphOps {
         grow_scratch(sz);
 
         // Reset all vertices to infty.
-        dist_ts[ts_idx] = ts++;
-        ts_idx = (ts_idx + 1) % dists.size();
+        dist_ts->at(ts_idx) = ts++;
+        ts_idx = (ts_idx + 1) % dists->size();
 
-        dists[src] = Weight(0);
-        dist_ts[src] = ts;
+        dists->at(src) = Weight(0);
+        dist_ts->at(src) = ts;
 
-        WtComp comp(dists);
+        WtComp comp(*dists);
         WtHeap heap(comp);
 
         for (auto e : g.e_succs(src)) {
             vert_id dest = e.vert;
-            dists[dest] = p[src] + e.val - p[dest];
-            dist_ts[dest] = ts;
+            dists->at(dest) = p[src] + e.val - p[dest];
+            dist_ts->at(dest) = ts;
 
-            vert_marks[dest] = V_UNSTABLE;
+            vert_marks->at(dest) = V_UNSTABLE;
             heap.insert(dest);
         }
 
         while (!heap.empty()) {
             int es = heap.removeMin();
-            Weight es_cost = dists[es] + p[es]; // If it's on the queue, distance is not infinite.
+            Weight es_cost = dists->at(es) + p[es]; // If it's on the queue, distance is not infinite.
             Weight es_val = es_cost - p[src];
             {
                 auto w = g.lookup(src, es);
                 if (!w || *w > es_val)
                     out.emplace_back(es, es_val);
             }
-            if (vert_marks[es] == V_STABLE)
+            if (vert_marks->at(es) == V_STABLE)
                 continue;
 
             char es_mark = is_stable[es] ? V_STABLE : V_UNSTABLE;
@@ -968,18 +977,18 @@ class GraphOps {
             for (auto e : g.e_succs(es)) {
                 vert_id ed = e.vert;
                 Weight v = es_cost + e.val - p[ed];
-                if (dist_ts[ed] != ts || v < dists[ed]) {
-                    dists[ed] = v;
-                    dist_ts[ed] = ts;
-                    vert_marks[ed] = es_mark;
+                if (dist_ts->at(ed) != ts || v < dists->at(ed)) {
+                    dists->at(ed) = v;
+                    dist_ts->at(ed) = ts;
+                    vert_marks->at(ed) = es_mark;
 
                     if (heap.inHeap(ed)) {
                         heap.decrease(ed);
                     } else {
                         heap.insert(ed);
                     }
-                } else if (v == dists[ed]) {
-                    vert_marks[ed] |= es_mark;
+                } else if (v == dists->at(ed)) {
+                    vert_marks->at(ed) |= es_mark;
                 }
             }
         }
@@ -993,15 +1002,15 @@ class GraphOps {
         grow_scratch(sz);
 
         for (vert_id vi : g.verts()) {
-            dists[vi] = Weight(0);
-            dists_alt[vi] = p[vi];
+            dists->at(vi) = Weight(0);
+            dists_alt->at(vi) = p[vi];
         }
-        dists[jj] = p[ii] + g.edge_val(ii, jj) - p[jj];
+        dists->at(jj) = p[ii] + g.edge_val(ii, jj) - p[jj];
 
-        if (dists[jj] >= Weight(0))
+        if (dists->at(jj) >= Weight(0))
             return true;
 
-        WtComp comp(dists);
+        WtComp comp(*dists);
         WtHeap heap(comp);
 
         heap.insert(jj);
@@ -1009,14 +1018,14 @@ class GraphOps {
         while (!heap.empty()) {
             int es = heap.removeMin();
 
-            dists_alt[es] = p[es] + dists[es];
+            dists_alt->at(es) = p[es] + dists->at(es);
 
             for (auto e : g.e_succs(es)) {
                 vert_id ed = e.vert;
-                if (dists_alt[ed] == p[ed]) {
-                    Weight gnext_ed = dists_alt[es] + e.val - dists_alt[ed];
-                    if (gnext_ed < dists[ed]) {
-                        dists[ed] = gnext_ed;
+                if (dists_alt->at(ed) == p[ed]) {
+                    Weight gnext_ed = dists_alt->at(es) + e.val - dists_alt->at(ed);
+                    if (gnext_ed < dists->at(ed)) {
+                        dists->at(ed) = gnext_ed;
                         if (heap.inHeap(ed)) {
                             heap.decrease(ed);
                         } else {
@@ -1026,17 +1035,17 @@ class GraphOps {
                 }
             }
         }
-        if (dists[ii] < Weight(0))
+        if (dists->at(ii) < Weight(0))
             return false;
 
         for (vert_id v : g.verts())
-            p[v] = dists_alt[v];
+            p[v] = dists_alt->at(v);
 
         return true;
     }
 
     template <class G, class P, class V>
-    static void close_after_widen(const G& g, const P& p, const V& is_stable, edge_vector& delta) {
+    static edge_vector close_after_widen(const G& g, const P& p, const V& is_stable) {
         size_t sz = g.size();
         grow_scratch(sz);
         //      assert(orig.size() == sz);
@@ -1044,18 +1053,19 @@ class GraphOps {
         for (vert_id v : g.verts()) {
             // We're abusing edge_marks to store _vertex_ flags.
             // Should really just switch this to allocating types of a fixed-size buffer.
-            edge_marks[v] = is_stable[v] ? V_STABLE : V_UNSTABLE;
+            edge_marks->at(v) = is_stable[v] ? V_STABLE : V_UNSTABLE;
         }
-
+        edge_vector delta;
         std::vector<std::tuple<vert_id, Weight>> aux;
         for (vert_id v : g.verts()) {
-            if (!edge_marks[v]) {
+            if (!edge_marks->at(v)) {
                 aux.clear();
-                dijkstra_recover(g, p, edge_marks, v, aux);
+                dijkstra_recover(g, p, edge_marks->begin(), v, aux);
                 for (auto [vid, wt] : aux)
                     delta.emplace_back(v, vid, wt);
             }
         }
+        return delta;
     }
 
     // Used for sorting successors of some vertex by increasing slack.
@@ -1066,7 +1076,7 @@ class GraphOps {
       public:
         explicit AdjCmp(const P& _p) : p(_p) {}
 
-        bool operator()(vert_id d1, vert_id d2) const { return (dists[d1] - p[d1]) < (dists[d2] - p[d2]); }
+        bool operator()(vert_id d1, vert_id d2) const { return (dists->at(d1) - p[d1]) < (dists->at(d2) - p[d2]); }
 
       protected:
         const P& p;
@@ -1096,17 +1106,17 @@ class GraphOps {
     static void close_after_assign_fwd(const G& g, const P& p, vert_id v, std::vector<std::tuple<vert_id, Weight>>& aux) {
         // Initialize the queue and distances.
         for (vert_id u : g.verts())
-            vert_marks[u] = 0;
+            vert_marks->at(u) = 0;
 
-        vert_marks[v] = BF_QUEUED;
-        dists[v] = Weight(0);
-        vert_id* adj_head = dual_queue;
-        vert_id* adj_tail = adj_head;
+        vert_marks->at(v) = BF_QUEUED;
+        dists->at(v) = Weight(0);
+        auto adj_head = dual_queue->begin();
+        auto adj_tail = adj_head;
         for (auto e : g.e_succs(v)) {
             vert_id d = e.vert;
-            vert_marks[d] = BF_QUEUED;
-            dists[d] = e.val;
-            //        assert(p[v] + dists[d] - p[d] >= Weight(0));
+            vert_marks->at(d) = BF_QUEUED;
+            dists->at(d) = e.val;
+            //        assert(p[v] + dists->at(d) - p[d] >= Weight(0));
             *adj_tail = d;
             adj_tail++;
         }
@@ -1114,37 +1124,98 @@ class GraphOps {
         // Sort the immediate edges by increasing slack.
         std::sort(adj_head, adj_tail, make_adjcmp(p));
 
-        vert_id* reach_tail = adj_tail;
+        auto reach_tail = adj_tail;
         for (; adj_head < adj_tail; adj_head++) {
             vert_id d = *adj_head;
 
-            Weight d_wt = dists[d];
+            Weight d_wt = dists->at(d);
             for (auto edge : g.e_succs(d)) {
                 vert_id e = edge.vert;
                 Weight e_wt = d_wt + edge.val;
-                if (!vert_marks[e]) {
-                    dists[e] = e_wt;
-                    vert_marks[e] = BF_QUEUED;
+                if (!vert_marks->at(e)) {
+                    dists->at(e) = e_wt;
+                    vert_marks->at(e) = BF_QUEUED;
                     *reach_tail = e;
                     reach_tail++;
                 } else {
-                    dists[e] = std::min(e_wt, dists[e]);
+                    dists->at(e) = std::min(e_wt, dists->at(e));
                 }
             }
         }
 
         // Now collect the adjacencies, and clear vertex flags
         // FIXME: This collects _all_ edges from x, not just new ones.
-        for (adj_head = dual_queue; adj_head < reach_tail; adj_head++) {
-            aux.emplace_back(*adj_head, dists[*adj_head]);
-            vert_marks[*adj_head] = 0;
+        for (adj_head = dual_queue->begin(); adj_head < reach_tail; adj_head++) {
+            aux.emplace_back(*adj_head, dists->at(*adj_head));
+            vert_marks->at(*adj_head) = 0;
         }
     }
 
+    static void close_over_edge(graph_t& g, vert_id ii, vert_id jj) {
+        assert(ii != 0 && jj != 0);
+        SubGraph<graph_t> g_excl(g, 0);
+
+        Weight c = g_excl.edge_val(ii, jj);
+
+        std::vector<std::pair<vert_id, Weight>> src_dec;
+        for (auto edge : g_excl.e_preds(ii)) {
+            vert_id se = edge.vert;
+            Weight wt_sij = edge.val + c;
+
+            assert(g_excl.succs(se).begin() != g_excl.succs(se).end());
+            if (se != jj) {
+                typename graph_t::mut_val_ref_t w;
+                if (g_excl.lookup(se, jj, &w)) {
+                    if (w.get() <= wt_sij)
+                        continue;
+                    w = wt_sij;
+                } else {
+                    g_excl.add_edge(se, wt_sij, jj);
+                }
+                src_dec.emplace_back(se, edge.val);
+            }
+        }
+
+        std::vector<std::pair<vert_id, Weight>> dest_dec;
+        for (auto edge : g_excl.e_succs(jj)) {
+            vert_id de = edge.vert;
+            Weight wt_ijd = edge.val + c;
+            if (de != ii) {
+                typename graph_t::mut_val_ref_t w;
+                if (g_excl.lookup(ii, de, &w)) {
+                    if (w.get() <= wt_ijd)
+                        continue;
+                    w = wt_ijd;
+                } else {
+                    g_excl.add_edge(ii, wt_ijd, de);
+                }
+                dest_dec.emplace_back(de, edge.val);
+            }
+        }
+
+        for (auto [se, p1] : src_dec) {
+            Weight wt_sij = c + p1;
+            for (auto [de, p2] : dest_dec) {
+                Weight wt_sijd = wt_sij + p2;
+                typename graph_t::mut_val_ref_t w;
+                if (g.lookup(se, de, &w)) {
+                    if (w.get() <= wt_sijd)
+                        continue;
+                    w = wt_sijd;
+                } else {
+                    g.add_edge(se, wt_sijd, de);
+                }
+            }
+        }
+
+        // Closure is now updated.
+    }
+
     template <class G, class P>
-    static void close_after_assign(const G& g, const P& p, vert_id v, edge_vector& delta) {
+    static edge_vector close_after_assign(const G& g, const P& p, vert_id v) {
         size_t sz = g.size();
         grow_scratch(sz);
+        edge_vector delta;
         {
             std::vector<std::tuple<vert_id, Weight>> aux;
             close_after_assign_fwd(g, p, v, aux);
@@ -1158,29 +1229,31 @@ class GraphOps {
             for (auto [vid, wt] : aux)
                 delta.emplace_back(vid, v, wt);
         }
+        return delta;
     }
 };
 
 // Static data allocation
 template <class Weight>
-thread_local char* GraphOps<Weight>::edge_marks = nullptr;
+thread_local lazy_allocator<std::vector<char>> GraphOps<Weight>::edge_marks;
 
 // Used for Bellman-Ford queueing
 template <class Weight>
-thread_local typename GraphOps<Weight>::vert_id* GraphOps<Weight>::dual_queue = NULL;
+thread_local lazy_allocator<std::vector<typename GraphOps<Weight>::vert_id>> GraphOps<Weight>::dual_queue;
 
 template <class Weight>
-thread_local int* GraphOps<Weight>::vert_marks = nullptr;
+thread_local lazy_allocator<std::vector<int>> GraphOps<Weight>::vert_marks;
 
 template <class Weight>
 thread_local size_t GraphOps<Weight>::scratch_sz = 0;
 
+
 template <class G>
-thread_local std::vector<typename G::Weight> GraphOps<G>::dists;
+thread_local lazy_allocator<std::vector<typename G::Weight>> GraphOps<G>::dists;
 template <class G>
-thread_local std::vector<typename G::Weight> GraphOps<G>::dists_alt;
+thread_local lazy_allocator<std::vector<typename G::Weight>> GraphOps<G>::dists_alt;
 template <class G>
-thread_local std::vector<unsigned int> GraphOps<G>::dist_ts;
+thread_local lazy_allocator<std::vector<unsigned int>> GraphOps<G>::dist_ts;
 template <class G>
 thread_local unsigned int GraphOps<G>::ts = 0;
 template <class G>

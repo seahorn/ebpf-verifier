@@ -2,13 +2,22 @@ name: CPP CI
 
 on:
   pull_request:
+    paths-ignore:
+      - '**.md'
+      - 'Dockerfile'
+
+concurrency:
+  # Cancel any CI/CD workflow currently in progress for the same PR.
+  # Allow running concurrently with any other commits.
+  group: build-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: true
 
 jobs:
   build_ubuntu:
     strategy:
       matrix:
         configurations: [Debug, Release]
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
     env:
       # Configuration type to build.  For documentation on how build matrices work, see
       # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
@@ -17,9 +26,9 @@ jobs:
     steps:
       - name: Install dependencies
         run: |
-          sudo apt install libboost-dev libyaml-cpp-dev
+          sudo apt install libboost-dev libboost-filesystem-dev libboost-program-options-dev libyaml-cpp-dev valgrind
 
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
 
@@ -32,18 +41,23 @@ jobs:
       - name: Run unit tests
         run: ./tests -d yes
 
+      - name: Test for memory leaks
+        # Any memory leaks will cause the test to fail
+        # This BPF program was chosen because it is the largest one in the repo
+        run: valgrind --leak-check=full --errors-for-leak-kinds=all  --show-leak-kinds=all --error-exitcode=1 ./check ebpf-samples/cilium/bpf_xdp_snat_linux_v1.o 2/1
+
   build_windows:
     strategy:
       matrix:
         configurations: [Debug, Release]
-    runs-on: windows-latest
+    runs-on: windows-2022
     env:
       # Configuration type to build.  For documentation on how build matrices work, see
       # https://docs.github.com/actions/learn-github-actions/managing-complex-workflows#using-a-build-matrix
       BUILD_CONFIGURATION: ${{matrix.configurations}}
 
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v3
         with:
           submodules: 'recursive'
 

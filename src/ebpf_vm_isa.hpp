@@ -6,7 +6,7 @@
 
 // Header describing the Instruction Set Architecture (ISA)
 // for the eBPF virtual machine.
-// See https://github.com/iovisor/bpf-docs/blob/master/eBPF.md
+// See https://github.com/ebpffoundation/ebpf-docs/blob/update/rst/instruction-set.rst
 // for documentation.
 
 struct ebpf_inst {
@@ -32,6 +32,9 @@ enum {
     INST_SRC_IMM = 0x00,
     INST_SRC_REG = 0x08,
 
+    INST_END_LE = 0x00,
+    INST_END_BE = 0x08,
+
     INST_SIZE_W = 0x00,
     INST_SIZE_H = 0x08,
     INST_SIZE_B = 0x10,
@@ -54,6 +57,23 @@ enum {
     INST_OP_JA = (INST_CLS_JMP | 0x00),
     INST_OP_CALL = (INST_CLS_JMP | 0x80),
     INST_OP_EXIT = (INST_CLS_JMP | 0x90),
+};
+
+enum {
+    INST_ALU_OP_ADD  = 0x00,
+    INST_ALU_OP_SUB  = 0x10,
+    INST_ALU_OP_MUL  = 0x20,
+    INST_ALU_OP_DIV  = 0x30,
+    INST_ALU_OP_OR   = 0x40,
+    INST_ALU_OP_AND  = 0x50,
+    INST_ALU_OP_LSH  = 0x60,
+    INST_ALU_OP_RSH  = 0x70,
+    INST_ALU_OP_NEG  = 0x80,
+    INST_ALU_OP_MOD  = 0x90,
+    INST_ALU_OP_XOR  = 0xa0,
+    INST_ALU_OP_MOV  = 0xb0,
+    INST_ALU_OP_ARSH = 0xc0,
+    INST_ALU_OP_END  = 0xd0,
     INST_ALU_OP_MASK = 0xf0
 };
 

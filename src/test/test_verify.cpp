@@ -1,7 +1,7 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 #include <thread>
-#include "catch.hpp"
+#include <catch2/catch_all.hpp>
 #include "ebpf_verifier.hpp"
 
 #define FAIL_LOAD_ELF(dirname, filename, sectionname) \
@@ -17,6 +17,7 @@
 FAIL_LOAD_ELF("cilium", "not-found.o", "2/1")
 FAIL_LOAD_ELF("cilium", "bpf_lxc.o", "not-found")
 FAIL_LOAD_ELF("build", "badrelo.o", ".text")
+FAIL_LOAD_ELF("invalid", "badsymsize.o", "xdp_redirect_map")
 
 #define FAIL_UNMARSHAL(dirname, filename, sectionname) \
     TEST_CASE("Try unmarshalling bad program: " dirname "/" filename, "[unmarshal]") { \
@@ -29,6 +30,7 @@ FAIL_LOAD_ELF("build", "badrelo.o", ".text")
 
 // Some intentional unmarshal failures
 FAIL_UNMARSHAL("build", "wronghelper.o", "xdp")
+FAIL_UNMARSHAL("invalid", "invalid-lddw.o", ".text")
 
 #define VERIFY_SECTION(dirname, filename, sectionname, options, pass) \
     do { \
@@ -66,6 +68,11 @@ FAIL_UNMARSHAL("build", "wronghelper.o", "xdp")
 #define TEST_SECTION_FAIL(project, filename, section) \
     TEST_CASE("expect failure ebpf-samples/" project "/" filename " " section, "[!shouldfail][verify][samples][" project "]") { \
         VERIFY_SECTION(project, filename, section, nullptr, true); \
+    }
+
+#define TEST_SECTION_REJECT_FAIL(project, filename, section) \
+    TEST_CASE("expect failure ebpf-samples/" project "/" filename " " section, "[!shouldfail][verify][samples][" project "]") { \
+        VERIFY_SECTION(project, filename, section, nullptr, false); \
     }
 
 TEST_SECTION("bpf_cilium_test", "bpf_lxc_jit.o", "1/0xdc06")
@@ -160,11 +167,12 @@ TEST_SECTION("cilium", "bpf_overlay.o", "from-overlay")
 
 TEST_SECTION("cilium", "bpf_xdp.o", "from-netdev")
 
-TEST_SECTION("cilium", "bpf_xdp_dsr_linux.o", "from-netdev")
+TEST_SECTION("cilium", "bpf_xdp_dsr_linux_v1_1.o", "from-netdev")
 TEST_SECTION("cilium", "bpf_xdp_dsr_linux.o", "2/1")
+TEST_SECTION("cilium", "bpf_xdp_dsr_linux.o", "from-netdev")
 
-TEST_SECTION("cilium", "bpf_xdp_snat_linux.o", "from-netdev")
 TEST_SECTION("cilium", "bpf_xdp_snat_linux.o", "2/1")
+TEST_SECTION("cilium", "bpf_xdp_snat_linux.o", "from-netdev")
 
 TEST_SECTION("linux", "cpustat_kern.o", "tracepoint/power/cpu_frequency")
 TEST_SECTION("linux", "cpustat_kern.o", "tracepoint/power/cpu_idle")
@@ -297,6 +305,7 @@ TEST_SECTION("prototype-kernel", "napi_monitor_kern.o", "tracepoint/napi/napi_po
 TEST_SECTION("prototype-kernel", "tc_bench01_redirect_kern.o", "ingress_redirect")
 TEST_SECTION("prototype-kernel", "xdp_bench01_mem_access_cost_kern.o", "xdp_bench01")
 TEST_SECTION("prototype-kernel", "xdp_bench02_drop_pattern_kern.o", "xdp_bench02")
+TEST_SECTION("prototype-kernel", "xdp_ddos01_blacklist_kern.o", "xdp_prog")
 TEST_SECTION("prototype-kernel", "xdp_monitor_kern.o", "tracepoint/xdp/xdp_redirect")
 TEST_SECTION("prototype-kernel", "xdp_monitor_kern.o", "tracepoint/xdp/xdp_redirect_err")
 TEST_SECTION("prototype-kernel", "xdp_monitor_kern.o", "tracepoint/xdp/xdp_redirect_map_err")
@@ -456,7 +465,10 @@ TEST_SECTION("build", "packet_start_ok.o", "xdp")
 TEST_SECTION("build", "packet_access.o", "xdp")
 TEST_SECTION("build", "tail_call.o", "xdp_prog")
 TEST_SECTION("build", "map_in_map.o", ".text")
+TEST_SECTION("build", "map_in_map_legacy.o", ".text")
 TEST_SECTION("build", "twomaps.o", ".text");
+TEST_SECTION("build", "twostackvars.o", ".text");
+TEST_SECTION("build", "twotypes.o", ".text");
 
 // Test some programs that ought to fail verification.
 TEST_SECTION_REJECT("build", "badhelpercall.o", ".text")
@@ -469,6 +481,7 @@ TEST_SECTION_REJECT("build", "nullmapref.o", "test")
 TEST_SECTION_REJECT("build", "packet_overflow.o", "xdp")
 TEST_SECTION_REJECT("build", "packet_reallocate.o", "socket_filter")
 TEST_SECTION_REJECT("build", "tail_call_bad.o", "xdp_prog")
+TEST_SECTION_REJECT("build", "ringbuf_uninit.o", ".text");
 
 // The following eBPF programs currently fail verification.
 // If the verifier is later updated to accept them, these should
@@ -477,31 +490,47 @@ TEST_SECTION_REJECT("build", "tail_call_bad.o", "xdp_prog")
 // Unsupported: ebpf-function
 TEST_SECTION_FAIL("prototype-kernel", "xdp_ddos01_blacklist_kern.o", ".text")
 
-// False positive: correlated branches
-TEST_SECTION_FAIL("prototype-kernel", "xdp_ddos01_blacklist_kern.o", "xdp_prog")
-
-// Unsupported: offset not tracked separately per pointer type
+// Unsupported: implications are lost in correlated branches
 TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/7")
+
+// Failure: 166:168: Upper bound must be at most packet_size (valid_access(r4.offset, width=2) for read)
+// This is the result of merging two branches, one with value 0 and another with value -22,
+// then checking that the result is != 0. The minor issue is not handling the int32 comparison precisely enough.
+// The bigger issue is that the convexity of the numerical domain means that precise handling would still get
+// [-22, -1] which is not sufficient (at most -2 is needed)
 TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/10")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/15")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/16")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/17")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/18")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/19")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/20")
 TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/21")
 TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/24")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/7")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/10")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/15")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/16")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/17")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/18")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/19")
-TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/24")
 
-// False positive, trying to dereference {shared,stack} pointer
-TEST_SECTION_FAIL("build", "twotypes.o", ".text");
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/15")
+
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/17")
+
+// Failure: trying to access r4 where r4.packet_offset=[0, 255] and packet_size=[54, 65534]
+// Root cause: r5.value=[0, 65535] 209: w5 >>= 8; clears r5 instead of yielding [0, 255]
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/18")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/10")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/18")
+
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/19")
+
+// Failure: 230: Upper bound must be at most packet_size (valid_access(r3.offset+32, width=8) for write)
+// r3.packet_offset=[0, 82] and packet_size=[34, 65534]
+// looks like a combination of misunderstanding the value passed to xdp_adjust_tail()
+// which is "r7.value=[0, 82]; w7 -= r9;" where r9.value where "r7.value-r9.value<=48"
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/20")
+
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/7")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/15")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/17")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/19")
+
+// Failure (&255): assert r5.type == number; w5 &= 255;
+// fails since in one branch (77) r5 is a number but in another (92:93) it is a packet
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/24")
+// Failure (&255): assert r3.type == number; w3 &= 255;
+TEST_SECTION_FAIL("cilium", "bpf_xdp_dsr_linux.o", "2/16")
+TEST_SECTION_FAIL("cilium", "bpf_xdp_snat_linux.o", "2/16")
 
 // False positive, unknown cause
 TEST_SECTION_FAIL("linux", "test_map_in_map_kern.o", "kprobe/sys_connect")

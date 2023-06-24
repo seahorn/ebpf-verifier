@@ -77,8 +77,8 @@ struct Bin {
         ADD,
         SUB,
         MUL,
-        DIV,
-        MOD,
+        UDIV,
+        UMOD,
         OR,
         AND,
         LSH,
@@ -108,13 +108,14 @@ struct Un {
 
     Op op;
     Reg dst;
+    bool is64{};
 };
 
 /// This instruction is encoded similarly to LDDW.
 /// See comment in makeLddw() at asm_unmarshal.cpp
 struct LoadMapFd {
     Reg dst;
-    int mapfd{};
+    int32_t mapfd{};
 };
 
 struct Condition {
@@ -136,6 +137,7 @@ struct Condition {
     Op op;
     Reg left;
     Value right;
+    bool is64{};
 };
 
 struct Jmp {
@@ -159,9 +161,9 @@ struct ArgSingle {
 /// Pair of arguments to a function for pointer and size.
 struct ArgPair {
     enum class Kind {
-        PTR_TO_MEM,
-        PTR_TO_MEM_OR_NULL,
-        PTR_TO_UNINIT_MEM,
+        PTR_TO_READABLE_MEM,
+        PTR_TO_READABLE_MEM_OR_NULL,
+        PTR_TO_WRITABLE_MEM,
     } kind{};
     Reg mem;            ///< Pointer.
     Reg size;           ///< Size of space pointed to.
@@ -180,9 +182,9 @@ struct Call {
 struct Exit {};
 
 struct Deref {
-    int width{};
+    int32_t width{};
     Reg basereg;
-    int offset{};
+    int32_t offset{};
 };
 
 /// Load/store instruction.
@@ -196,8 +198,8 @@ struct Mem {
 /// function call, and analyzed as one, e.g., by scratching caller-saved
 /// registers after it is performed.
 struct Packet {
-    int width{};
-    int offset{};
+    int32_t width{};
+    int32_t offset{};
     std::optional<Reg> regoffset;
 };
 
@@ -232,7 +234,8 @@ enum class TypeGroup {
     mem_or_num,      ///< reg >= T_NUM && reg != T_CTX
     pointer,         ///< reg >= T_CTX
     ptr_or_num,      ///< reg >= T_NUM
-    stack_or_packet  ///< reg <= T_STACK && reg >= T_PACKET
+    stack_or_packet, ///< reg <= T_STACK && reg >= T_PACKET
+    singleton_ptr,   ///< reg <= T_STACK && reg >= T_CTX
 };
 
 /// Condition check whether something is a valid size.
@@ -247,6 +250,7 @@ struct ValidSize {
 struct Comparable {
     Reg r1;
     Reg r2;
+    bool or_r2_is_number{}; ///< true for subtraction, false for comparison
 };
 
 // ptr: ptr -> num : num
@@ -255,11 +259,23 @@ struct Addable {
     Reg num;
 };
 
+// Condition check whether a register contains a non-zero number.
+struct ValidDivisor {
+    Reg reg;
+};
+
+enum class AccessType {
+    compare,
+    read,  // Memory pointed to must be initialized.
+    write, // Memory pointed to must be writable.
+};
+
 struct ValidAccess {
     Reg reg;
-    int offset{};
+    int32_t offset{};
     Value width{Imm{0}};
     bool or_null{};
+    AccessType access_type{};
 };
 
 /// Condition check whether something is a valid key value.
@@ -281,21 +297,27 @@ struct TypeConstraint {
 };
 
 /// Condition check whether something is a valid size.
-struct ZeroOffset {
+struct ZeroCtxOffset {
     Reg reg;
 };
 
 using AssertionConstraint =
-    std::variant<Comparable, Addable, ValidAccess, ValidStore, ValidSize, ValidMapKeyValue, TypeConstraint, ZeroOffset>;
+    std::variant<Comparable, Addable, ValidDivisor, ValidAccess, ValidStore, ValidSize, ValidMapKeyValue, TypeConstraint, ZeroCtxOffset>;
 
 struct Assert {
     AssertionConstraint cst;
     Assert(AssertionConstraint cst): cst(cst) { }
 };
 
-#define DECLARE_EQ4(T, f1, f2, f3, f4)                                       \
-    inline bool operator==(T const& a, T const& b) {                         \
-        return a.f1 == b.f1 && a.f2 == b.f2 && a.f3 == b.f3 && a.f4 == b.f4; \
+using Instruction = std::variant<Undefined, Bin, Un, LoadMapFd, Call, Exit, Jmp, Mem, Packet, LockAdd, Assume, Assert>;
+
+using LabeledInstruction = std::tuple<label_t, Instruction, std::optional<btf_line_info_t>>;
+using InstructionSeq = std::vector<LabeledInstruction>;
+
+
+#define DECLARE_EQ5(T, f1, f2, f3, f4, f5)                                                   \
+    inline bool operator==(T const& a, T const& b) {                                         \
+        return a.f1 == b.f1 && a.f2 == b.f2 && a.f3 == b.f3 && a.f4 == b.f4 && a.f5 == b.f5; \
     }
 #define DECLARE_EQ3(T, f1, f2, f3) \
     inline bool operator==(T const& a, T const& b) { return a.f1 == b.f1 && a.f2 == b.f2 && a.f3 == b.f3; }
@@ -303,11 +325,6 @@ struct Assert {
     inline bool operator==(T const& a, T const& b) { return a.f1 == b.f1 && a.f2 == b.f2; }
 #define DECLARE_EQ1(T, f1) \
     inline bool operator==(T const& a, T const& b) { return a.f1 == b.f1; }
-
-using Instruction = std::variant<Undefined, Bin, Un, LoadMapFd, Call, Exit, Jmp, Mem, Packet, LockAdd, Assume, Assert>;
-
-using LabeledInstruction = std::tuple<label_t, Instruction, std::optional<btf_line_info_t>>;
-using InstructionSeq = std::vector<LabeledInstruction>;
 
 using pc_t = uint16_t;
 
@@ -359,10 +376,11 @@ DECLARE_EQ2(TypeConstraint, reg, types)
 DECLARE_EQ2(ValidSize, reg, can_be_zero)
 DECLARE_EQ2(Comparable, r1, r2)
 DECLARE_EQ2(Addable, ptr, num)
+DECLARE_EQ1(ValidDivisor, reg)
 DECLARE_EQ2(ValidStore, mem, val)
-DECLARE_EQ4(ValidAccess, reg, offset, width, or_null)
+DECLARE_EQ5(ValidAccess, reg, offset, width, or_null, access_type)
 DECLARE_EQ3(ValidMapKeyValue, access_reg, map_fd_reg, key)
-DECLARE_EQ1(ZeroOffset, reg)
+DECLARE_EQ1(ZeroCtxOffset, reg)
 DECLARE_EQ1(Assert, cst)
 
 }

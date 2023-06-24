@@ -3,13 +3,13 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
-#include <unordered_map>
 #include <variant>
 #include <vector>
 
+#include "asm_ostream.hpp"
 #include "asm_syntax.hpp"
 #include "crab/cfg.hpp"
-#include "asm_ostream.hpp"
+#include "crab/interval.hpp"
 #include "crab/variable.hpp"
 
 using std::optional;
@@ -31,9 +31,9 @@ std::ostream& operator<<(std::ostream& os, ArgSingle::Kind kind) {
 
 std::ostream& operator<<(std::ostream& os, ArgPair::Kind kind) {
     switch (kind) {
-    case ArgPair::Kind::PTR_TO_MEM: return os << "mem";
-    case ArgPair::Kind::PTR_TO_MEM_OR_NULL: return os << "mem?";
-    case ArgPair::Kind::PTR_TO_UNINIT_MEM: return os << "out";
+    case ArgPair::Kind::PTR_TO_READABLE_MEM: return os << "mem";
+    case ArgPair::Kind::PTR_TO_READABLE_MEM_OR_NULL: return os << "mem?";
+    case ArgPair::Kind::PTR_TO_WRITABLE_MEM: return os << "out";
     }
     assert(false);
     return os;
@@ -59,8 +59,8 @@ std::ostream& operator<<(std::ostream& os, Bin::Op op) {
     case Op::ADD: return os << "+";
     case Op::SUB: return os << "-";
     case Op::MUL: return os << "*";
-    case Op::DIV: return os << "/";
-    case Op::MOD: return os << "%";
+    case Op::UDIV: return os << "/";
+    case Op::UMOD: return os << "%";
     case Op::OR: return os << "|";
     case Op::AND: return os << "&";
     case Op::LSH: return os << "<<";
@@ -79,10 +79,10 @@ std::ostream& operator<<(std::ostream& os, Condition::Op op) {
     case Op::NE: return os << "!=";
     case Op::SET: return os << "&==";
     case Op::NSET: return os << "&!="; // not in ebpf
-    case Op::LT: return os << "<";
-    case Op::LE: return os << "<=";
-    case Op::GT: return os << ">";
-    case Op::GE: return os << ">=";
+    case Op::LT: return os << "<"; // TODO: os << "u<";
+    case Op::LE: return os << "<="; // TODO: os << "u<=";
+    case Op::GT: return os << ">"; // TODO: os << "u>";
+    case Op::GE: return os << ">="; // TODO: os << "u>=";
     case Op::SLT: return os << "s<";
     case Op::SLE: return os << "s<=";
     case Op::SGT: return os << "s>";
@@ -108,6 +108,7 @@ static std::string to_string(TypeGroup ts) {
     case TypeGroup::non_map_fd: return "non_map_fd";
     case TypeGroup::ptr_or_num: return "{number, ctx, stack, packet, shared}";
     case TypeGroup::stack_or_packet: return "{stack, packet}";
+    case TypeGroup::singleton_ptr: return "{ctx, stack, packet}";
     case TypeGroup::mem_or_num: return "{number, stack, packet, shared}";
     default: assert(false);
     }
@@ -119,12 +120,12 @@ std::ostream& operator<<(std::ostream& os, TypeGroup ts) {
 }
 
 std::ostream& operator<<(std::ostream& os, ValidStore const& a) {
-    return os << a.mem << ".type != stack -> " << a.val << ".type == num";
+    return os << a.mem << ".type != stack -> " << TypeConstraint{a.val, TypeGroup::number};
 }
 
 std::ostream& operator<<(std::ostream& os, ValidAccess const& a) {
     if (a.or_null)
-        os << "(" << a.reg << ".type == number and " << a.reg << ".value == 0) or ";
+        os << "(" << TypeConstraint{a.reg, TypeGroup::number} << " and " << a.reg << ".value == 0) or ";
     os << "valid_access(" << a.reg << ".offset";
     if (a.offset > 0)
         os << "+" << a.offset;
@@ -134,11 +135,19 @@ std::ostream& operator<<(std::ostream& os, ValidAccess const& a) {
     if (a.width == (Value)Imm{0}) {
         // a.width == 0, meaning we only care it's an in-bound pointer,
         // so it can be compared with another pointer to the same region.
-        os << ") for comparison";
+        os << ") for comparison/subtraction";
     } else {
-        os << ", width=" << a.width << ")";
+        os << ", width=" << a.width << ") for ";
+        if (a.access_type == AccessType::read)
+            os << "read";
+        else
+            os << "write";
     }
     return os;
+}
+
+static crab::variable_t typereg(const Reg& r) {
+    return crab::variable_t::reg(crab::data_kind_t::types, r.v);
 }
 
 std::ostream& operator<<(std::ostream& os, ValidSize const& a) {
@@ -150,23 +159,29 @@ std::ostream& operator<<(std::ostream& os, ValidMapKeyValue const& a) {
     return os << "within stack(" << a.access_reg << ":" << (a.key ? "key_size" : "value_size") << "(" << a.map_fd_reg << "))";
 }
 
-std::ostream& operator<<(std::ostream& os, ZeroOffset const& a) {
-    return os << crab::variable_t::reg(crab::data_kind_t::offsets, a.reg.v) << " == 0";
+std::ostream& operator<<(std::ostream& os, ZeroCtxOffset const& a) {
+    return os << crab::variable_t::reg(crab::data_kind_t::ctx_offsets, a.reg.v) << " == 0";
 }
 
 std::ostream& operator<<(std::ostream& os, Comparable const& a) {
-    return os << crab::variable_t::reg(crab::data_kind_t::types, a.r1.v) << " == "
-              << crab::variable_t::reg(crab::data_kind_t::types, a.r2.v);
+    if (a.or_r2_is_number)
+        os << TypeConstraint{a.r2, TypeGroup::number} << " or ";
+    return os << typereg(a.r1) << " == "
+              << typereg(a.r2) << " in " << to_string(TypeGroup::singleton_ptr);
 }
 
 std::ostream& operator<<(std::ostream& os, Addable const& a) {
-    return os << a.ptr << ".type = ptr -> " << a.num << ".type = number";
+    return os << TypeConstraint{a.ptr, TypeGroup::pointer} << " -> " << TypeConstraint{a.num, TypeGroup::number};
+}
+
+std::ostream& operator<<(std::ostream& os, ValidDivisor const& a) {
+    return os << a.reg << " != 0";
 }
 
 std::ostream& operator<<(std::ostream& os, TypeConstraint const& tc) {
     string types = to_string(tc.types);
     string cmp_op = types[0] == '{' ? "in" : "==";
-    return os << tc.reg << ".type " << cmp_op << " " << tc.types;
+    return os << typereg(tc.reg) << " " << cmp_op << " " << tc.types;
 }
 
 std::ostream& operator<<(std::ostream& os, AssertionConstraint const& a) {
@@ -185,12 +200,14 @@ struct InstructionPrinterVisitor {
 
     void operator()(LoadMapFd const& b) { os_ << b.dst << " = map_fd " << b.mapfd; }
 
+    // llvm-objdump uses "w<number>" for 32-bit operations and "r<number>" for 64-bit operations.
+    // We use the same convention here for consistency.
+    static std::string reg_name(Reg const& a, bool is64) { return ((is64) ? "r" : "w") + std::to_string(a.v); }
+
     void operator()(Bin const& b) {
-        os_ << b.dst << " " << b.op << "= " << b.v;
+        os_ << reg_name(b.dst, b.is64) << " " << b.op << "= " << b.v;
         if (b.lddw)
             os_ << " ll";
-        if (!b.is64)
-            os_ << " & 0xFFFFFFFF";
     }
 
     void operator()(Un const& b) {
@@ -285,7 +302,7 @@ struct InstructionPrinterVisitor {
         os_ << "(" << access.basereg << sign << offset << ")";
     }
 
-    void print(Condition const& cond) { os_ << cond.left << " " << cond.op << " " << cond.right; }
+    void print(Condition const& cond) { os_ << cond.left << " " << ((!cond.is64) ? "w" : "") << cond.op << " " << cond.right; }
 
     void operator()(Mem const& b) {
         if (b.is_load) {
@@ -311,6 +328,7 @@ struct InstructionPrinterVisitor {
     void operator()(Assert const& a) {
         os_ << "assert " << a.cst;
     }
+
 };
 
 string to_string(label_t const& label) {
@@ -357,7 +375,8 @@ auto get_labels(const InstructionSeq& insts) {
     return pc_of_label;
 }
 
-void print(const InstructionSeq& insts, std::ostream& out, std::optional<const label_t> label_to_print) {
+void print(const InstructionSeq& insts, std::ostream& out, std::optional<const label_t> label_to_print,
+           bool print_line_info) {
     auto pc_of_label = get_labels(insts);
     pc_t pc = 0;
     std::string previous_source;
@@ -365,12 +384,11 @@ void print(const InstructionSeq& insts, std::ostream& out, std::optional<const l
     for (const LabeledInstruction& labeled_inst : insts) {
         const auto& [label, ins, line_info] = labeled_inst;
         if (!label_to_print.has_value() || (label == label_to_print)) {
-            if (line_info.has_value()) {
+            if (line_info.has_value() && print_line_info) {
                 auto& [file, source, line, column] = line_info.value();
                 // Only decorate the first instruction associated with a source line.
                 if (source != previous_source) {
-                    out << "; " << file.c_str() << ":" << line << "\n";
-                    out << "; " << source.c_str() << "\n";
+                    out << line_info.value();
                     previous_source = source;
                 }
             }
@@ -484,4 +502,19 @@ std::ostream& operator<<(std::ostream& o, const cfg_t& cfg) {
         o << cfg.get_node(label);
     }
     return o;
+}
+
+std::ostream& operator<<(std::ostream& os, const btf_line_info_t& line_info) {
+    os << "; " << line_info.file_name << ":" << line_info.line_number << "\n";
+    os << "; " << line_info.source_line << "\n";
+    return os;
+}
+
+
+std::string crab::z_number::to_string() const { return _n.str(); }
+
+std::string crab::interval_t::to_string() const {
+    std::ostringstream s;
+    s << *this;
+    return s.str();
 }

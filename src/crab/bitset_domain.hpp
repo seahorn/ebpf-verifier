@@ -63,11 +63,22 @@ class bitset_domain_t final {
         bool only_num = true;
         bool only_non_num = true;
         for (int j = 0; j < width; j++) {
+            if (lb + j >= non_numerical_bytes.size()) {
+                throw std::runtime_error("bitset index out of range");
+            }
             bool b = non_numerical_bytes[lb + j];
             only_num &= !b;
             only_non_num &= b;
         }
         return std::make_pair(only_num, only_non_num);
+    }
+
+    // Get the number of bytes, starting at lb, known to be numbers.
+    [[nodiscard]] int all_num_width(size_t lb) const {
+        size_t ub = lb;
+        while ((ub < EBPF_STACK_SIZE) && !non_numerical_bytes[ub])
+            ub++;
+        return (int)(ub - lb);
     }
 
     void reset(size_t lb, int n) {
@@ -88,7 +99,7 @@ class bitset_domain_t final {
 
     // Test whether all values in the range [lb,ub) are numerical.
     [[nodiscard]]
-    bool all_num(int lb, int ub) const {
+    bool all_num(int32_t lb, int32_t ub) const {
         assert(lb < ub);
         lb = std::max(lb, 0);
         ub = std::min(ub, EBPF_STACK_SIZE);

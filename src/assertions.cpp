@@ -28,16 +28,16 @@ class AssertExtractor {
     static vector<Assert> zero_offset_ctx(Reg reg) {
         vector<Assert> res;
         res.emplace_back(TypeConstraint{reg, TypeGroup::ctx});
-        res.emplace_back(ZeroOffset{reg});
+        res.emplace_back(ZeroCtxOffset{reg});
         return res;
     }
 
   public:
     explicit AssertExtractor(program_info info) : info{std::move(info)} {}
 
-    vector<Assert> operator()(Undefined const& ins) const { assert(0); return {}; }
+    vector<Assert> operator()(Undefined const& ins) const { assert(false); return {}; }
 
-    vector<Assert> operator()(Assert const& ins) const { assert(0); return {}; }
+    vector<Assert> operator()(Assert const& ins) const { assert(false); return {}; }
 
     vector<Assert> operator()(LoadMapFd const& ins) const { return {}; }
 
@@ -81,25 +81,25 @@ class AssertExtractor {
             }
         }
         for (ArgPair arg : call.pairs) {
+            res.emplace_back(TypeConstraint{arg.size, TypeGroup::number});
+            res.emplace_back(ValidSize{arg.size, arg.can_be_zero});
             switch (arg.kind) {
-            case ArgPair::Kind::PTR_TO_MEM_OR_NULL:
+            case ArgPair::Kind::PTR_TO_READABLE_MEM_OR_NULL:
                 res.emplace_back(TypeConstraint{arg.mem, TypeGroup::mem_or_num});
+                res.emplace_back(ValidAccess{arg.mem, 0, arg.size, true, AccessType::read});
                 break;
-            case ArgPair::Kind::PTR_TO_MEM:
-                /* LINUX: pointer to valid memory (stack, packet, map value) */
-                // TODO: check initialization
+            case ArgPair::Kind::PTR_TO_READABLE_MEM:
+                /* pointer to valid memory (stack, packet, map value) */
                 res.emplace_back(TypeConstraint{arg.mem, TypeGroup::mem});
+                res.emplace_back(ValidAccess{arg.mem, 0, arg.size, false, AccessType::read});
                 break;
-            case ArgPair::Kind::PTR_TO_UNINIT_MEM:
+            case ArgPair::Kind::PTR_TO_WRITABLE_MEM:
                 // memory may be uninitialized, i.e. write only
                 res.emplace_back(TypeConstraint{arg.mem, TypeGroup::mem});
+                res.emplace_back(ValidAccess{arg.mem, 0, arg.size, false, AccessType::write});
                 break;
             }
             // TODO: reg is constant (or maybe it's not important)
-            res.emplace_back(TypeConstraint{arg.size, TypeGroup::number});
-            res.emplace_back(ValidSize{arg.size, arg.can_be_zero});
-            res.emplace_back(ValidAccess{arg.mem, 0, arg.size,
-                                         arg.kind == ArgPair::Kind::PTR_TO_MEM_OR_NULL});
         }
         return res;
     }
@@ -124,7 +124,7 @@ class AssertExtractor {
             if (cond.op != Condition::Op::EQ && cond.op != Condition::Op::NE) {
                 res.emplace_back(TypeConstraint{cond.left, TypeGroup::non_map_fd});
             }
-            res.emplace_back(Comparable{cond.left, reg(cond.right)});
+            res.emplace_back(Comparable{.r1=cond.left, .r2=reg(cond.right), .or_r2_is_number=false});
         }
         return res;
     }
@@ -146,11 +146,12 @@ class AssertExtractor {
             // We know we are accessing the stack.
             if (offset < -EBPF_STACK_SIZE || offset + (int)width.v >= 0) {
                 // This assertion will fail
-                res.emplace_back(ValidAccess{basereg, offset, width, false});
+                res.emplace_back(ValidAccess{basereg, offset, width, false, ins.is_load ? AccessType::read : AccessType::write});
             }
         } else {
             res.emplace_back(TypeConstraint{basereg, TypeGroup::pointer});
-            res.emplace_back(ValidAccess{basereg, offset, width, false});
+            res.emplace_back(
+                ValidAccess{basereg, offset, width, false, ins.is_load ? AccessType::read : AccessType::write});
             if (!info.type.is_privileged && !ins.is_load && std::holds_alternative<Reg>(ins.value)) {
                 if (width.v != 8)
                     res.emplace_back(TypeConstraint{reg(ins.value), TypeGroup::number});
@@ -198,16 +199,26 @@ class AssertExtractor {
                 // disallow map-map since same type does not mean same offset
                 // TODO: map identities
                 res.emplace_back(TypeConstraint{ins.dst, TypeGroup::ptr_or_num});
-                res.emplace_back(Comparable{reg(ins.v), ins.dst});
+                res.emplace_back(Comparable{.r1=ins.dst, .r2=reg(ins.v), .or_r2_is_number=true});
                 return res;
             } else {
                 return {
                     Assert{TypeConstraint{ins.dst, TypeGroup::ptr_or_num}}
                 };
             }
+        case Bin::Op::UDIV:
+        case Bin::Op::UMOD:
+            if (std::holds_alternative<Reg>(ins.v)) {
+                auto src = reg(ins.v);
+                return {Assert{TypeConstraint{ins.dst, TypeGroup::number}}, Assert{ValidDivisor{src}}};
+            } else {
+                return {Assert{TypeConstraint{ins.dst, TypeGroup::number}}};
+            }
         default:
             return { Assert{TypeConstraint{ins.dst, TypeGroup::number}} };
         }
+        assert(false);
+        return {};
     }
 };
 

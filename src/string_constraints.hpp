@@ -11,6 +11,20 @@
 #include "crab/interval.hpp"
 #include "crab/linear_constraint.hpp"
 
+// These constants are mostly used in ebpf_domain.cpp, but some uses
+// in split_dbm.cpp and array_domain.cpp require them to be declared here.
+// The exact numbers are taken advantage of in ebpf_domain_t
+enum type_encoding_t {
+    T_UNINIT = -7,
+    T_MAP_PROGRAMS = -6,
+    T_MAP = -5,
+    T_NUM = -4,
+    T_CTX = -3,
+    T_PACKET = -2,
+    T_STACK = -1,
+    T_SHARED = 0
+};
+
 struct string_invariant {
     std::optional<std::set<std::string>> maybe_inv;
 
@@ -44,4 +58,4 @@ struct string_invariant {
     friend std::ostream& operator<<(std::ostream&, const string_invariant& inv);
 };
 
-std::vector<linear_constraint_t> parse_linear_constraints(const std::set<std::string>& constraints, std::vector<crab::interval_t>& numeric_ranges);
+std::vector<crab::linear_constraint_t> parse_linear_constraints(const std::set<std::string>& constraints, std::vector<crab::interval_t>& numeric_ranges);

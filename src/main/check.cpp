@@ -25,7 +25,17 @@ static size_t hash(const raw_program& raw_prog) {
     return boost::hash_range(start, end);
 }
 
+template <void (on_exit)()>
+struct at_scope_exit
+{
+    at_scope_exit() = default;
+    ~at_scope_exit() { on_exit(); }
+};
+
 int main(int argc, char** argv) {
+    // Always call ebpf_verifier_clear_thread_local_state on scope exit.
+    at_scope_exit<ebpf_verifier_clear_thread_local_state> clear_thread_local_state;
+
     ebpf_verifier_options_t ebpf_verifier_options = ebpf_verifier_default_options;
 
     // Parse command line arguments:
@@ -56,7 +66,11 @@ int main(int argc, char** argv) {
     app.add_flag("-f", ebpf_verifier_options.print_failures, "Print verifier's failure logs");
     app.add_flag("-s", ebpf_verifier_options.strict, "Apply additional checks that would cause runtime failures");
     app.add_flag("-v", verbose, "Print both invariants and failures");
+    bool no_division_by_zero = false;
+    app.add_flag("--no-division-by-zero", no_division_by_zero, "Do not allow division by zero");
     app.add_flag("--no-simplify", ebpf_verifier_options.no_simplify, "Do not simplify");
+    app.add_flag("--line-info", ebpf_verifier_options.print_line_info, "Print line information");
+    app.add_flag("--print-btf-types", ebpf_verifier_options.dump_btf_types_json, "Print BTF types");
 
     std::string asmfile;
     app.add_option("--asm", asmfile, "Print disassembly to FILE")->type_name("FILE");
@@ -68,6 +82,7 @@ int main(int argc, char** argv) {
     CLI11_PARSE(app, argc, argv);
     if (verbose)
         ebpf_verifier_options.print_invariants = ebpf_verifier_options.print_failures = true;
+    ebpf_verifier_options.allow_division_by_zero = !no_division_by_zero;
 
     // Main program
 
@@ -138,7 +153,7 @@ int main(int argc, char** argv) {
     if (!asmfile.empty()) {
         std::ofstream out{asmfile};
         print(prog, out, {});
-        print_map_descriptors(global_program_info.map_descriptors, out);
+        print_map_descriptors(global_program_info->map_descriptors, out);
     }
 
     if (domain == "zoneCrab") {
@@ -178,5 +193,6 @@ int main(int argc, char** argv) {
     } else {
         assert(false);
     }
+
     return 0;
 }

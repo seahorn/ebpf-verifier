@@ -96,7 +96,7 @@ class TreeSMap final {
         if (v != map.end()) {
             return {v->second};
         }
-        return {};
+        return std::nullopt;
     }
 
     // precondition: k \in S
@@ -115,7 +115,7 @@ class AdaptGraph final {
     using smap_t = TreeSMap;
 
   public:
-    using Weight = safe_i64;  // same as SafeInt64DefaultParams::Weight; previously template
+    using Weight = z_number; // same as SafeInt64DefaultParams::Weight; previously template
     using vert_id = unsigned int;
 
     AdaptGraph() : edge_count(0) {}

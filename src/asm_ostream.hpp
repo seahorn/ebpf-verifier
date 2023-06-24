@@ -15,7 +15,10 @@ inline std::function<int16_t(label_t)> label_to_offset(pc_t pc) {
     return [=](const label_t& label) { return label.from - pc - 1; };
 }
 
-void print(const InstructionSeq& insts, std::ostream& out, std::optional<const label_t> label_to_print);
+std::ostream& operator<<(std::ostream& os, const btf_line_info_t& line_info);
+
+void print(const InstructionSeq& insts, std::ostream& out, std::optional<const label_t> label_to_print,
+           bool print_line_info = false);
 
 std::string to_string(label_t const& label);
 
@@ -25,7 +28,7 @@ std::string to_string(Instruction const& ins);
 std::ostream& operator<<(std::ostream& os, Bin::Op op);
 std::ostream& operator<<(std::ostream& os, Condition::Op op);
 
-inline std::ostream& operator<<(std::ostream& os, Imm imm) { return os << (int32_t)imm.v; }
+inline std::ostream& operator<<(std::ostream& os, Imm imm) { return os << (int64_t)imm.v; }
 inline std::ostream& operator<<(std::ostream& os, Reg const& a) { return os << "r" << (int)a.v; }
 inline std::ostream& operator<<(std::ostream& os, Value const& a) {
     if (std::holds_alternative<Imm>(a))

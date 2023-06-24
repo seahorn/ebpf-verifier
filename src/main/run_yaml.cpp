@@ -7,13 +7,14 @@
 #include "ebpf_verifier.hpp"
 #include "ebpf_yaml.hpp"
 
-#define INDENT "  "
-
 int main(int argc, char** argv) {
-    CLI::App app{"Run yaml test cases"};
+    CLI::App app{"Run YAML test cases"};
 
     std::string filename;
     app.add_option("path", filename, "YAML file.")->required()->type_name("FILE");
+
+    std::string pattern;
+    app.add_option("pattern", pattern, "Pattern for test cases to run (substring)")->type_name("PATTERN");
 
     bool verbose = false;
     app.add_flag("-v", verbose, "Verbose");
@@ -24,8 +25,11 @@ int main(int argc, char** argv) {
     CLI11_PARSE(app, argc, argv);
     bool res = true;
     foreach_suite(filename, [&](const TestCase& test_case) {
+        if (!pattern.empty() && test_case.name.find(pattern) == test_case.name.npos) {
+            return;
+        }
         std::cout << test_case.name << ": " << std::flush;
-        const auto& maybe_failure = run_yaml_test_case(test_case);
+        const auto& maybe_failure = run_yaml_test_case(test_case, verbose);
         if (!quiet && (verbose || maybe_failure)) {
             std::cout << "\n";
             std::cout << "Pre-invariant:" << test_case.assumed_pre_invariant << "\n";
@@ -36,26 +40,7 @@ int main(int argc, char** argv) {
             std::cout << "failed:\n";
             res = false;
             std::cout << "------\n";
-
-            if (!maybe_failure->invariant.unexpected.empty()) {
-                std::cout << "Unexpected properties:\n" INDENT << maybe_failure->invariant.unexpected << "\n";
-            }
-            if (!maybe_failure->invariant.unseen.empty()) {
-                std::cout << "Unseen properties:\n" INDENT << maybe_failure->invariant.unseen << "\n";
-            }
-
-            if (!maybe_failure->messages.unexpected.empty()) {
-                std::cout << "Unexpected messages:\n";
-                for (const auto& item : maybe_failure->messages.unexpected) {
-                    std::cout << INDENT << item << "\n";
-                }
-            }
-            if (!maybe_failure->messages.unseen.empty()) {
-                std::cout << "Unseen messages:\n";
-                for (const auto& item : maybe_failure->messages.unseen) {
-                    std::cout << INDENT << item << "\n";
-                }
-            }
+            print_failure(*maybe_failure, std::cout);
             std::cout << "------\n";
         } else {
             std::cout << "pass\n";
