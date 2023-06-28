@@ -818,9 +818,9 @@ bool ebpf_domain_t::is_top() const { return m_inv.is_top() && stack.is_top(); }
 
 bool ebpf_domain_t::operator<=(const ebpf_domain_t& other) { return m_inv <= other.m_inv && stack <= other.stack; }
 
-bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
-    return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
-}
+// bool ebpf_domain_t::operator==(const ebpf_domain_t& other) const {
+//     return stack == other.stack && m_inv <= other.m_inv && other.m_inv <= m_inv;
+// }
 
 void ebpf_domain_t::TypeDomain::add_extra_invariant(NumAbsDomain& dst,
                                                     std::map<crab::variable_t, crab::interval_t>& extra_invariants,
