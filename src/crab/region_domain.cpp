@@ -464,7 +464,7 @@ bool region_domain_t::get_map_fd_range(const Reg& map_fd_reg, int32_t* start_fd,
     auto maybe_type = m_registers.find(map_fd_reg.v);
     if (!is_mapfd_type(maybe_type)) return false;
     auto mapfd_type = std::get<mapfd_t>(*maybe_type);
-    const interval_t& mapfd_interval = mapfd_type.get_mapfd();
+    const auto& mapfd_interval = mapfd_type.get_mapfd().to_interval();
     auto lb = mapfd_interval.lb().number();
     auto ub = mapfd_interval.ub().number();
     if (!lb || !lb->fits_sint32() || !ub || !ub->fits_sint32())
@@ -611,7 +611,7 @@ void region_domain_t::operator()(const ValidAccess &s, location_t loc, int print
         if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
             auto offset = reg_with_off_ptr_type.get_offset();
-            auto offset_to_check = offset+interval_t{s.offset};
+            auto offset_to_check = offset.to_interval()+interval_t{s.offset};
             auto offset_lb = offset_to_check.lb();
             auto offset_plus_width_ub = offset_to_check.ub()+crab::bound_t{width};
             if (reg_with_off_ptr_type.get_region() == crab::region_t::T_STACK) {
@@ -668,9 +668,12 @@ region_domain_t&& region_domain_t::setup_entry() {
     auto r1 = reg_with_loc_t(R1_ARG, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
     auto r10 = reg_with_loc_t(R10_STACK_POINTER, std::make_pair(label_t::entry, static_cast<unsigned int>(0)));
 
-    typ.insert(R1_ARG, r1, ptr_with_off_t(crab::region_t::T_CTX, interval_t{number_t{0}}));
+    typ.insert(R1_ARG, r1,
+            ptr_with_off_t(crab::region_t::T_CTX,
+                mock_interval_t{number_t{0}}, mock_interval_t{number_t{-1}}));
     typ.insert(R10_STACK_POINTER, r10,
-            ptr_with_off_t(crab::region_t::T_STACK, interval_t{number_t{512}}));
+            ptr_with_off_t(crab::region_t::T_STACK,
+                mock_interval_t{number_t{512}}, mock_interval_t{number_t{-1}}));
 
     static region_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
     return std::move(inv);
@@ -733,7 +736,8 @@ void region_domain_t::update_ptr_or_mapfd(ptr_or_mapfd_t&& ptr_or_mapfd, const i
     if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
         auto ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
         auto offset = ptr_or_mapfd_with_off.get_offset();
-        auto updated_offset = change == interval_t::top() ? offset : offset + change;
+        auto updated_offset =
+            change == mock_interval_t::top() ? offset : offset.to_interval() + change;
         ptr_or_mapfd_with_off.set_offset(updated_offset);
         m_registers.insert(reg, reg_with_loc, ptr_or_mapfd_with_off);
     }
@@ -762,7 +766,7 @@ interval_t region_domain_t::do_bin(const Bin& bin,
         return interval_t::bottom();
 
     ptr_or_mapfd_t src_ptr_or_mapfd, dst_ptr_or_mapfd;
-    interval_t src_interval;
+    interval_t src_interval = interval_t::bottom();
     if (src_ptr_or_mapfd_opt) src_ptr_or_mapfd = std::move(src_ptr_or_mapfd_opt.value());
     if (dst_ptr_or_mapfd_opt) dst_ptr_or_mapfd = std::move(dst_ptr_or_mapfd_opt.value());
     if (src_interval_opt) src_interval = std::move(src_interval_opt.value());
@@ -826,7 +830,8 @@ interval_t region_domain_t::do_bin(const Bin& bin,
                             std::holds_alternative<ptr_with_off_t>(src_ptr_or_mapfd)) {
                         auto dst_ptr_with_off = std::get<ptr_with_off_t>(dst_ptr_or_mapfd);
                         auto src_ptr_with_off = std::get<ptr_with_off_t>(src_ptr_or_mapfd);
-                        to_return = dst_ptr_with_off.get_offset() - src_ptr_with_off.get_offset();
+                        to_return =
+                            dst_ptr_with_off.get_offset().to_interval() - src_ptr_with_off.get_offset().to_interval();
                     }
                 }
                 else {
@@ -870,7 +875,7 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, bool unknown_
 
     auto type_with_off = std::get<ptr_with_off_t>(*ptr_or_mapfd_opt);
     auto p_offset = type_with_off.get_offset();
-    auto offset_singleton = p_offset.singleton();
+    auto offset_singleton = p_offset.to_interval().singleton();
 
     if (is_stack_p) {
         if (!offset_singleton) {
@@ -972,7 +977,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
 
     // if the code reaches here, we are storing into a stack pointer
     auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
-    auto offset_singleton = basereg_type_with_off.get_offset().singleton();
+    auto offset_singleton = basereg_type_with_off.get_offset().to_interval().singleton();
     if (!offset_singleton) {
         //std::cout << "type error: storing to a pointer with unknown offset\n";
         m_errors.push_back("storing to a pointer with unknown offset");

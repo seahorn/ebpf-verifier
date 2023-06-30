@@ -19,6 +19,10 @@ namespace std {
 
 namespace crab {
 
+bool mock_interval_t::operator==(const mock_interval_t& other) const {
+    return (to_interval() == other.to_interval());
+}
+
 bool ptr_with_off_t::operator==(const ptr_with_off_t& other) const {
     return (m_r == other.m_r && m_offset == other.m_offset
             && m_region_size == other.m_region_size);
@@ -42,19 +46,23 @@ bool mapfd_t::operator==(const mapfd_t& other) const {
 
 mapfd_t mapfd_t::operator|(const mapfd_t& other) const {
     auto value_type = m_value_type == other.m_value_type ? m_value_type : EbpfMapValueType::ANY;
-    return mapfd_t(m_mapfd | other.m_mapfd, value_type);
+    const auto& mock_i = mock_interval_t(m_mapfd.to_interval() | other.m_mapfd.to_interval());
+    return mapfd_t(std::move(mock_i), value_type);
 }
 
-interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
+mock_interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
 
-void ptr_with_off_t::set_offset(interval_t off) { m_offset = off; }
+void ptr_with_off_t::set_offset(mock_interval_t off) { m_offset = off; }
 
-void ptr_with_off_t::set_region_size(interval_t region_sz) { m_region_size = region_sz; }
+void ptr_with_off_t::set_region_size(mock_interval_t region_sz) { m_region_size = region_sz; }
 
 void ptr_with_off_t::set_region(region_t r) { m_r = r; }
 
 ptr_with_off_t ptr_with_off_t::operator|(const ptr_with_off_t& other) const {
-    return ptr_with_off_t(m_r, m_offset | other.m_offset, m_region_size | other.m_region_size);
+    const auto& mock_o = mock_interval_t(m_offset.to_interval() | other.m_offset.to_interval());
+    const auto& mock_r_s = mock_interval_t(
+            m_region_size.to_interval() | other.m_region_size.to_interval());
+    return ptr_with_off_t(m_r, std::move(mock_o), std::move(mock_r_s));
 }
 
 void ptr_no_off_t::set_region(region_t r) { m_r = r; }
@@ -116,8 +124,8 @@ inline std::string get_reg_ptr(const region_t& r) {
 }
 
 void ptr_with_off_t::write(std::ostream& o) const {
-    o << get_reg_ptr(m_r) << "<" << m_offset;
-    if (m_region_size.lb() >= number_t{0}) o << "," << m_region_size;
+    o << get_reg_ptr(m_r) << "<" << m_offset.to_interval();
+    if (m_region_size.lb() >= number_t{0}) o << "," << m_region_size.to_interval();
     o << ">";
 }
 

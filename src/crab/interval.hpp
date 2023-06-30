@@ -238,8 +238,6 @@ class interval_t final {
     bound_t _ub;
 
   public:
-    interval_t() : _lb(number_t{0}), _ub(-1) {}
-
     static interval_t top() { return interval_t(bound_t::minus_infinity(), bound_t::plus_infinity()); }
 
     static interval_t bottom() { return interval_t(); }
@@ -247,6 +245,8 @@ class interval_t final {
     [[nodiscard]] std::optional<number_t> finite_size() const { return (_ub - _lb).number(); }
 
   private:
+    interval_t() : _lb(number_t{0}), _ub(-1) {}
+
     static number_t abs(const number_t& x) { return x < 0 ? -x : x; }
 
     static number_t max(const number_t& x, const number_t& y) { return x.operator<=(y) ? y : x; }

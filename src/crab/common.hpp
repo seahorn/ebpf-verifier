@@ -46,10 +46,30 @@ class ptr_no_off_t {
     bool operator!=(const ptr_no_off_t&) const;
 };
 
+class mock_interval_t {
+    bound_t _lb;
+    bound_t _ub;
+
+    public:
+        static mock_interval_t top() {
+            return mock_interval_t(bound_t::minus_infinity(), bound_t::plus_infinity());
+        }
+        [[nodiscard]] bound_t lb() const { return _lb; }
+        [[nodiscard]] bound_t ub() const { return _ub; }
+        mock_interval_t(bound_t lb, bound_t ub) : _lb(lb), _ub(ub) {};
+        mock_interval_t() : _lb(bound_t::minus_infinity()), _ub(bound_t::plus_infinity()) {}
+        mock_interval_t(const mock_interval_t& c) = default;
+        mock_interval_t(const bound_t& b) : _lb(b), _ub(b) {}
+        mock_interval_t& operator=(const mock_interval_t& o) = default;
+        bool operator==(const mock_interval_t& o) const;
+        mock_interval_t(const interval_t& i) : _lb(i.lb()), _ub(i.ub()) {}
+        interval_t to_interval() const { return std::move(interval_t(_lb, _ub)); }
+};
+
 class ptr_with_off_t {
     region_t m_r;
-    interval_t m_offset;
-    interval_t m_region_size = interval_t::top();
+    mock_interval_t m_offset;
+    mock_interval_t m_region_size = mock_interval_t::top();
 
   public:
     ptr_with_off_t() = default;
@@ -57,14 +77,15 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz)
+    ptr_with_off_t(region_t _r, mock_interval_t _off,
+            mock_interval_t _region_sz = mock_interval_t::top())
         : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
-    ptr_with_off_t(region_t _r, interval_t _off) : m_r(_r), m_offset(_off) {}
+    ptr_with_off_t(region_t _r, mock_interval_t _off) : m_r(_r), m_offset(_off) {}
     ptr_with_off_t operator|(const ptr_with_off_t&) const;
-    interval_t get_region_size() const;
-    void set_region_size(interval_t);
-    [[nodiscard]] interval_t get_offset() const { return m_offset; }
-    void set_offset(interval_t);
+    mock_interval_t get_region_size() const;
+    void set_region_size(mock_interval_t);
+    [[nodiscard]] mock_interval_t get_offset() const { return m_offset; }
+    void set_offset(mock_interval_t);
     [[nodiscard]] region_t get_region() const { return m_r; }
     void set_region(region_t);
     void write(std::ostream&) const;
@@ -74,7 +95,7 @@ class ptr_with_off_t {
 };
 
 class mapfd_t {
-    interval_t m_mapfd;
+    mock_interval_t m_mapfd;
     EbpfMapValueType m_value_type;
 
   public:
@@ -83,7 +104,7 @@ class mapfd_t {
     mapfd_t &operator=(const mapfd_t&) = default;
     mapfd_t &operator=(mapfd_t&&) = default;
     mapfd_t operator|(const mapfd_t&) const;
-    mapfd_t(interval_t mapfd, EbpfMapValueType val_type)
+    mapfd_t(mock_interval_t mapfd, EbpfMapValueType val_type)
         : m_mapfd(mapfd), m_value_type(val_type) {}
     friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
     bool operator==(const mapfd_t&) const;
@@ -92,7 +113,7 @@ class mapfd_t {
 
     bool has_type_map_programs() const;
     [[nodiscard]] EbpfMapValueType get_value_type() const { return m_value_type; }
-    [[nodiscard]] interval_t get_mapfd() const { return m_mapfd; }
+    [[nodiscard]] mock_interval_t get_mapfd() const { return m_mapfd; }
 };
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
@@ -150,7 +171,6 @@ inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
     return o;
 }
 
-
 } // namespace crab
 
 
@@ -191,4 +211,3 @@ namespace std {
 
     //crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t);
 }
-

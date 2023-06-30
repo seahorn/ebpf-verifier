@@ -114,7 +114,7 @@ void type_domain_t::operator()(const Call& u, location_t loc, int print) {
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
-                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    auto offset_singleton = ptr_with_off.get_offset().to_interval().singleton();
                     if (!offset_singleton) {
                         //std::cout << "type error: storing at an unknown offset in stack\n";
                         m_errors.push_back("storing at an unknown offset in stack");
@@ -197,7 +197,7 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
-                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    auto offset_singleton = ptr_with_off.get_offset().to_interval().singleton();
                     if (!offset_singleton) {
                         //std::cout << "type error: reading the stack at an unknown offset\n";
                         m_errors.push_back("reading the stack at an unknown offset");
