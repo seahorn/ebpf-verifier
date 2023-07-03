@@ -88,6 +88,9 @@ int main(int argc, char** argv) {
         ebpf_verifier_options.print_invariants = ebpf_verifier_options.print_failures = true;
     ebpf_verifier_options.allow_division_by_zero = !no_division_by_zero;
 
+    if (gen_proof) 
+        ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
+
     // Main program
 
     if (filename == "@headers") {

@@ -15,6 +15,7 @@ using crab::reg_with_loc_t;
 using crab::live_registers_t;
 using crab::register_types_t;
 
+type_domain_t::type_domain_t(const type_domain_t& o) : m_label(label_t::entry) {}
 
 bool type_domain_t::is_bottom() const {
     return (m_stack.is_bottom() || m_types.is_bottom());
@@ -35,6 +36,19 @@ void type_domain_t::set_to_bottom() {
     m_types.set_to_bottom();
 }
 
+void type_domain_t::set_to_top() {
+    m_stack.set_to_top();
+    m_types.set_to_top();
+}
+
+bool type_domain_t::operator<=(const type_domain_t& abs) const {
+    return true;
+}
+
+void type_domain_t::operator|=(const type_domain_t& abs) const {}
+    
+void type_domain_t::operator|=(type_domain_t&& abs) const {}
+
 type_domain_t type_domain_t::operator|(const type_domain_t& other) const& {
     if (is_bottom() || other.is_top()) {
         return other;
@@ -45,10 +59,39 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const& {
     return type_domain_t(m_types | std::move(other.m_types), m_stack | std::move(other.m_stack), m_label, other.m_ctx);
 }
 
-std::ostream& operator<<(std::ostream& o, const type_domain_t& t) {
-    o << t.m_types;
-    o << "\t" << t.m_stack << "\n";
-    return o;
+type_domain_t type_domain_t::operator|(type_domain_t&& abs) const {
+    return std::move(abs);
+}
+
+type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
+    return abs;
+}
+
+type_domain_t type_domain_t::widen(const type_domain_t& abs) const {
+    return abs;
+}
+
+type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
+    return other;
+}
+
+void type_domain_t::write(std::ostream& os) const { 
+    os << "I am printing types in the start\n";
+    os << m_types;
+    os << "I am printing stack in the start\n";
+    os << "\t" << m_stack << "\n";
+}
+
+std::string type_domain_t::domain_name() const {
+    return "type_domain";
+}
+
+int type_domain_t::get_instruction_count_upper_bound() {
+    return 0;
+}
+
+string_invariant type_domain_t::to_set() {
+    return string_invariant{};
 }
 
 void type_domain_t::operator()(const Undefined & u) {}
@@ -60,7 +103,10 @@ void type_domain_t::operator()(const Jmp &u) {}
 void type_domain_t::operator()(const Packet & u) {}
 void type_domain_t::operator()(const LockAdd &u) {}
 void type_domain_t::operator()(const Assume &u) {}
-void type_domain_t::operator()(const Assert &u) {}
+void type_domain_t::operator()(const Assert &u) {
+
+    std::cout << "I am in Assert\n";
+}
 
 type_domain_t type_domain_t::setup_entry() {
 
@@ -84,6 +130,7 @@ type_domain_t type_domain_t::setup_entry() {
 
 void type_domain_t::operator()(const Bin& bin) {
 
+    std::cout << "I am in Bin\n";
     std::cout << "  " << bin << "\n";
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
@@ -227,3 +274,5 @@ void type_domain_t::operator()(const Mem& b) {
         CRAB_ERROR("Either loading to a number (not allowed) or storing a number (not allowed yet) - ", std::get<Imm>(b.value).v);
     }
 }
+
+void type_domain_t::set_require_check(check_require_func_t f) {}

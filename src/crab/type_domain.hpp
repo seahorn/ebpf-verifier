@@ -5,7 +5,10 @@
 
 #include <unordered_map>
 
+#include "crab/abstract_domain.hpp"
 #include "crab/cfg.hpp"
+#include "linear_constraint.hpp"
+#include "string_constraints.hpp"
 
 namespace crab {
 
@@ -48,6 +51,15 @@ struct ptr_no_off_t {
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
         return o << "{" << get_region(p.r) << "}";
     }
+  
+    // temporarily make operators friend functions in order to avoid duplicate symbol errors
+    friend bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+        return (p1.r == p2.r);
+    }
+
+    friend bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+        return !(p1 == p2);
+    }
 };
 
 struct ptr_with_off_t {
@@ -66,23 +78,16 @@ struct ptr_with_off_t {
         o << "{" << get_region(p.r) << ", " << p.offset << "}";
         return o;
     }
+
+    // temporarily make operators friend functions in order to avoid duplicate symbol errors
+    friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+        return (p1.r == p2.r && p1.offset == p2.offset);
+    }
+
+    friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+        return !(p1 == p2);
+    }
 };
-
-bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return (p1.r == p2.r);
-}
-
-bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return !(p1 == p2);
-}
-
-bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return (p1.r == p2.r && p1.offset == p2.offset);
-}
-
-bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return !(p1 == p2);
-}
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 using register_t = uint8_t;
@@ -169,6 +174,12 @@ class stack_t {
     stack_t(bool is_bottom = false) : m_is_bottom(is_bottom) {}
     stack_t(offset_to_ptr_t && ptrs, bool is_bottom)
     : m_ptrs(std::move(ptrs)) , m_is_bottom(is_bottom) {}
+    
+   // stack_t(stack_t&& s) = default; 
+   // stack_t(const stack_t& s) = default;
+    
+   // stack_t& operator=(const stack_t& s) = default;
+ //   stack_t& operator=(stack_t&& s) = default;
 
     stack_t operator|(const stack_t& other) const {
         if (is_bottom() || other.is_top()) {
@@ -184,7 +195,27 @@ class stack_t {
         }
         return stack_t(std::move(out_ptrs), false);
     }
+/*
+    stack_t operator|(stack_t&& other) && {
+        if (is_bottom() || other.is_top) 
+            return std::move(other);
+        if (other.is_bottom() || is_top())
+            return std::move(*this);
+        return ((const stack_t&)*this) | (const stack_t&)other;
+    }
 
+    stack_t operator|(const stack_t& other) && {
+        if (is_top() || other.is_bottom())
+            return std::move(*this);
+        return ((const stack_t&
+    }
+
+    stack_t operator|(stack_t&& other) const& {
+        if (is_bottom() || other.is_top())
+            return std::move(other);
+        return (*this) | (const stack_t&)other;
+    }
+*/
     void set_to_bottom() {
         m_ptrs.clear();
         m_is_bottom = true;
@@ -246,6 +277,8 @@ class register_types_t {
     register_types_t(bool is_bottom = false) : m_all_types(nullptr), m_is_bottom(is_bottom) {}
     explicit register_types_t(live_registers_t&& vars, std::shared_ptr<global_type_env_t> all_types, bool is_bottom = false)
         : m_vars(std::move(vars)), m_all_types(all_types), m_is_bottom(is_bottom) {}
+    //register_types_t(register_types_t&& t) = default;
+   // register_types_t& operator=(register_types_t&& t) = default;
 
     register_types_t operator|(const register_types_t& other) const {
         if (is_bottom() || other.is_top()) {
@@ -331,7 +364,10 @@ class type_domain_t final {
 
   public:
 
+  type_domain_t(const type_domain_t& o);
   type_domain_t() : m_label(label_t::entry) {}
+  type_domain_t(type_domain_t&& o) = default;
+  type_domain_t& operator=(type_domain_t&& o) = default;
   type_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
             : m_stack(std::move(_st)), m_types(std::move(_types)), m_ctx(_ctx), m_label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
@@ -345,10 +381,9 @@ class type_domain_t final {
   // inclusion
   bool operator<=(const type_domain_t& other) const;
   // join
-  void operator|=(type_domain_t& other) const;
+  void operator|=(type_domain_t&& other) const;
   void operator|=(const type_domain_t& other) const;
-  friend std::ostream& operator<<(std::ostream&, const type_domain_t&);
-  type_domain_t operator|(type_domain_t& other) const;
+  type_domain_t operator|(type_domain_t&& other) const;
   type_domain_t operator|(const type_domain_t& other) const&;
   // meet
   type_domain_t operator&(const type_domain_t& other) const;
@@ -370,16 +405,20 @@ class type_domain_t final {
   void operator()(const LockAdd &);
   void operator()(const Assume &);
   void operator()(const Assert &);
-  void operator()(const basic_block_t& bb) {
+  void operator()(const basic_block_t& bb, bool check_termination) {
       m_curr_pos = 0;
       m_label = bb.label();
       std::cout << m_label << ": \n";
       for (const Instruction& statement : bb) {
         m_curr_pos++;
         std::visit(*this, statement);
-        std::cout << *this << "\n";
     }
   }
+  void write(std::ostream& os) const;
+  std::string domain_name() const;
+  int get_instruction_count_upper_bound();
+  string_invariant to_set();
+  void set_require_check(check_require_func_t f);
 
   private:
 

@@ -1,5 +1,6 @@
 #include "abstract_domain.hpp"
 #include "ebpf_domain.hpp"
+#include "type_domain.hpp"
 
 template <typename Domain>
 abstract_domain_t::abstract_domain_model<Domain>::abstract_domain_model(Domain abs_val)
@@ -290,3 +291,4 @@ std::ostream& operator<<(std::ostream& o, const abstract_domain_t& dom) {
 
 // REQUIRED: instantiation for supported domains
 template abstract_domain_t::abstract_domain_t(crab::ebpf_domain_t);
+template abstract_domain_t::abstract_domain_t(type_domain_t);
