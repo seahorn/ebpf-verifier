@@ -169,45 +169,66 @@ struct stack_t {
 };
 
 using all_types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
+using reg_live_vars_t = std::array<reg_with_loc_t, 11>;
 
 struct types_t {
-    std::array<reg_with_loc_t, 11> vars;
+  private:
+    reg_live_vars_t vars;
     std::shared_ptr<all_types_t> all_types;
+    bool _is_bottom = false;
 
-    types_t() {}
-    types_t(const types_t& other) : vars(other.vars), all_types(other.all_types) {}
+  public:
+    types_t(bool is_bottom = false) : _is_bottom(is_bottom) {}
+    explicit types_t(reg_live_vars_t _vars, std::shared_ptr<all_types_t> _all_types, bool is_bottom = false)
+        : vars(_vars), all_types(_all_types), _is_bottom(is_bottom) {}
 
     types_t operator|(const types_t& other) const {
-        types_t v{};
+        reg_live_vars_t _vars;
         for (int i = 0; i < vars.size(); i++) {
             auto it1 = all_types->find(vars[i]);
             auto it2 = other.all_types->find(other.vars[i]);
             if (it1 != all_types->end() && it2 != other.all_types->end()) {
                 if (it1->second == it2->second) {
-                    v.vars[i] = vars[i];
+                    _vars[i] = vars[i];
                 }
             }
         }
-        v.all_types = all_types;
+
+        types_t v(_vars, all_types, false);
         return v;
     }
 
     void set_to_bottom() {
-       vars = {};
+        this->~types_t();
+        new (this) types_t(true);
     }
 
-    bool is_bottom() const {
-        for (auto& it : vars) {
-            if (it.r != -1) return false;
-        }
+    bool is_bottom() const { return _is_bottom; }
+
+    bool is_top() const {
+        if (_is_bottom)
+            return false;
         return true;
+    }
+
+    void insert(uint32_t reg, const reg_with_loc_t& reg_with_loc, const ptr_t& type) {
+        auto it = all_types->insert(std::make_pair(reg_with_loc, type));
+        if (not it.second) it.first->second = type;
+        vars[reg] = reg_with_loc;
+    }
+
+    std::optional<ptr_t> find(uint32_t key) {
+        auto reg = vars[key];
+        auto it = all_types->find(reg);
+        if (it == all_types->end()) return {};
+        return it->second;
     }
 };
 
 }
 
 class type_domain_t final {
-
+  private:
     crab::stack_t stack;
     crab::types_t types;
     std::shared_ptr<crab::ctx_t> ctx;
@@ -216,7 +237,7 @@ class type_domain_t final {
 
   public:
 
-  type_domain_t(const label_t& _l) : label(_l) {}
+  type_domain_t() : label(label_t::entry) {}
   type_domain_t(const crab::types_t& _types, const crab::stack_t& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
             : stack(_st), types(_types), ctx(_ctx), label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
