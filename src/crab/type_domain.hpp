@@ -22,12 +22,12 @@ struct ptr_no_off_t {
     ptr_no_off_t(region _r) : r(_r) {}
     ptr_no_off_t(const ptr_no_off_t& p) : r(p.r) {}
 
-    bool operator!=(const ptr_no_off_t& p) {
-        return r != p.r;
+    friend bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+        return (p1.r == p2.r);
     }
 
-    bool operator==(const ptr_no_off_t& p) {
-        return r == p.r;
+    friend bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
+        return !(p2 == p1);
     }
 };
 
@@ -38,12 +38,12 @@ struct ptr_with_off_t {
     ptr_with_off_t(region _r, int _off) : r(_r), offset(_off) {}
     ptr_with_off_t(const ptr_with_off_t& p) : r(p.r), offset(p.offset) {}
 
-    bool operator!=(const ptr_with_off_t& p) {
-        return r != p.r;
+    friend bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+        return (p1.r == p2.r);
     }
 
-    bool operator==(const ptr_with_off_t& p) {
-        return r == p.r;
+    friend bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
+        return !(p1 == p2);
     }
 };
 
@@ -108,22 +108,8 @@ struct stack_t {
         stack_t st{};
         for (auto& e : ptrs) {
             auto it = other.ptrs.find(e.first);
-            if (it == other.ptrs.end()) {
+            if (it == other.ptrs.end() || it->second == e.second) {
                 st.ptrs.insert(e);
-            }
-            else {
-                if (it->second.index() == e.second.index()) {
-                    if (std::holds_alternative<ptr_no_off_t>(it->second)) {
-                        ptr_no_off_t t = std::get<ptr_no_off_t>(it->second);
-                        ptr_no_off_t t1 = std::get<ptr_no_off_t>(e.second);
-                        if (t == t1) st.ptrs.insert(e);
-                    }
-                    else {
-                        ptr_with_off_t t = std::get<ptr_with_off_t>(it->second);
-                        ptr_with_off_t t1 = std::get<ptr_with_off_t>(e.second);
-                        if (t == t1) st.ptrs.insert(e);
-                    }
-                }
             }
         }
 
@@ -160,17 +146,8 @@ struct types_t {
             auto it1 = all_types->find(vars[i]);
             auto it2 = other.all_types->find(other.vars[i]);
             if (it1 != all_types->end() && it2 != other.all_types->end()) {
-                if (it1->second.index() == it2->second.index()) {
-                    if (std::holds_alternative<ptr_no_off_t>(it1->second)) {
-                        if (std::get<ptr_no_off_t>(it1->second) == std::get<ptr_no_off_t>(it2->second)) {
-                            v.vars[i] = vars[i];
-                        }
-                    }
-                    else {
-                        if (std::get<ptr_with_off_t>(it1->second) == std::get<ptr_with_off_t>(it2->second)) {
-                            v.vars[i] = vars[i];
-                        }
-                    }
+                if (it1->second == it2->second) {
+                    v.vars[i] = vars[i];
                 }
             }
         }
