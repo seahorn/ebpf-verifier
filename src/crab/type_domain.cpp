@@ -37,6 +37,12 @@ type_domain_t type_domain_t::operator|(const type_domain_t& other) const& {
     return type_domain_t(types | other.types, stack | other.stack, label, other.ctx);
 }
 
+std::ostream& operator<<(std::ostream& o, const type_domain_t& t) {
+    o << t.types;
+    o << "\t" << t.stack << "\n";
+    return o;
+}
+
 void type_domain_t::operator()(const Undefined & u) {}
 void type_domain_t::operator()(const Un &u) {}
 void type_domain_t::operator()(const LoadMapFd &u) {}
@@ -66,6 +72,7 @@ type_domain_t type_domain_t::setup_entry(std::shared_ptr<ctx_t> _ctx, std::share
 
 void type_domain_t::operator()(const Bin& bin) {
 
+    std::cout << "  " << bin << "\n";
     if (std::holds_alternative<Reg>(bin.v)) {
         Reg src = std::get<Reg>(bin.v);
         switch (bin.op)
@@ -197,6 +204,7 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
 
 void type_domain_t::operator()(const Mem& b) {
 
+    std::cout << "  " << b << "\n";
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
             do_load(b, std::get<Reg>(b.value));
