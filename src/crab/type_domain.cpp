@@ -58,8 +58,8 @@ type_domain_t type_domain_t::setup_entry(std::shared_ptr<ctx_t> _ctx, std::share
     inv.types.all_types = _types;
     inv.ctx = _ctx;
 
-    inv.types.vars[R1_ARG] = reg_with_loc_t(R1_ARG, label_t::entry, -1);
-    inv.types.vars[R10_STACK_POINTER] = reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1);
+    inv.types.vars[R1_ARG] = reg_with_loc_t(R1_ARG, label_t::entry, 0);
+    inv.types.vars[R10_STACK_POINTER] = reg_with_loc_t(R10_STACK_POINTER, label_t::entry, 0);
 
     return inv;
 }
@@ -78,7 +78,7 @@ void type_domain_t::operator()(const Bin& bin) {
                     CRAB_ERROR("type error: assigning an unknown pointer or a number - R", (int)src.v);
                 }
 
-                auto reg = reg_with_loc_t(bin.dst.v, label, -1);
+                auto reg = reg_with_loc_t(bin.dst.v, label, m_curr_pos);
                 update(types.all_types, reg, it->second);
                 types.vars[bin.dst.v] = reg;
             }
@@ -121,13 +121,13 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
 
             if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, label, -1);
+                auto reg = reg_with_loc_t(target_reg.v, label, m_curr_pos);
                 update(types.all_types, reg, type_loaded_with_off);
                 types.vars[target_reg.v] = reg;
             }
             else {
                 ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
-                auto reg = reg_with_loc_t(target_reg.v, label, -1);
+                auto reg = reg_with_loc_t(target_reg.v, label, m_curr_pos);
                 update(types.all_types, reg, type_loaded_no_off);
                 types.vars[target_reg.v] = reg;
             }
@@ -144,7 +144,7 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
             }
             ptr_no_off_t type_loaded = it->second;
 
-            auto reg = reg_with_loc_t(target_reg.v, label, -1);
+            auto reg = reg_with_loc_t(target_reg.v, label, m_curr_pos);
             update(types.all_types, reg, type_loaded);
             types.vars[target_reg.v] = reg;
             break;
