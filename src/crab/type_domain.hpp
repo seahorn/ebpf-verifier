@@ -47,6 +47,9 @@ struct ptr_with_off_t {
     }
 };
 
+using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
+
+
 struct reg_with_loc_t {
     int r;
     std::pair<label_t, int> loc;
@@ -55,14 +58,35 @@ struct reg_with_loc_t {
     reg_with_loc_t(int _r, const label_t& l, int loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
 
     bool operator==(const reg_with_loc_t& other) const {
-        return (r != -1 && r == other.r && loc.first == other.loc.first && loc.second == other.loc.second);
+        return (r != -1 && r == other.r);
+    }
+};
+}
+
+// adapted from top answer in
+// https://stackoverflow.com/questions/17016175/c-unordered-map-using-a-custom-class-type-as-the-key
+// works for now but needs to be checked again
+template <>
+struct std::hash<crab::reg_with_loc_t>
+{
+    std::size_t operator()(const crab::reg_with_loc_t& reg) const
+    {
+        using std::size_t;
+        using std::hash;
+        using std::string;
+
+        // Compute individual hash values for first,
+        // second and third and combine them using XOR
+        // and bit shifting:
+
+        return ((hash<int>()(reg.r)
+               ^ (hash<int>()(reg.loc.first.from) << 1)) >> 1)
+               ^ (hash<int>()(reg.loc.second) << 1);
     }
 };
 
+namespace crab {
 
-using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
-
-using types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
 using offset_to_ptr_no_off_t = std::unordered_map<uint64_t, ptr_no_off_t>;
 using offset_to_ptr_t = std::unordered_map<uint64_t, ptr_t>;
@@ -111,20 +135,58 @@ struct stack_t {
         }
         return st;
     }
+
+    void set_to_bottom() {
+        ptrs.clear();
+    }
+
+    bool is_bottom() const {
+        return ptrs.empty();
+    }
 };
 
-struct live_def_t {
-    std::array<reg_with_loc_t, 11> vars;
+using all_types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
 
-    live_def_t operator|(const live_def_t& other) const {
-        live_def_t v{};
+struct types_t {
+    std::array<reg_with_loc_t, 11> vars;
+    std::shared_ptr<crab::all_types_t> all_types;
+
+    types_t() {}
+    types_t(const types_t& other) : vars(other.vars), all_types(other.all_types) {}
+
+    types_t operator|(const types_t& other) const {
+        types_t v{};
         for (int i = 0; i < vars.size(); i++) {
-            if (vars[i] == other.vars[i]) {
-                std::cout << "equal at: " << i << "\n";
-                v.vars[i] = vars[i];
+            auto it1 = all_types->find(vars[i]);
+            auto it2 = other.all_types->find(other.vars[i]);
+            if (it1 != all_types->end() && it2 != other.all_types->end()) {
+                if (it1->second.index() == it2->second.index()) {
+                    if (std::holds_alternative<ptr_no_off_t>(it1->second)) {
+                        if (std::get<ptr_no_off_t>(it1->second) == std::get<ptr_no_off_t>(it2->second)) {
+                            v.vars[i] = vars[i];
+                        }
+                    }
+                    else {
+                        if (std::get<ptr_with_off_t>(it1->second) == std::get<ptr_with_off_t>(it2->second)) {
+                            v.vars[i] = vars[i];
+                        }
+                    }
+                }
             }
         }
+        v.all_types = all_types;
         return v;
+    }
+
+    void set_to_bottom() {
+       vars = {};
+    }
+
+    bool is_bottom() const {
+        for (auto& it : vars) {
+            if (it.r != -1) return false;
+        }
+        return true;
     }
 };
 
@@ -133,20 +195,19 @@ struct live_def_t {
 class type_domain_t final {
 
     crab::stack_t stack;
-    std::shared_ptr<crab::types_t> types;
-    crab::live_def_t live_def;
+    crab::types_t types;
     std::shared_ptr<crab::ctx_t> ctx;
     label_t label;
 
   public:
 
   type_domain_t(const label_t& _l) : label(_l) {}
-  type_domain_t(const crab::live_def_t& _live, const crab::stack_t& _st, const label_t& _l,
-          std::shared_ptr<crab::types_t> _types, std::shared_ptr<crab::ctx_t> _ctx)
-            : stack(_st), types(_types), live_def(_live), ctx(_ctx), label(_l) {}
+  type_domain_t(const crab::types_t& _types, const crab::stack_t& _st, const label_t& _l, std::shared_ptr<crab::ctx_t> _ctx)
+            : stack(_st), types(_types), ctx(_ctx), label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-  static type_domain_t setup_entry(std::shared_ptr<crab::ctx_t>, std::shared_ptr<crab::types_t>);
+  static type_domain_t setup_entry(std::shared_ptr<crab::ctx_t>, std::shared_ptr<crab::all_types_t>);
   // bottom/top
+  static type_domain_t bottom();
   void set_to_top();
   void set_to_bottom();
   bool is_bottom() const;
@@ -191,25 +252,3 @@ class type_domain_t final {
   void do_mem_store(const Mem&, const Reg&);
 
 }; // end type_domain_t
-
-// adapted from top answer in
-// https://stackoverflow.com/questions/17016175/c-unordered-map-using-a-custom-class-type-as-the-key
-// works for now but needs to be checked again
-template <>
-struct std::hash<crab::reg_with_loc_t>
-{
-    std::size_t operator()(const crab::reg_with_loc_t& reg) const
-    {
-        using std::size_t;
-        using std::hash;
-        using std::string;
-
-        // Compute individual hash values for first,
-        // second and third and combine them using XOR
-        // and bit shifting:
-
-        return ((hash<int>()(reg.r)
-               ^ (hash<int>()(reg.loc.first.from) << 1)) >> 1)
-               ^ (hash<int>()(reg.loc.second) << 1);
-    }
-};

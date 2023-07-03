@@ -10,17 +10,34 @@ using crab::ptr_t;
 using crab::ptr_with_off_t;
 using crab::ptr_no_off_t;
 using crab::ctx_t;
-using crab::types_t;
+using crab::all_types_t;
 using crab::reg_with_loc_t;
 
-void update(std::shared_ptr<types_t> m, const reg_with_loc_t& key, const ptr_t& value) {
+void update(std::shared_ptr<all_types_t> m, const reg_with_loc_t& key, const ptr_t& value) {
     auto it = m->insert(std::make_pair(key, value));
     if (not it.second) it.first->second = value;
 }
 
+type_domain_t type_domain_t::bottom() {
+    type_domain_t typ(label_t::entry);
+    typ.set_to_bottom();
+    return typ;
+}
+
+bool type_domain_t::is_bottom() const {
+    return (stack.is_bottom() && types.is_bottom());
+}
+
+void type_domain_t::set_to_bottom() {
+    stack.set_to_bottom();
+    types.set_to_bottom();
+}
 
 type_domain_t type_domain_t::operator|(const type_domain_t& other) const& {
-    return type_domain_t(live_def | other.live_def, stack | other.stack, label, other.types, other.ctx);
+    if (is_bottom()) {
+        return other;
+    }
+    return type_domain_t(types | other.types, stack | other.stack, label, other.ctx);
 }
 
 void type_domain_t::operator()(const Undefined & u) {}
@@ -34,15 +51,15 @@ void type_domain_t::operator()(const LockAdd &u) {}
 void type_domain_t::operator()(const Assume &u) {}
 void type_domain_t::operator()(const Assert &u) {}
 
-type_domain_t type_domain_t::setup_entry(std::shared_ptr<ctx_t> _ctx, std::shared_ptr<types_t> _types) {
+type_domain_t type_domain_t::setup_entry(std::shared_ptr<ctx_t> _ctx, std::shared_ptr<all_types_t> _types) {
 
     type_domain_t inv(label_t::entry);
 
-    inv.types = _types;
+    inv.types.all_types = _types;
     inv.ctx = _ctx;
 
-    inv.live_def.vars[R1_ARG] = reg_with_loc_t(R1_ARG, label_t::entry, -1);
-    inv.live_def.vars[R10_STACK_POINTER] = reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1);
+    inv.types.vars[R1_ARG] = reg_with_loc_t(R1_ARG, label_t::entry, -1);
+    inv.types.vars[R10_STACK_POINTER] = reg_with_loc_t(R10_STACK_POINTER, label_t::entry, -1);
 
     return inv;
 }
@@ -55,15 +72,15 @@ void type_domain_t::operator()(const Bin& bin) {
         {
             case Bin::Op::MOV: {
 
-                auto reg_to_look = live_def.vars[src.v];    // need checks that array actually contains an element, not default value
-                auto it = types->find(reg_to_look);
-                if (it == types->end()) {
+                auto reg_to_look = types.vars[src.v];    // need checks that array actually contains an element, not default value
+                auto it = types.all_types->find(reg_to_look);
+                if (it == types.all_types->end()) {
                     CRAB_ERROR("type error: assigning an unknown pointer or a number - R", (int)src.v);
                 }
 
                 auto reg = reg_with_loc_t(bin.dst.v, label, -1);
-                update(types, reg, it->second);
-                live_def.vars[bin.dst.v] = reg;
+                update(types.all_types, reg, it->second);
+                types.vars[bin.dst.v] = reg;
             }
 
             default:
@@ -77,9 +94,9 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
-    auto reg_to_look = live_def.vars[basereg.v];
-    auto it = types->find(reg_to_look);
-    if (it == types->end()) {
+    auto reg_to_look = types.vars[basereg.v];
+    auto it = types.all_types->find(reg_to_look);
+    if (it == types.all_types->end()) {
         CRAB_ERROR("type_error: loading from an unknown pointer, or from number - R", (int)basereg.v);
     }
 
@@ -105,14 +122,14 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
             if (std::holds_alternative<ptr_with_off_t>(type_loaded)) {
                 ptr_with_off_t type_loaded_with_off = std::get<ptr_with_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, label, -1);
-                update(types, reg, type_loaded_with_off);
-                live_def.vars[target_reg.v] = reg;
+                update(types.all_types, reg, type_loaded_with_off);
+                types.vars[target_reg.v] = reg;
             }
             else {
                 ptr_no_off_t type_loaded_no_off = std::get<ptr_no_off_t>(type_loaded);
                 auto reg = reg_with_loc_t(target_reg.v, label, -1);
-                update(types, reg, type_loaded_no_off);
-                live_def.vars[target_reg.v] = reg;
+                update(types.all_types, reg, type_loaded_no_off);
+                types.vars[target_reg.v] = reg;
             }
 
             break;
@@ -128,8 +145,8 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg) {
             ptr_no_off_t type_loaded = it->second;
 
             auto reg = reg_with_loc_t(target_reg.v, label, -1);
-            update(types, reg, type_loaded);
-            live_def.vars[target_reg.v] = reg;
+            update(types.all_types, reg, type_loaded);
+            types.vars[target_reg.v] = reg;
             break;
         }
 
@@ -144,17 +161,17 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg) {
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
-    auto reg_to_look = live_def.vars[basereg.v];
-    auto it = types->find(reg_to_look);
-    if (it == types->end()) {
+    auto reg_to_look = types.vars[basereg.v];
+    auto it = types.all_types->find(reg_to_look);
+    if (it == types.all_types->end()) {
         CRAB_ERROR("type_error: storing at an unknown pointer, or from number - R", (int)basereg.v);
     }
 
     ptr_t type_basereg = it->second;
 
-    reg_to_look = live_def.vars[target_reg.v];
-    auto it2 = types->find(reg_to_look);
-    if (it2 == types->end()) {
+    reg_to_look = types.vars[target_reg.v];
+    auto it2 = types.all_types->find(reg_to_look);
+    if (it2 == types.all_types->end()) {
         CRAB_ERROR("type_error: storing either a number or an unknown pointer - R", (int)target_reg.v);
     }
 
