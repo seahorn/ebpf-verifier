@@ -25,6 +25,10 @@ struct ptr_no_off_t {
     bool operator!=(const ptr_no_off_t& p) {
         return r != p.r;
     }
+
+    bool operator==(const ptr_no_off_t& p) {
+        return r == p.r;
+    }
 };
 
 struct ptr_with_off_t {
@@ -37,6 +41,10 @@ struct ptr_with_off_t {
     bool operator!=(const ptr_with_off_t& p) {
         return r != p.r;
     }
+
+    bool operator==(const ptr_with_off_t& p) {
+        return r == p.r;
+    }
 };
 
 struct reg_with_loc_t {
@@ -47,22 +55,20 @@ struct reg_with_loc_t {
     reg_with_loc_t(int _r, const label_t& l, int loc_instr) : r(_r), loc(std::make_pair(l, loc_instr)) {}
 
     bool operator==(const reg_with_loc_t& other) const {
-        return (r == other.r && loc.first == other.loc.first && loc.second == other.loc.second);
+        return (r != -1 && r == other.r && loc.first == other.loc.first && loc.second == other.loc.second);
     }
 };
 
 
 using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
 
-using stack_t = std::unordered_map<uint64_t, ptr_t>;
 using types_t = std::unordered_map<reg_with_loc_t, ptr_t>;
-using live_vars_t = std::array<reg_with_loc_t, 11>;
 
-
-using offset_to_ptr_t = std::unordered_map<int, crab::ptr_no_off_t>;
+using offset_to_ptr_no_off_t = std::unordered_map<uint64_t, ptr_no_off_t>;
+using offset_to_ptr_t = std::unordered_map<uint64_t, ptr_t>;
 
 struct ctx_t {
-    offset_to_ptr_t packet_ptrs;
+    offset_to_ptr_no_off_t packet_ptrs;
 
     ctx_t(const ebpf_context_descriptor_t* desc)
     {
@@ -70,19 +76,74 @@ struct ctx_t {
         packet_ptrs.insert(std::make_pair(desc->end, crab::ptr_no_off_t(crab::region::T_PACKET)));
     }
 };
+
+struct stack_t {
+    offset_to_ptr_t ptrs;
+
+    stack_t operator|(const stack_t& other) const {
+        stack_t st{};
+        for (auto& e : ptrs) {
+            auto it = other.ptrs.find(e.first);
+            if (it == other.ptrs.end()) {
+                st.ptrs.insert(e);
+            }
+            else {
+                if (it->second.index() == e.second.index()) {
+                    if (std::holds_alternative<ptr_no_off_t>(it->second)) {
+                        ptr_no_off_t t = std::get<ptr_no_off_t>(it->second);
+                        ptr_no_off_t t1 = std::get<ptr_no_off_t>(e.second);
+                        if (t == t1) st.ptrs.insert(e);
+                    }
+                    else {
+                        ptr_with_off_t t = std::get<ptr_with_off_t>(it->second);
+                        ptr_with_off_t t1 = std::get<ptr_with_off_t>(e.second);
+                        if (t == t1) st.ptrs.insert(e);
+                    }
+                }
+            }
+        }
+
+        for (auto& e : other.ptrs) {
+            auto it = ptrs.find(e.first);
+            if (it == ptrs.end()) {
+                st.ptrs.insert(e);
+            }
+        }
+        return st;
+    }
+};
+
+struct live_def_t {
+    std::array<reg_with_loc_t, 11> vars;
+
+    live_def_t operator|(const live_def_t& other) const {
+        live_def_t v{};
+        for (int i = 0; i < vars.size(); i++) {
+            if (vars[i] == other.vars[i]) {
+                std::cout << "equal at: " << i << "\n";
+                v.vars[i] = vars[i];
+            }
+        }
+        return v;
+    }
+};
+
 }
 
 class type_domain_t final {
 
     crab::stack_t stack;
     std::shared_ptr<crab::types_t> types;
-    crab::live_vars_t live_vars;
+    crab::live_def_t live_def;
     std::shared_ptr<crab::ctx_t> ctx;
     label_t label;
 
   public:
 
   type_domain_t(const label_t& _l) : label(_l) {}
+  type_domain_t(const crab::live_def_t& _live, const crab::stack_t& _st, const label_t& _l,
+          std::shared_ptr<crab::types_t> _types, std::shared_ptr<crab::ctx_t> _ctx)
+            : stack(_st), types(_types), live_def(_live), ctx(_ctx), label(_l) {}
   // eBPF initialization: R1 points to ctx, R10 to stack, etc.
   static type_domain_t setup_entry(std::shared_ptr<crab::ctx_t>, std::shared_ptr<crab::types_t>);
   // bottom/top
@@ -96,7 +157,7 @@ class type_domain_t final {
   void operator|=(type_domain_t& other) const;
   void operator|=(const type_domain_t& other) const;
   type_domain_t operator|(type_domain_t& other) const;
-  type_domain_t operator|(const type_domain_t& other) const;
+  type_domain_t operator|(const type_domain_t& other) const&;
   // meet
   type_domain_t operator&(const type_domain_t& other) const;
   // widening
