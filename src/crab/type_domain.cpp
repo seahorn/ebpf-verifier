@@ -389,8 +389,8 @@ std::string type_domain_t::domain_name() const {
     return "type_domain";
 }
 
-int type_domain_t::get_instruction_count_upper_bound() {
-    return 0;
+crab::bound_t type_domain_t::get_instruction_count_upper_bound() {
+    return crab::bound_t(crab::number_t(0));
 }
 
 string_invariant type_domain_t::to_set() {
@@ -455,7 +455,7 @@ type_domain_t type_domain_t::setup_entry() {
 
     print_info();
 
-    std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.type.context_descriptor);
+    std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.get().type.context_descriptor);
     std::shared_ptr<global_type_env_t> all_types = std::make_shared<global_type_env_t>();
 
     std::cout << *ctx << "\n";

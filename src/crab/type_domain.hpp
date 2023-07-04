@@ -165,7 +165,7 @@ class type_domain_t final {
     // narrowing
     type_domain_t narrow(const type_domain_t& other) const;
     //forget
-    void operator-=(variable_t var);
+    void operator-=(crab::variable_t var);
 
     //// abstract transformers
     void operator()(const Undefined &);
@@ -183,7 +183,7 @@ class type_domain_t final {
     void operator()(const basic_block_t& bb, bool check_termination);
     void write(std::ostream& os) const;
     std::string domain_name() const;
-    int get_instruction_count_upper_bound();
+    crab::bound_t get_instruction_count_upper_bound();
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
 
