@@ -18,6 +18,7 @@
 #include "crab/abstract_domain.hpp"
 #include "crab/ebpf_domain.hpp"
 #include "crab/type_domain.hpp"
+#include "crab/region_domain.hpp"
 #include "crab/fwd_analyzer.hpp"
 #include "crab_utils/lazy_allocator.hpp"
 
@@ -124,11 +125,10 @@ static void print_report(std::ostream& os, const checks_db& db, const Instructio
 static checks_db get_analysis_report(std::ostream& s, cfg_t& cfg, crab::invariant_table_t& pre_invariants,
                                      crab::invariant_table_t& post_invariants) {
     // Analyze the control-flow graph.
-    checks_db db = generate_report(cfg, pre_invariants, post_invariants);
-    if (thread_local_options.abstract_domain == abstract_domain_kind::TYPE_DOMAIN) {
+    if (thread_local_options.abstract_domain == abstract_domain_kind::REGION_DOMAIN) {
         auto state = post_invariants.at(label_t::exit);
         for (const label_t& label : cfg.sorted_labels()) {
-            state(cfg.get_node(label), 0, thread_local_options.print_invariants ? 2 : 1);
+            state(cfg.get_node(label), options->check_termination, thread_local_options.print_invariants ? 2 : 1);
         }
     }
     else if (thread_local_options.print_invariants) {
@@ -146,6 +146,10 @@ static abstract_domain_t make_initial(const ebpf_verifier_options_t* options) {
     switch (options->abstract_domain) {
     case abstract_domain_kind::EBPF_DOMAIN: {
         ebpf_domain_t entry_inv = ebpf_domain_t::setup_entry(options->check_termination, true);
+        return abstract_domain_t(entry_inv);
+    }
+    case abstract_domain_kind::REGION_DOMAIN: {
+        region_domain_t entry_inv = region_domain_t::setup_entry();
         return abstract_domain_t(entry_inv);
     }
     case abstract_domain_kind::TYPE_DOMAIN: {
@@ -194,6 +198,8 @@ crab_results get_ebpf_report(std::ostream& s, cfg_t& cfg, program_info info, con
         return crab_results(std::move(cfg),
 			    std::move(pre_invariants), std::move(post_invariants),
 			    std::move(get_analysis_report(s, cfg, pre_invariants, post_invariants)));
+
+>>>>>>> 1dcb6ea... Initial setting to incorporate region and offset domains into another domain
     } catch (std::runtime_error& e) {
         // Convert verifier runtime_error exceptions to failure.
         checks_db db;
