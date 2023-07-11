@@ -6,12 +6,17 @@
 #include <unordered_map>
 
 #include "crab/abstract_domain.hpp"
+#include "crab/region_domain.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
 
-class type_domain_t final {
+using crab::ptr_t;
+using crab::ptr_with_off_t;
+using crab::ptr_no_off_t;
 
+class type_domain_t final {
+    region_domain_t m_region;
     bool m_is_bottom = false;
 
   public:
@@ -19,6 +24,8 @@ class type_domain_t final {
     type_domain_t() = default;
     type_domain_t(type_domain_t&& o) = default;
     type_domain_t(const type_domain_t& o) = default;
+    explicit type_domain_t(region_domain_t&& reg, bool is_bottom = false) :
+        m_region(reg), m_is_bottom(is_bottom) {}
     type_domain_t& operator=(type_domain_t&& o) = default;
     type_domain_t& operator=(const type_domain_t& o) = default;
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
@@ -58,18 +65,30 @@ class type_domain_t final {
     void operator()(const LockAdd &, location_t loc = boost::none, int print = 0);
     void operator()(const Assume &, location_t loc = boost::none, int print = 0);
     void operator()(const Assert &, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0);
+    void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Addable& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ZeroCtxOffset& s, location_t loc = boost::none, int print = 0) {}
+    void operator()(const ValidDivisor& s, location_t loc = boost::none, int print = 0) {}
     void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
     void write(std::ostream& os) const;
     std::string domain_name() const;
     crab::bound_t get_instruction_count_upper_bound();
     string_invariant to_set();
-    void set_require_check(check_require_func_t f);
+    void set_require_check(check_require_func_t f) {}
 
   private:
 
     void do_load(const Mem&, const Reg&, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
-    void print_initial_types();
+    void print_initial_types() const;
     void report_type_error(std::string, location_t);
+    void print_ctx() const;
+    void print_stack() const;
+    void print_initial_registers() const;
 
 }; // end type_domain_t

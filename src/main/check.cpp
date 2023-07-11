@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     app.add_flag("-l", list, "List sections");
 
     std::string domain = "zoneCrab";
-    std::set<string> doms{"stats", "linux", "zoneCrab", "region", "offset", "cfg"};
+    std::set<string> doms{"stats", "linux", "zoneCrab", "region", "cfg", "type"};
     app.add_set("-d,--dom,--domain", domain, doms, "Abstract domain")->type_name("DOMAIN");
 
     app.add_flag("--termination", ebpf_verifier_options.check_termination, "Verify termination");
