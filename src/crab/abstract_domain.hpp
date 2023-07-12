@@ -53,6 +53,7 @@ class abstract_domain_t {
         virtual crab::bound_t get_instruction_count_upper_bound() = 0;
         virtual string_invariant to_set() = 0;
         virtual void set_require_check(check_require_func_t f) = 0;
+        virtual std::vector<std::string> get_errors() = 0;
     }; // end class abstract_domain_concept
 
     template <typename Domain>
@@ -92,6 +93,7 @@ class abstract_domain_t {
         crab::bound_t get_instruction_count_upper_bound() override;
         string_invariant to_set() override;
         void set_require_check(check_require_func_t f) override;
+        std::vector<std::string> get_errors() override;
     }; // end class abstract_domain_model
 
     std::unique_ptr<abstract_domain_concept> m_concept;
@@ -135,6 +137,7 @@ class abstract_domain_t {
     crab::bound_t get_instruction_count_upper_bound();
     string_invariant to_set();
     void set_require_check(check_require_func_t f);
+    std::vector<std::string> get_errors();
 
     friend std::ostream& operator<<(std::ostream& o, const abstract_domain_t& dom);
 };

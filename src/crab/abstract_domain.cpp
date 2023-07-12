@@ -195,6 +195,11 @@ void abstract_domain_t::abstract_domain_model<Domain>::set_require_check(check_r
     m_abs_val.set_require_check(f);
 }
 
+template <typename Domain>
+std::vector<std::string> abstract_domain_t::abstract_domain_model<Domain>::get_errors() {
+    return m_abs_val.get_errors();
+}
+
 abstract_domain_t::abstract_domain_t(std::unique_ptr<typename abstract_domain_t::abstract_domain_concept> concept_)
     : m_concept(std::move(concept_)) {}
 
@@ -284,6 +289,8 @@ crab::bound_t abstract_domain_t::get_instruction_count_upper_bound() { return m_
 string_invariant abstract_domain_t::to_set() { return m_concept->to_set(); }
 
 void abstract_domain_t::set_require_check(check_require_func_t f) { m_concept->set_require_check(f); }
+
+std::vector<std::string> abstract_domain_t::get_errors() { return m_concept->get_errors(); }
 
 std::ostream& operator<<(std::ostream& o, const abstract_domain_t& dom) {
     dom.write(o);

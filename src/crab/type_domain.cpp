@@ -5,6 +5,76 @@
 
 #include "crab/type_domain.hpp"
 
+namespace std {
+    static ptr_t get_ptr(const ptr_or_mapfd_t& t) {
+    return std::visit( overloaded
+               {
+                   []( const ptr_with_off_t& x ){ return ptr_t{x};},
+                   []( const ptr_no_off_t& x ){ return ptr_t{x};},
+                   []( auto& ) { return ptr_t{};}
+                }, t
+            );
+    }
+}
+
+static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
+
+static void print_ptr_type(const ptr_t& ptr) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
+        std::cout << ptr_with_off;
+    }
+    else {
+        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
+        std::cout << ptr_no_off;
+    }
+}
+
+static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
+    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
+        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
+    }
+    else {
+        auto ptr = get_ptr(ptr_or_mapfd);
+        print_ptr_type(ptr);
+    }
+}
+
+static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p) {
+    std::cout << r << " : ";
+    if (p) {
+        print_ptr_or_mapfd_type(p.value());
+    }
+}
+
+static void print_annotated(std::ostream& o, const Call& call, std::optional<ptr_or_mapfd_t>& p) {
+    o << "  ";
+    print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p);
+    o << " = " << call.name << ":" << call.func << "(...)\n";
+}
+
+static void print_annotated(std::ostream& o, const Bin& b, std::optional<ptr_or_mapfd_t>& p) {
+    o << "  ";
+    print_register(b.dst, p);
+    o << " " << b.op << "= " << b.v << "\n";
+}
+
+static void print_annotated(std::ostream& o, const LoadMapFd& u, std::optional<ptr_or_mapfd_t>& p) {
+    o << "  ";
+    print_register(u.dst, p);
+    o << " = map_fd " << u.mapfd << "\n";
+}
+
+static void print_annotated(std::ostream& o, const Mem& b, std::optional<ptr_or_mapfd_t>& p) {
+    o << "  ";
+    print_register(std::get<Reg>(b.value), p);
+    o << " = ";
+    std::string sign = b.access.offset < 0 ? " - " : " + ";
+    int offset = std::abs(b.access.offset);
+    o << "*(" << size(b.access.width) << " *)";
+    o << "(" << b.access.basereg << sign << offset << ")\n";
+}
+
 bool type_domain_t::is_bottom() const {
     return m_is_bottom;
 }
@@ -67,18 +137,18 @@ type_domain_t type_domain_t::operator|(type_domain_t&& other) const {
 }
 
 type_domain_t type_domain_t::operator&(const type_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 type_domain_t type_domain_t::widen(const type_domain_t& abs) const {
+    /* WARNING: The operation is not implemented yet.*/
     return abs;
 }
 
 type_domain_t type_domain_t::narrow(const type_domain_t& other) const {
+    /* WARNING: The operation is not implemented yet.*/
     return other;
-}
-
-void type_domain_t::write(std::ostream& os) const { 
 }
 
 std::string type_domain_t::domain_name() const {
@@ -86,7 +156,8 @@ std::string type_domain_t::domain_name() const {
 }
 
 crab::bound_t type_domain_t::get_instruction_count_upper_bound() {
-    return crab::bound_t(crab::number_t(0));
+    /* WARNING: The operation is not implemented yet.*/
+    return crab::bound_t{crab::number_t{0}};
 }
 
 string_invariant type_domain_t::to_set() {
@@ -94,52 +165,184 @@ string_invariant type_domain_t::to_set() {
 }
 
 void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Un &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
 }
+
 void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Call &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+
+    for (ArgPair param : u.pairs) {
+        if (param.kind == ArgPair::Kind::PTR_TO_WRITABLE_MEM) {
+            auto maybe_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(param.mem.v);
+            if (!maybe_ptr_or_mapfd) continue;
+            auto ptr_or_mapfd = maybe_ptr_or_mapfd.value();
+            if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
+                auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
+                if (ptr_with_off.get_region() == region_t::T_STACK) {
+                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    if (!offset_singleton) {
+                        //std::cout << "type error: storing at an unknown offset in stack\n";
+                        m_errors.push_back("storing at an unknown offset in stack");
+                        continue;
+                    }
+                }
+            }
+        }
+    }
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
+    m_region(u, loc);
 }
+
 void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region(u, loc, print);
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
+    m_region(s, loc);
 }
 
 void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
-    m_region.check_type_constraint(s);
+    m_region(s, loc);
 }
 
 void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
-    if (is_bottom()) return;
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
+}
+
+static bool is_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
+    return (std::holds_alternative<mapfd_t>(ptr_or_mapfd));
+}
+
+static region_t get_region(const ptr_t& ptr) {
+    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
+        return std::get<ptr_with_off_t>(ptr).get_region();
+    }
+    else {
+        return std::get<ptr_no_off_t>(ptr).get_region();
+    }
+}
+
+void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
+
+    auto maybe_ptr_or_mapfd1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
+    auto maybe_ptr_or_mapfd2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
+    if (maybe_ptr_or_mapfd1 && maybe_ptr_or_mapfd2) {
+        // an extra check just to make sure registers are not labelled both ptrs and numbers
+        auto ptr_or_mapfd1 = maybe_ptr_or_mapfd1.value();
+        auto ptr_or_mapfd2 = maybe_ptr_or_mapfd1.value();
+        if (is_mapfd_type(ptr_or_mapfd1) && is_mapfd_type(ptr_or_mapfd2)) {
+            return;
+        }
+        else if (!is_mapfd_type(ptr_or_mapfd1) && !is_mapfd_type(ptr_or_mapfd2)) {
+            auto ptr1 = get_ptr(ptr_or_mapfd1);
+            auto ptr2 = get_ptr(ptr_or_mapfd2);
+            if (get_region(ptr1) == get_region(ptr2)) {
+                return;
+            }
+        }
+    }
+    else if (!maybe_ptr_or_mapfd1 && !maybe_ptr_or_mapfd2) {
+        // all other cases when we do not have a ptr or mapfd, the type is a number
+        return;
+    }
+    //std::cout << "type error: Non-comparable types\n";
+    m_errors.push_back("Non-comparable types");
+}
+
+void type_domain_t::operator()(const Addable& u, location_t loc, int print) {
+    m_region(u, loc);
+}
+
+void type_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
+    m_region(u, loc);
+}
+
+
+void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
+}
+
+void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
+
+    int width;
+    auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
+    auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
+    if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
+        auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
+        auto mapfd = maybe_mapfd.value();
+        if (is_mapfd_type(mapfd)) {
+            auto mapfd_type = std::get<mapfd_t>(mapfd);
+            if (u.key) {
+                width = (int)mapfd_type.get_key_size();
+            }
+            else {
+                width = (int)mapfd_type.get_value_size();
+            }
+            if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
+                auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
+                if (ptr_with_off.get_region() == region_t::T_STACK) {
+                    auto offset_singleton = ptr_with_off.get_offset().singleton();
+                    if (!offset_singleton) {
+                        //std::cout << "type error: reading the stack at an unknown offset\n";
+                        m_errors.push_back("reading the stack at an unknown offset");
+                        return;
+                    }
+                    auto offset_to_check = (uint64_t)offset_singleton.value();
+                    auto it2 = m_region.find_in_stack(offset_to_check);
+                    if (it2) {
+                        //std::cout << "type error: map update with a non-numerical value\n";
+                        m_errors.push_back("map update with a non-numerical value");
+                    }
+                    return;
+                }
+            }
+            else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_basereg)) {
+                auto ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_basereg);
+                if (ptr_no_off.get_region() == region_t::T_PACKET) {
+                    // We do not check packet ptr accesses yet
+                    return;
+                }
+            }
+        }
+    }
+    //std::cout << "type error: valid map key value assertion failed\n";
+    m_errors.push_back("valid map key value assertion failed");
+}
+
+void type_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print) {
+
+    auto maybe_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(u.reg.v);
+    if (maybe_ptr_or_mapfd) {
+        if (std::holds_alternative<ptr_with_off_t>(maybe_ptr_or_mapfd.value())) {
+            auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
+            if (ptr_type_with_off.get_offset() == interval_t{crab::number_t{0}}) return;
+        }
+        else if (std::holds_alternative<ptr_no_off_t>(maybe_ptr_or_mapfd.value())) {
+            // We do not yet support packet ptr offsets
+            return;
+        }
+    }
+    //std::cout << "type error: Zero Offset assertion fail\n";
+    m_errors.push_back("Zero Offset assertion fail");
 }
 
 type_domain_t type_domain_t::setup_entry() {
@@ -149,115 +352,198 @@ type_domain_t type_domain_t::setup_entry() {
 }
 
 void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
-    if (is_bottom()) return;
-    m_region.do_bin(bin, nullptr, loc, print);
+
+    auto dst_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(bin.dst.v);
+
+    std::optional<ptr_or_mapfd_t> src_ptr_or_mapfd;
+    std::optional<interval_t> src_interval;
+    if (std::holds_alternative<Reg>(bin.v)) {
+        Reg r = std::get<Reg>(bin.v);
+        src_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(r.v);
+    }
+    else {
+        auto imm = std::get<Imm>(bin.v);
+        src_interval = interval_t{crab::number_t{static_cast<int>(imm.v)}};
+    }
+
+    using Op = Bin::Op;
+    // for all operations except mov, add, sub, the src and dst should be numbers
+    if ((src_ptr_or_mapfd || dst_ptr_or_mapfd)
+            && (bin.op != Op::MOV && bin.op != Op::ADD && bin.op != Op::SUB)) {
+        //std::cout << "type error: operation on pointers not allowed\n";
+        m_errors.push_back("operation on pointers not allowed");
+        m_region -= bin.dst.v;
+        return;
+    }
+
+    m_region.do_bin(bin, src_interval, src_ptr_or_mapfd, dst_ptr_or_mapfd, loc);
 }
 
 void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    m_region.do_load(b, target_reg, loc, print);
+    m_region.do_load(b, target_reg, loc);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    m_region.do_mem_store(b, target_reg, loc, print);
+
+    m_region.do_mem_store(b, target_reg, loc);
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (is_bottom()) return;
- 
     if (std::holds_alternative<Reg>(b.value)) {
         if (b.is_load) {
             do_load(b, std::get<Reg>(b.value), loc, print);
         } else {
             do_mem_store(b, std::get<Reg>(b.value), loc, print);
         }
+    } else {
+        std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
+        std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
+        //std::cout << desc;
+        m_errors.push_back(desc);
+        return;
     }
 }
 
-static void print_ptr_type(ptr_t ptr) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
-        std::cout << ptr_with_off;
+// the method does not work well as it requires info about the label of basic block we are in
+// this info is not available when we are only printing any state
+// but it is available when we are processing a basic block for all its instructions:w
+//
+void type_domain_t::print_registers() const {
+    std::cout << "  register types: {\n";
+    for (size_t i = 0; i < NUM_REGISTERS; i++) {
+        register_t reg = (register_t)i;
+        auto maybe_ptr_or_mapfd_type = m_region.find_ptr_or_mapfd_type(reg);
+        if (maybe_ptr_or_mapfd_type) {
+            std::cout << "    ";
+            print_register(Reg{(uint8_t)reg}, maybe_ptr_or_mapfd_type);
+            std::cout << "\n";
+        }
     }
-    else {
-        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
-        std::cout << ptr_no_off;
-    }
+    std::cout << "  }\n";
 }
 
 void type_domain_t::print_ctx() const {
-    std::vector<int> ctx_keys = m_region.get_ctx_keys();
-    std::cout << "ctx: {\n";
-    for (auto const k : ctx_keys) {
-        std::optional<ptr_t> ptr = m_region.find_in_ctx(k);
+    std::vector<uint64_t> ctx_keys = m_region.get_ctx_keys();
+    std::cout << "  ctx: {\n";
+    for (auto const& k : ctx_keys) {
+        auto ptr = m_region.find_in_ctx(k);
         if (ptr) {
-            std::cout << "  " << k << ": ";
+            std::cout << "    " << k << ": ";
             print_ptr_type(ptr.value());
             std::cout << ",\n";
         }
     }
-    std::cout << "}\n\n";
+    std::cout << "  }\n";
 }
 
 void type_domain_t::print_stack() const {
-    std::vector<int> stack_keys = m_region.get_stack_keys();
-    std::cout << "stack: {\n";
-    for (auto const k : stack_keys) {
-        std::optional<ptr_t> ptr = m_region.find_in_stack(k);
-        if (ptr) {
-            std::cout << "  " << k << ": ";
-            print_ptr_type(ptr.value());
+    std::vector<uint64_t> stack_keys_region = m_region.get_stack_keys();
+    std::cout << "  stack: {\n";
+    for (auto const& k : stack_keys_region) {
+        auto maybe_ptr_or_mapfd_cells = m_region.find_in_stack(k);
+        if (maybe_ptr_or_mapfd_cells) {
+            auto ptr_or_mapfd_cells = maybe_ptr_or_mapfd_cells.value();
+            int width = ptr_or_mapfd_cells.second;
+            auto ptr_or_mapfd = ptr_or_mapfd_cells.first;
+            std::cout << "    [" << k << "-" << k+width-1 << "] : ";
+            print_ptr_or_mapfd_type(ptr_or_mapfd);
             std::cout << ",\n";
         }
     }
-    std::cout << "}\n\n";
+    std::cout << "  }\n";
 }
 
-void type_domain_t::print_initial_registers() const {
-    auto label = label_t::entry;
-    location_t loc = location_t(std::make_pair(label, 0));
-    std::cout << "Initial register types:\n";
-    m_region.print_registers_at(loc);
-}
-
-void type_domain_t::print_initial_types() const {
-    print_ctx();
-    print_stack();
-    print_initial_registers();
+void type_domain_t::adjust_bb_for_types(location_t loc) {
+    m_region.adjust_bb_for_types(loc);
 }
 
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
+
+    if (print != 0) {
+        write(std::cout, bb, print);
+        return;
+    }
+
     auto label = bb.label();
     uint32_t curr_pos = 0;
-    location_t loc;
-    if (print > 0) {
-        if (label == label_t::entry) {
-            print_initial_types();
-            m_is_bottom = false;
-        }
-        std::cout << label << ":\n";
-    }
+    location_t loc = location_t(std::make_pair(label, curr_pos));
+    if (print == 0)
+        adjust_bb_for_types(loc);
 
     for (const Instruction& statement : bb) {
         loc = location_t(std::make_pair(label, ++curr_pos));
-        if (print > 0) std::cout << " " << curr_pos << ".";
         std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, statement);
     }
 
-    if (print > 0) {
-        auto [it, et] = bb.next_blocks();
-        if (it != et) {
-            std::cout << "  "
-            << "goto ";
-            for (; it != et;) {
-                std::cout << *it;
-                ++it;
-                if (it == et) {
-                    std::cout << ";";
-                } else {
-                    std::cout << ",";
-                }
+    operator+=(m_region.get_errors());
+}
+
+void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) const {
+    if (is_bottom()) {
+        o << bb << "\n";
+        return;
+    }
+    if (print < 0) {
+        o << "state of stack and ctx in program:\n";
+        print_ctx();
+        print_stack();
+        o << "\n";
+        return;
+    }
+
+    o << bb.label() << ":\n";
+    uint32_t curr_pos = 0;
+    for (const Instruction& statement : bb) {
+        ++curr_pos;
+        location_t loc = location_t(std::make_pair(bb.label(), curr_pos));
+        o << "   " << curr_pos << ".";
+        if (std::holds_alternative<Call>(statement)) {
+            auto r0_reg = crab::reg_with_loc_t(register_t{R0_RETURN_VALUE}, loc);
+            auto region = m_region.find_ptr_or_mapfd_at_loc(r0_reg);
+            print_annotated(o, std::get<Call>(statement), region);
+        }
+        else if (std::holds_alternative<Bin>(statement)) {
+            auto b = std::get<Bin>(statement);
+            auto reg_with_loc = crab::reg_with_loc_t(b.dst.v, loc);
+            auto region = m_region.find_ptr_or_mapfd_at_loc(reg_with_loc);
+            print_annotated(o, b, region);
+        }
+        else if (std::holds_alternative<Mem>(statement)) {
+            auto u = std::get<Mem>(statement);
+            if (u.is_load) {
+                auto target_reg = std::get<Reg>(u.value);
+                auto target_reg_loc = crab::reg_with_loc_t(target_reg.v, loc);
+                auto region = m_region.find_ptr_or_mapfd_at_loc(target_reg_loc);
+                print_annotated(o, u, region);
+            }
+            else o << "  " << u << "\n";
+        }
+        else if (std::holds_alternative<LoadMapFd>(statement)) {
+            auto u = std::get<LoadMapFd>(statement);
+            auto reg = crab::reg_with_loc_t(u.dst.v, loc);
+            auto region = m_region.find_ptr_or_mapfd_at_loc(reg);
+            print_annotated(o, u, region);
+        }
+        else o << "  " << statement << "\n";
+    }
+
+    auto [it, et] = bb.next_blocks();
+    if (it != et) {
+        o << "  " << "goto ";
+        for (; it != et;) {
+            o << *it;
+            ++it;
+            if (it == et) {
+                o << ";";
+            } else {
+                o << ",";
             }
         }
-        std::cout << "\n\n";
     }
+    o << "\n\n";
+}
+
+std::ostream& operator<<(std::ostream& o, const type_domain_t& typ) {
+    typ.write(o);
+    return o;
 }

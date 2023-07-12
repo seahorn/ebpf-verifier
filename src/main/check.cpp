@@ -55,7 +55,7 @@ int main(int argc, char** argv) {
     app.add_flag("-l", list, "List sections");
 
     std::string domain = "zoneCrab";
-    std::set<string> doms{"stats", "linux", "zoneCrab", "region", "cfg", "type"};
+    std::set<string> doms{"stats", "linux", "zoneCrab", "cfg", "type"};
     app.add_set("-d,--dom,--domain", domain, doms, "Abstract domain")->type_name("DOMAIN");
 
     app.add_flag("--termination", ebpf_verifier_options.check_termination, "Verify termination");
@@ -157,12 +157,9 @@ int main(int argc, char** argv) {
         print_map_descriptors(global_program_info->map_descriptors, out);
     }
 
-    if (domain == "zoneCrab" || domain == "region" || domain == "type") {
+    if (domain == "zoneCrab" || domain == "type") {
         ebpf_verifier_stats_t verifier_stats;
-        if (domain == "region") {
-          ebpf_verifier_options.abstract_domain = abstract_domain_kind::REGION_DOMAIN;
-        }
-        else if (domain == "type") {
+        if (domain == "type") {
           ebpf_verifier_options.abstract_domain = abstract_domain_kind::TYPE_DOMAIN;
         }
         auto [res, seconds] = timed_execution([&] {
