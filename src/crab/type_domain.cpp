@@ -1,79 +1,21 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 
-#include <unordered_map>
-
 #include "crab/type_domain.hpp"
 
 namespace std {
-    static ptr_t get_ptr(const ptr_or_mapfd_t& t) {
+    static crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t) {
     return std::visit( overloaded
                {
-                   []( const ptr_with_off_t& x ){ return ptr_t{x};},
-                   []( const ptr_no_off_t& x ){ return ptr_t{x};},
-                   []( auto& ) { return ptr_t{};}
+                   []( const crab::ptr_with_off_t& x ){ return crab::ptr_t{x};},
+                   []( const crab::ptr_no_off_t& x ){ return crab::ptr_t{x};},
+                   []( auto& ) { return crab::ptr_t{};}
                 }, t
             );
     }
 }
 
-static std::string size(int w) { return std::string("u") + std::to_string(w * 8); }
-
-static void print_ptr_type(const ptr_t& ptr) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
-        std::cout << ptr_with_off;
-    }
-    else {
-        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
-        std::cout << ptr_no_off;
-    }
-}
-
-static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
-    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
-        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
-    }
-    else {
-        auto ptr = get_ptr(ptr_or_mapfd);
-        print_ptr_type(ptr);
-    }
-}
-
-static void print_register(Reg r, std::optional<ptr_or_mapfd_t>& p) {
-    std::cout << r << " : ";
-    if (p) {
-        print_ptr_or_mapfd_type(p.value());
-    }
-}
-
-static void print_annotated(std::ostream& o, const Call& call, std::optional<ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p);
-    o << " = " << call.name << ":" << call.func << "(...)\n";
-}
-
-static void print_annotated(std::ostream& o, const Bin& b, std::optional<ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(b.dst, p);
-    o << " " << b.op << "= " << b.v << "\n";
-}
-
-static void print_annotated(std::ostream& o, const LoadMapFd& u, std::optional<ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(u.dst, p);
-    o << " = map_fd " << u.mapfd << "\n";
-}
-
-static void print_annotated(std::ostream& o, const Mem& b, std::optional<ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(std::get<Reg>(b.value), p);
-    o << " = ";
-    std::string sign = b.access.offset < 0 ? " - " : " + ";
-    int offset = std::abs(b.access.offset);
-    o << "*(" << size(b.access.width) << " *)";
-    o << "(" << b.access.basereg << sign << offset << ")\n";
-}
+namespace crab {
 
 bool type_domain_t::is_bottom() const {
     return m_is_bottom;
@@ -164,18 +106,15 @@ string_invariant type_domain_t::to_set() {
     return string_invariant{};
 }
 
-void type_domain_t::operator()(const Undefined & u, location_t loc, int print) {
+void type_domain_t::operator()(const Undefined& u, location_t loc, int print) {}
+
+void type_domain_t::operator()(const Un& u, location_t loc, int print) {}
+
+void type_domain_t::operator()(const LoadMapFd& u, location_t loc, int print) {
     m_region(u, loc);
 }
 
-void type_domain_t::operator()(const Un &u, location_t loc, int print) {
-}
-
-void type_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    m_region(u, loc);
-}
-
-void type_domain_t::operator()(const Call &u, location_t loc, int print) {
+void type_domain_t::operator()(const Call& u, location_t loc, int print) {
 
     for (ArgPair param : u.pairs) {
         if (param.kind == ArgPair::Kind::PTR_TO_WRITABLE_MEM) {
@@ -198,23 +137,22 @@ void type_domain_t::operator()(const Call &u, location_t loc, int print) {
     m_region(u, loc);
 }
 
-void type_domain_t::operator()(const Exit &u, location_t loc, int print) {
+void type_domain_t::operator()(const Exit& u, location_t loc, int print) {}
+
+void type_domain_t::operator()(const Jmp& u, location_t loc, int print) {}
+
+void type_domain_t::operator()(const LockAdd& u, location_t loc, int print) {}
+
+void type_domain_t::operator()(const Packet& u, location_t loc, int print) {
     m_region(u, loc);
 }
 
-void type_domain_t::operator()(const Jmp &u, location_t loc, int print) {
-    m_region(u, loc);
+void type_domain_t::operator()(const Assume& u, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
 }
 
-void type_domain_t::operator()(const Packet & u, location_t loc, int print) {
-    m_region(u, loc);
-}
-
-void type_domain_t::operator()(const LockAdd &u, location_t loc, int print) {
-    m_region(u, loc);
-}
-
-void type_domain_t::operator()(const Assume &u, location_t loc, int print) {
+void type_domain_t::operator()(const ValidDivisor& s, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
@@ -225,7 +163,7 @@ void type_domain_t::operator()(const TypeConstraint& s, location_t loc, int prin
     m_region(s, loc);
 }
 
-void type_domain_t::operator()(const Assert &u, location_t loc, int print) {
+void type_domain_t::operator()(const Assert& u, location_t loc, int print) {
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
@@ -277,8 +215,8 @@ void type_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
     m_region(u, loc);
 }
 
-
 void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
+    m_region(u, loc);
 }
 
 void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
@@ -346,7 +284,7 @@ void type_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print
 }
 
 type_domain_t type_domain_t::setup_entry() {
-    region_domain_t reg = region_domain_t::setup_entry();
+    auto&& reg = crab::region_domain_t::setup_entry();
     type_domain_t typ(std::move(reg));
     return typ;
 }
@@ -460,7 +398,7 @@ void type_domain_t::adjust_bb_for_types(location_t loc) {
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
 
     if (print != 0) {
-        write(std::cout, bb, print);
+        print_annotated(std::cout, *this, bb, print);
         return;
     }
 
@@ -478,15 +416,29 @@ void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, 
     operator+=(m_region.get_errors());
 }
 
-void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) const {
-    if (is_bottom()) {
+std::optional<crab::ptr_or_mapfd_t>
+type_domain_t::find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t& loc) const {
+    return m_region.find_ptr_or_mapfd_at_loc(loc);
+}
+
+std::ostream& operator<<(std::ostream& o, const type_domain_t& typ) {
+    typ.write(o);
+    return o;
+}
+
+} // namespace crab
+
+
+void print_annotated(std::ostream& o, const crab::type_domain_t& typ,
+        const basic_block_t& bb, int print) {
+    if (typ.is_bottom()) {
         o << bb << "\n";
         return;
     }
     if (print < 0) {
         o << "state of stack and ctx in program:\n";
-        print_ctx();
-        print_stack();
+        typ.print_ctx();
+        typ.print_stack();
         o << "\n";
         return;
     }
@@ -499,13 +451,13 @@ void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) c
         o << "   " << curr_pos << ".";
         if (std::holds_alternative<Call>(statement)) {
             auto r0_reg = crab::reg_with_loc_t(register_t{R0_RETURN_VALUE}, loc);
-            auto region = m_region.find_ptr_or_mapfd_at_loc(r0_reg);
+            auto region = typ.find_ptr_or_mapfd_at_loc(r0_reg);
             print_annotated(o, std::get<Call>(statement), region);
         }
         else if (std::holds_alternative<Bin>(statement)) {
             auto b = std::get<Bin>(statement);
             auto reg_with_loc = crab::reg_with_loc_t(b.dst.v, loc);
-            auto region = m_region.find_ptr_or_mapfd_at_loc(reg_with_loc);
+            auto region = typ.find_ptr_or_mapfd_at_loc(reg_with_loc);
             print_annotated(o, b, region);
         }
         else if (std::holds_alternative<Mem>(statement)) {
@@ -513,7 +465,7 @@ void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) c
             if (u.is_load) {
                 auto target_reg = std::get<Reg>(u.value);
                 auto target_reg_loc = crab::reg_with_loc_t(target_reg.v, loc);
-                auto region = m_region.find_ptr_or_mapfd_at_loc(target_reg_loc);
+                auto region = typ.find_ptr_or_mapfd_at_loc(target_reg_loc);
                 print_annotated(o, u, region);
             }
             else o << "  " << u << "\n";
@@ -521,7 +473,7 @@ void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) c
         else if (std::holds_alternative<LoadMapFd>(statement)) {
             auto u = std::get<LoadMapFd>(statement);
             auto reg = crab::reg_with_loc_t(u.dst.v, loc);
-            auto region = m_region.find_ptr_or_mapfd_at_loc(reg);
+            auto region = typ.find_ptr_or_mapfd_at_loc(reg);
             print_annotated(o, u, region);
         }
         else o << "  " << statement << "\n";
@@ -543,7 +495,3 @@ void type_domain_t::write(std::ostream& o, const basic_block_t& bb, int print) c
     o << "\n\n";
 }
 
-std::ostream& operator<<(std::ostream& o, const type_domain_t& typ) {
-    typ.write(o);
-    return o;
-}

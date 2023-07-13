@@ -2,205 +2,9 @@
 // SPDX-License-Identifier: MIT
 
 #include "crab/region_domain.hpp"
-
-using crab::___print___;
-using crab::ptr_t;
-using crab::mapfd_t;
-using crab::ptr_or_mapfd_t;
-using crab::ptr_with_off_t;
-using crab::ptr_no_off_t;
-using crab::ctx_t;
-using crab::global_region_env_t;
-using crab::reg_with_loc_t;
-using crab::live_registers_t;
-using crab::register_types_t;
-using crab::map_key_size_t;
-using crab::map_value_size_t;
-using crab::ptr_or_mapfd_cells_t;
-
-namespace std {
-    template <>
-    struct hash<crab::reg_with_loc_t> {
-        size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
-    };
-
-    // does not seem to work for me
-    /*
-    template <>
-    struct equal_to<crab::ptr_t> {
-        constexpr bool operator()(const crab::ptr_t& p1, const crab::ptr_t& p2) const {
-            if (p1.index() != p2.index()) return false;
-            if (std::holds_alternative<crab::ptr_no_off_t>(p1)) {
-                auto ptr_no_off1 = std::get<crab::ptr_no_off_t>(p1);
-                auto ptr_no_off2 = std::get<crab::ptr_no_off_t>(p2);
-                return (ptr_no_off1.get_region() == ptr_no_off2.get_region());
-            }
-            else {
-                auto ptr_with_off1 = std::get<crab::ptr_with_off_t>(p1);
-                auto ptr_with_off2 = std::get<crab::ptr_with_off_t>(p2);
-                return (ptr_with_off1.get_region() == ptr_with_off2.get_region() && ptr_with_off1.get_offset() == ptr_with_off2.get_offset());
-            }
-        }
-    };
-    */
-
-    static ptr_t get_ptr(const ptr_or_mapfd_t& t) {
-    return std::visit( overloaded
-               {
-                   []( const ptr_with_off_t& x ){ return ptr_t{x};},
-                   []( const ptr_no_off_t& x ){ return ptr_t{x};},
-                   []( auto& ) { return ptr_t{};}
-                }, t
-            );
-    }
-}
-
+#include "crab/common.cpp"
 
 namespace crab {
-
-inline std::string get_reg_ptr(const region_t& r) {
-    switch (r) {
-        case region_t::T_CTX:
-            return "ctx_p";
-        case region_t::T_STACK:
-            return "stack_p";
-        case region_t::T_PACKET:
-            return "packet_p";
-        default:
-            return "shared_p";
-    }
-}
-
-static bool same_region(const ptr_t& ptr1, const ptr_t& ptr2) {
-    return ((std::holds_alternative<ptr_with_off_t>(ptr1)
-                && std::holds_alternative<ptr_with_off_t>(ptr2))
-            || (std::holds_alternative<ptr_no_off_t>(ptr1)
-                && std::holds_alternative<ptr_no_off_t>(ptr2)));
-}
-
-static void print_ptr_type(const ptr_t& ptr) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr);
-        std::cout << ptr_with_off;
-    }
-    else {
-        ptr_no_off_t ptr_no_off = std::get<ptr_no_off_t>(ptr);
-        std::cout << ptr_no_off;
-    }
-}
-
-static void print_ptr_or_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
-    if (std::holds_alternative<mapfd_t>(ptr_or_mapfd)) {
-        std::cout << std::get<mapfd_t>(ptr_or_mapfd);
-    }
-    else {
-        auto ptr = get_ptr(ptr_or_mapfd);
-        print_ptr_type(ptr);
-    }
-}
-
-inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
-    o << static_cast<std::underlying_type<region_t>::type>(t);
-    return o;
-}
-
-bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset()
-            && p1.get_region_size() == p2.get_region_size());
-}
-
-bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return !(p1 == p2);
-}
-
-void ptr_with_off_t::write(std::ostream& o) const {
-    o << get_reg_ptr(m_r) << "<" << m_offset;
-    if (m_region_size.lb() >= number_t{0}) o << "," << m_region_size;
-    o << ">";
-}
-
-std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p) {
-    p.write(o);
-    return o;
-}
-
-interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
-
-void ptr_with_off_t::set_offset(interval_t off) { m_offset = off; }
-
-void ptr_with_off_t::set_region_size(interval_t region_sz) { m_region_size = region_sz; }
-
-void ptr_with_off_t::set_region(region_t r) { m_r = r; }
-
-ptr_with_off_t ptr_with_off_t::operator|(const ptr_with_off_t& other) const {
-    return ptr_with_off_t(m_r, m_offset | other.m_offset, m_region_size | other.m_region_size);
-}
-
-bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return (p1.get_region() == p2.get_region());
-}
-
-bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return !(p1 == p2);
-}
-
-void ptr_no_off_t::write(std::ostream& o) const {
-    o << get_reg_ptr(get_region());
-}
-
-std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
-    p.write(o);
-    return o;
-}
-
-void ptr_no_off_t::set_region(region_t r) { m_r = r; }
-
-bool operator==(const mapfd_t& m1, const mapfd_t& m2) {
-    return (m1.get_value_type() == m2.get_value_type());
-}
-
-std::ostream& operator<<(std::ostream& o, const mapfd_t& m) {
-    m.write(o);
-    return o;
-}
-
-bool mapfd_t::has_type_map_programs() const {
-    return (m_value_type == EbpfMapValueType::PROGRAM);
-}
-
-void mapfd_t::write(std::ostream& o) const {
-    if (has_type_map_programs()) {
-        o << "map_fd_programs";
-    }
-    else {
-        o << "map_fd";
-    }
-}
-
-void reg_with_loc_t::write(std::ostream& o) const {
-    o << "r" << static_cast<unsigned int>(m_reg) << "@" << m_loc->second << " in " << m_loc->first << " ";
-}
-
-std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg) {
-    reg.write(o);
-    return o;
-}
-
-bool reg_with_loc_t::operator==(const reg_with_loc_t& other) const {
-    return (m_reg == other.m_reg && m_loc == other.m_loc);
-}
-
-std::size_t reg_with_loc_t::hash() const {
-    // Similar to boost::hash_combine
-    using std::hash;
-
-    std::size_t seed = hash<register_t>()(m_reg);
-    seed ^= hash<int>()(m_loc->first.from) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash<int>()(m_loc->first.to) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-    seed ^= hash<int>()(m_loc->second) + 0x9e3779b9 + (seed << 6) + (seed >> 2);
-
-    return seed;
-}
 
 ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
 {
@@ -216,10 +20,6 @@ ctx_t::ctx_t(const ebpf_context_descriptor_t* desc)
     if (desc->size >= 0) {
         size = desc->size;
     }
-}
-
-int ctx_t::get_size() const {
-    return size;
 }
 
 std::vector<uint64_t> ctx_t::get_keys() const {
@@ -469,8 +269,6 @@ std::vector<uint64_t> stack_t::find_overlapping_cells(uint64_t start, int width)
     return overlapping_cells;
 }
 
-}
-
 std::optional<ptr_or_mapfd_t> region_domain_t::find_ptr_or_mapfd_type(register_t reg) const {
     return m_registers.find(reg);
 }
@@ -590,6 +388,50 @@ string_invariant region_domain_t::to_set() {
     return string_invariant{};
 }
 
+void region_domain_t::operator()(const Undefined &u, location_t loc, int print) {}
+
+void region_domain_t::operator()(const Exit &u, location_t loc, int print) {}
+
+void region_domain_t::operator()(const Jmp &u, location_t loc, int print) {}
+
+void region_domain_t::operator()(const LockAdd& u, location_t loc, int print) {}
+
+void region_domain_t::operator()(const Assume& u, location_t loc, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const Assert& u, location_t loc, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const Comparable& u, location_t loc, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
+    // nothing to do here
+}
+
+void region_domain_t::operator()(const Un &u, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
+}
+
+void region_domain_t::operator()(const ValidDivisor& u, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
+}
+
+void region_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
+}
+
 void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     auto reg = u.dst.v;
     auto reg_with_loc = reg_with_loc_t(reg, loc);
@@ -644,11 +486,11 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
     }
 }
 
-void region_domain_t::operator()(const Packet & u, location_t loc, int print) {
+void region_domain_t::operator()(const Packet &u, location_t loc, int print) {
     m_registers -= register_t{R0_RETURN_VALUE};
 }
 
-void region_domain_t::operator()(const Addable& u, location_t loc, int print) {
+void region_domain_t::operator()(const Addable &u, location_t loc, int print) {
 
     auto maybe_ptr_type1 = m_registers.find(u.ptr.v);
     auto maybe_ptr_type2 = m_registers.find(u.num.v);
@@ -660,7 +502,7 @@ void region_domain_t::operator()(const Addable& u, location_t loc, int print) {
     m_errors.push_back("Addable assertion fail");
 }
 
-void region_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
+void region_domain_t::operator()(const ValidAccess &s, location_t loc, int print) {
     bool is_comparison_check = s.width == (Value)Imm{0};
     if (std::holds_alternative<Reg>(s.width)) return;
     int width = std::get<Imm>(s.width).v;
@@ -718,7 +560,7 @@ void region_domain_t::operator()(const ValidStore& u, location_t loc, int print)
     m_errors.push_back("Valid store assertion fail");
 }
 
-region_domain_t region_domain_t::setup_entry() {
+region_domain_t&& region_domain_t::setup_entry() {
 
     std::shared_ptr<ctx_t> ctx = std::make_shared<ctx_t>(global_program_info.get().type.context_descriptor);
     std::shared_ptr<global_region_env_t> all_types = std::make_shared<global_region_env_t>();
@@ -732,15 +574,8 @@ region_domain_t region_domain_t::setup_entry() {
     typ.insert(R10_STACK_POINTER, r10,
             ptr_with_off_t(crab::region_t::T_STACK, interval_t{number_t{512}}));
 
-    region_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
-    return inv;
-}
-
-void region_domain_t::report_type_error(std::string s, location_t loc) {
-    std::cout << "type_error at line " << loc->second << " in bb " << loc->first << "\n";
-    std::cout << s;
-    error_location = loc;
-    set_to_bottom();
+    static region_domain_t inv(std::move(typ), crab::stack_t::top(), ctx);
+    return std::move(inv);
 }
 
 void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
@@ -811,6 +646,10 @@ void region_domain_t::update_ptr_or_mapfd(ptr_or_mapfd_t&& ptr_or_mapfd, const i
         m_errors.push_back("mapfd register cannot be incremented/decremented");
         m_registers -= reg;
     }
+}
+
+void region_domain_t::operator()(const Bin& b, location_t loc, int print) {
+    // nothing to do here
 }
 
 interval_t region_domain_t::do_bin(const Bin& bin,
@@ -1017,6 +856,10 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     }
 }
 
+void region_domain_t::operator()(const Mem& m, location_t loc, int print) {
+    // nothing to do here
+}
+
 void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
 
     int offset = b.access.offset;
@@ -1110,3 +953,5 @@ void region_domain_t::adjust_bb_for_types(location_t loc) {
 void region_domain_t::print_all_register_types() const {
     m_registers.print_all_register_types();
 }
+
+} // namespace crab

@@ -28,6 +28,7 @@
 
 using std::string;
 using crab::ebpf_domain_t;
+using crab::type_domain_t;
 using crab::linear_constraint_t;
 
 thread_local crab::lazy_allocator<program_info> global_program_info;

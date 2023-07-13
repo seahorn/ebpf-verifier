@@ -7,6 +7,7 @@
 #include <map>
 
 #include "crab/abstract_domain.hpp"
+#include "crab/common.hpp"
 #include "crab/cfg.hpp"
 #include "linear_constraint.hpp"
 #include "string_constraints.hpp"
@@ -14,128 +15,20 @@
 
 #include "platform.hpp"
 
-using crab::interval_t;
-using crab::number_t;
-
-constexpr int STACK_BEGIN = 0;
-constexpr int CTX_BEGIN = 0;
-constexpr int PACKET_BEGIN = 0;
-constexpr int SHARED_BEGIN = 0;
-
 namespace crab {
-
-enum class region_t {
-	T_CTX,
-	T_STACK,
-	T_PACKET,
-	T_SHARED
-};
-
-
-class ptr_no_off_t {
-    region_t m_r;
-
-  public:
-    ptr_no_off_t() = default;
-    ptr_no_off_t(const ptr_no_off_t &) = default;
-    ptr_no_off_t(ptr_no_off_t &&) = default;
-    ptr_no_off_t &operator=(const ptr_no_off_t &) = default;
-    ptr_no_off_t &operator=(ptr_no_off_t &&) = default;
-    ptr_no_off_t(region_t _r) : m_r(_r) {}
-
-    constexpr region_t get_region() const { return m_r; }
-    void set_region(region_t);
-    void write(std::ostream&) const;
-    friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
-    //bool operator==(const ptr_no_off_t& p2);
-    //bool operator!=(const ptr_no_off_t& p2);
-};
-
-class ptr_with_off_t {
-    region_t m_r;
-    interval_t m_offset;
-    interval_t m_region_size;
-
-  public:
-    ptr_with_off_t() = default;
-    ptr_with_off_t(const ptr_with_off_t &) = default;
-    ptr_with_off_t(ptr_with_off_t &&) = default;
-    ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
-    ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz=interval_t::top())
-        : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
-    ptr_with_off_t operator|(const ptr_with_off_t&) const;
-    interval_t get_region_size() const;
-    void set_region_size(interval_t);
-    interval_t get_offset() const { return m_offset; }
-    void set_offset(interval_t);
-    constexpr region_t get_region() const { return m_r; }
-    void set_region(region_t);
-    void write(std::ostream&) const;
-    friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
-    //bool operator==(const ptr_with_off_t& p2);
-    //bool operator!=(const ptr_with_off_t& p2);
-};
-
-using map_key_size_t = unsigned int;
-using map_value_size_t = unsigned int;
-
-class mapfd_t {
-    int m_mapfd;
-    EbpfMapValueType m_value_type;
-    map_key_size_t m_key_size;
-    map_value_size_t m_value_size;
-
-  public:
-    mapfd_t(const mapfd_t&) = default;
-    mapfd_t(mapfd_t&&) = default;
-    mapfd_t &operator=(const mapfd_t&) = default;
-    mapfd_t &operator=(mapfd_t&&) = default;
-    mapfd_t(int mapfd, EbpfMapValueType val_type, map_key_size_t key_size,
-            map_value_size_t value_size)
-        : m_mapfd(mapfd), m_value_type(val_type), m_key_size(key_size), m_value_size(value_size) {}
-    friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
-    void write(std::ostream&) const;
-
-    bool has_type_map_programs() const;
-    constexpr EbpfMapValueType get_value_type() const { return m_value_type; }
-    constexpr map_key_size_t get_key_size() const { return m_key_size; }
-    constexpr map_value_size_t get_value_size() const { return m_value_size; }
-    constexpr int get_mapfd() const { return m_mapfd; }
-};
-
-using ptr_t = std::variant<ptr_no_off_t, ptr_with_off_t>;
-using register_t = uint8_t;
-using location_t = boost::optional<std::pair<label_t, uint32_t>>;
-
-class reg_with_loc_t {
-    register_t m_reg;
-    location_t m_loc;
-
-  public:
-    reg_with_loc_t(register_t _r, location_t _loc) : m_reg(_r), m_loc(_loc) {}
-    bool operator==(const reg_with_loc_t& other) const;
-    std::size_t hash() const;
-    friend std::ostream& operator<<(std::ostream& o, const reg_with_loc_t& reg);
-    void write(std::ostream& ) const;
-};
 
 class ctx_t {
     using ptr_types_t = std::unordered_map<uint64_t, ptr_no_off_t>;
 
     ptr_types_t m_packet_ptrs;
-    int size = 0;
+    size_t size = 0;
 
   public:
     ctx_t(const ebpf_context_descriptor_t* desc);
-    int get_size() const;
+    constexpr size_t get_size() const { return size; }
     std::vector<uint64_t> get_keys() const;
     std::optional<ptr_no_off_t> find(uint64_t key) const;
 };
-
-using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
-using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
-using ptr_or_mapfd_types_t = std::map<uint64_t, ptr_or_mapfd_cells_t>;
 
 class stack_t {
     ptr_or_mapfd_types_t m_ptrs;
@@ -163,9 +56,6 @@ class stack_t {
     size_t size() const;
 };
 
-using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
-
 class register_types_t {
 
     live_registers_t m_cur_def;
@@ -191,17 +81,14 @@ class register_types_t {
     void insert(register_t reg, const reg_with_loc_t& reg_with_loc, const ptr_or_mapfd_t& type);
     std::optional<ptr_or_mapfd_t> find(reg_with_loc_t reg) const;
     std::optional<ptr_or_mapfd_t> find(register_t key) const;
-    const live_registers_t &get_vars() { return m_cur_def; }
+    [[nodiscard]] live_registers_t &get_vars() { return m_cur_def; }
     void adjust_bb_for_registers(location_t loc);
     void print_all_register_types() const;
 };
 
-}
-
 class region_domain_t final {
 
     bool m_is_bottom = false;
-    location_t error_location = boost::none;
     crab::stack_t m_stack;
     crab::register_types_t m_registers;
     std::shared_ptr<crab::ctx_t> m_ctx;
@@ -217,7 +104,7 @@ class region_domain_t final {
     region_domain_t(crab::register_types_t&& _types, crab::stack_t&& _st, std::shared_ptr<crab::ctx_t> _ctx)
             : m_stack(std::move(_st)), m_registers(std::move(_types)), m_ctx(_ctx) {}
     // eBPF initialization: R1 points to ctx, R10 to stack, etc.
-    static region_domain_t setup_entry();
+    static region_domain_t&& setup_entry();
     // bottom/top
     static region_domain_t bottom();
     void set_to_top();
@@ -242,29 +129,29 @@ class region_domain_t final {
     void operator-=(register_t var) { m_registers -= var; }
 
     //// abstract transformers
-    void operator()(const Undefined &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Bin &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Un &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const LoadMapFd &, location_t loc = boost::none, int print = 0);
-    void operator()(const Call &, location_t loc = boost::none, int print = 0);
-    void operator()(const Exit &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Jmp &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Mem &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Packet &, location_t loc = boost::none, int print = 0);
-    void operator()(const LockAdd &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Assume &, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Assert &, location_t loc = boost::none, int print = 0) {}
+    void operator()(const Undefined&, location_t loc = boost::none, int print = 0);
+    void operator()(const Bin&, location_t loc = boost::none, int print = 0);
+    void operator()(const Un&, location_t loc = boost::none, int print = 0);
+    void operator()(const LoadMapFd&, location_t loc = boost::none, int print = 0);
+    void operator()(const Call&, location_t loc = boost::none, int print = 0);
+    void operator()(const Exit&, location_t loc = boost::none, int print = 0);
+    void operator()(const Jmp&, location_t loc = boost::none, int print = 0);
+    void operator()(const Mem&, location_t loc = boost::none, int print = 0);
+    void operator()(const Packet&, location_t loc = boost::none, int print = 0);
+    void operator()(const LockAdd&, location_t loc = boost::none, int print = 0);
+    void operator()(const Assume&, location_t loc = boost::none, int print = 0);
+    void operator()(const Assert&, location_t loc = boost::none, int print = 0);
     void operator()(const ValidAccess&, location_t loc = boost::none, int print = 0);
-    void operator()(const Comparable& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const Addable& s, location_t loc = boost::none, int print = 0);
-    void operator()(const ValidStore& s, location_t loc = boost::none, int print = 0);
-    void operator()(const TypeConstraint& s, location_t loc = boost::none, int print = 0);
-    void operator()(const ValidSize& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ValidMapKeyValue& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ZeroCtxOffset& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const ValidDivisor& s, location_t loc = boost::none, int print = 0) {}
-    void operator()(const basic_block_t& bb, bool check_termination, int print = 0) {}
-    void write(std::ostream& os) const {}
+    void operator()(const Comparable&, location_t loc = boost::none, int print = 0);
+    void operator()(const Addable&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidStore&, location_t loc = boost::none, int print = 0);
+    void operator()(const TypeConstraint&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidSize&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidMapKeyValue&, location_t loc = boost::none, int print = 0);
+    void operator()(const ZeroCtxOffset&, location_t loc = boost::none, int print = 0);
+    void operator()(const ValidDivisor&, location_t loc = boost::none, int print = 0);
+    void operator()(const basic_block_t& bb, bool check_termination, int print = 0);
+    void write(std::ostream& o) const {}
     friend std::ostream& operator<<(std::ostream&, const region_domain_t&);
     std::string domain_name() const;
     crab::bound_t get_instruction_count_upper_bound();
@@ -279,16 +166,17 @@ class region_domain_t final {
     void update_ptr_or_mapfd(crab::ptr_or_mapfd_t&&, const interval_t&&, Bin::Op,
             const crab::reg_with_loc_t&, uint8_t);
 
-    void report_type_error(std::string, location_t);
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t) const;
-    size_t ctx_size() const;
+    [[nodiscard]] size_t ctx_size() const;
     std::optional<crab::ptr_no_off_t> find_in_ctx(uint64_t key) const;
-    std::vector<uint64_t> get_ctx_keys() const;
+    [[nodiscard]] std::vector<uint64_t> get_ctx_keys() const;
     std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(uint64_t key) const;
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
-    std::vector<uint64_t> get_stack_keys() const;
+    [[nodiscard]] std::vector<uint64_t> get_stack_keys() const;
     bool is_stack_pointer(register_t) const;
-    void adjust_bb_for_types(location_t loc);
+    void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
-    std::vector<std::string>& get_errors() { return m_errors; }
+    [[nodiscard]] std::vector<std::string>& get_errors() { return m_errors; }
 }; // end region_domain_t
+
+} // namespace crab

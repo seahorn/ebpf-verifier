@@ -299,5 +299,5 @@ std::ostream& operator<<(std::ostream& o, const abstract_domain_t& dom) {
 
 // REQUIRED: instantiation for supported domains
 template abstract_domain_t::abstract_domain_t(crab::ebpf_domain_t);
-template abstract_domain_t::abstract_domain_t(type_domain_t);
-template abstract_domain_t::abstract_domain_t(region_domain_t);
+template abstract_domain_t::abstract_domain_t(crab::type_domain_t);
+template abstract_domain_t::abstract_domain_t(crab::region_domain_t);
