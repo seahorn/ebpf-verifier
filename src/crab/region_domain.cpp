@@ -413,15 +413,21 @@ void region_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int 
 }
 
 void region_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print) {
-    // nothing to do here
+    if (is_ctx_pointer(u.reg.v)) {
+        auto maybe_ptr_or_mapfd = m_registers.find(u.reg.v);
+        auto ctx_ptr = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
+        if (ctx_ptr.get_offset() == interval_t{crab::number_t{0}}) return;
+    }
+    //std::cout << "type error: Zero Offset assertion fail\n";
+    m_errors.push_back("Zero Ctx Offset assertion fail");
 }
 
 void region_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
     // nothing to do here
 }
 
-void region_domain_t::operator()(const Un &u, location_t loc, int print) {
-    /* WARNING: The operation is not implemented yet.*/
+void region_domain_t::operator()(const Un& u, location_t loc, int print) {
+    // nothing to do here
 }
 
 void region_domain_t::operator()(const ValidDivisor& u, location_t loc, int print) {
@@ -435,7 +441,8 @@ void region_domain_t::operator()(const ValidSize& u, location_t loc, int print) 
 void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     auto reg = u.dst.v;
     auto reg_with_loc = reg_with_loc_t(reg, loc);
-    const EbpfMapDescriptor& desc = global_program_info.get().platform->get_map_descriptor(u.mapfd);
+    const EbpfMapDescriptor& desc
+        = global_program_info.get().platform->get_map_descriptor(u.mapfd);
     const EbpfMapValueType& map_value_type = global_program_info.get().platform->
         get_map_type(desc.type).value_type;
     map_key_size_t map_key_size = desc.key_size;
@@ -579,42 +586,43 @@ region_domain_t&& region_domain_t::setup_entry() {
 }
 
 void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int print) {
-    auto it = find_ptr_or_mapfd_type(s.reg.v);
-    if (it) {
+    auto ptr_or_mapfd_opt = m_registers.find(s.reg.v);
+    if (ptr_or_mapfd_opt) {
         // it is a pointer or mapfd
-        ptr_or_mapfd_t ptr_or_mapfd_type = it.value();
-        if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type)) {
-            if (s.types == TypeGroup::non_map_fd) return;
-            if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
-            ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_type);
-            if (ptr_with_off.get_region() == crab::region_t::T_CTX) {
-                if (s.types == TypeGroup::ctx) return;
-            }
-            else if (ptr_with_off.get_region() == crab::region_t::T_SHARED) {
-                if (s.types == TypeGroup::shared || s.types == TypeGroup::mem
-                        || s.types == TypeGroup::mem_or_num) return;
-            }
-            else {
-                if (s.types == TypeGroup::stack || s.types == TypeGroup::mem
-                        || s.types == TypeGroup::stack_or_packet
-                        || s.types == TypeGroup::mem_or_num) {
-                    return;
-                }
-            }
-        }
-        else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type)) {
-            if (s.types == TypeGroup::non_map_fd) return;
-            if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
-            if (s.types == TypeGroup::packet || s.types == TypeGroup::mem
-                    || s.types == TypeGroup::mem_or_num
-                    || s.types == TypeGroup::stack_or_packet) return;
-        }
-        else {
+        auto ptr_or_mapfd_type = ptr_or_mapfd_opt.value();
+        if (std::holds_alternative<mapfd_t>(ptr_or_mapfd_type)) {
             auto map_fd = std::get<mapfd_t>(ptr_or_mapfd_type);
             if (map_fd.has_type_map_programs()) {
                 if (s.types == TypeGroup::map_fd_programs) return;
             } else {
                 if (s.types == TypeGroup::map_fd) return;
+            }
+        }
+        else {
+            if (s.types == TypeGroup::pointer || s.types == TypeGroup::ptr_or_num) return;
+            if (s.types == TypeGroup::non_map_fd) return;
+            if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type)) {
+                ptr_with_off_t ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_type);
+                if (ptr_with_off.get_region() == crab::region_t::T_CTX) {
+                    if (s.types == TypeGroup::singleton_ptr) return;
+                    if (s.types == TypeGroup::ctx) return;
+                }
+                else {
+                    if (s.types == TypeGroup::mem || s.types == TypeGroup::mem_or_num) return;
+                    if (ptr_with_off.get_region() == crab::region_t::T_SHARED) {
+                        if (s.types == TypeGroup::shared) return;
+                    }
+                    else {
+                        if (s.types == TypeGroup::singleton_ptr) return;
+                        if (s.types == TypeGroup::stack || s.types == TypeGroup::stack_or_packet)
+                            return;
+                    }
+                }
+            }
+            else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_type)) {
+                if (s.types == TypeGroup::singleton_ptr) return;
+                if (s.types == TypeGroup::mem || s.types == TypeGroup::mem_or_num) return;
+                if (s.types == TypeGroup::packet || s.types == TypeGroup::stack_or_packet) return;
             }
         }
     }
@@ -630,11 +638,11 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
 }
 
 void region_domain_t::update_ptr_or_mapfd(ptr_or_mapfd_t&& ptr_or_mapfd, const interval_t&& change,
-        Bin::Op op, const reg_with_loc_t& reg_with_loc, uint8_t reg) {
+        const reg_with_loc_t& reg_with_loc, uint8_t reg) {
     if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd)) {
         auto ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd);
         auto offset = ptr_or_mapfd_with_off.get_offset();
-        auto updated_offset = op == Bin::Op::ADD ? offset + change : offset - change;
+        auto updated_offset = change == interval_t::top() ? offset : offset + change;
         ptr_or_mapfd_with_off.set_offset(updated_offset);
         m_registers.insert(reg, reg_with_loc, ptr_or_mapfd_with_off);
     }
@@ -701,13 +709,13 @@ interval_t region_domain_t::do_bin(const Bin& bin,
             // b is a numerical register, or a constant
             else if (dst_ptr_or_mapfd_opt && src_interval_opt) {
                 update_ptr_or_mapfd(std::move(dst_ptr_or_mapfd), std::move(src_interval),
-                        bin.op, reg, bin.dst.v);
+                        reg, bin.dst.v);
             }
             // b is a pointer/mapfd
             // ra is a numerical register
             else if (src_ptr_or_mapfd_opt && !dst_ptr_or_mapfd_opt) {
                 update_ptr_or_mapfd(std::move(src_ptr_or_mapfd), interval_t::top(),
-                        bin.op, reg, bin.dst.v);
+                        reg, bin.dst.v);
             }
             break;
         }
@@ -744,16 +752,14 @@ interval_t region_domain_t::do_bin(const Bin& bin,
             }
             // b is a numerical register, or a constant
             else if (dst_ptr_or_mapfd_opt && src_interval_opt) {
-                update_ptr_or_mapfd(std::move(dst_ptr_or_mapfd), std::move(src_interval),
-                        bin.op, reg, bin.dst.v);
+                update_ptr_or_mapfd(std::move(dst_ptr_or_mapfd), -std::move(src_interval),
+                        reg, bin.dst.v);
             }
             break;
         }
-        default: {
-            m_registers -= bin.dst.v;
-            break;
-        }
+        default: break;
     }
+    m_registers -= bin.dst.v;
     return interval_t::bottom();
 }
 
@@ -763,15 +769,15 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
-    auto it = m_registers.find(basereg.v);
-    if (!it) {
+    auto ptr_or_mapfd_opt = m_registers.find(basereg.v);
+    if (!ptr_or_mapfd_opt) {
         std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
         std::string desc = std::string("\tloading from an unknown pointer, or from number - r") + s + "\n";
         //std::cout << desc;
         m_registers -= target_reg.v;
         return;
     }
-    auto type_basereg = it.value();
+    auto type_basereg = ptr_or_mapfd_opt.value();
 
     if (!std::holds_alternative<ptr_with_off_t>(type_basereg)
             || std::get<ptr_with_off_t>(type_basereg).get_region() == crab::region_t::T_SHARED) {
@@ -800,17 +806,21 @@ void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t lo
                 m_registers -= target_reg.v;
             }
             else {
+                if (width != 1 && width != 2 && width != 4 && width != 8) {
+                    m_registers -= target_reg.v;
+                    return;
+                }
                 auto ptr_offset = offset_singleton.value();
                 auto load_at = (uint64_t)(ptr_offset + offset);
 
-                auto it = m_stack.find(load_at);
+                auto ptr_or_mapfd_opt = m_stack.find(load_at);
 
-                if (!it) {
+                if (!ptr_or_mapfd_opt) {
                     // no field at loaded offset in stack
                     m_registers -= target_reg.v;
                     return;
                 }
-                auto type_loaded = it.value();
+                auto type_loaded = ptr_or_mapfd_opt.value();
 
                 auto reg = reg_with_loc_t(target_reg.v, loc);
                 m_registers.insert(target_reg.v, reg, type_loaded.first);
@@ -933,6 +943,16 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
         m_errors.push_back("we cannot store a pointer into a mapfd");
         return;
     }
+}
+
+bool region_domain_t::is_ctx_pointer(register_t reg) const {
+    auto type = m_registers.find(reg);
+    if (!type) {    // not a pointer
+        return false;
+    }
+    auto ptr_or_mapfd_type = type.value();
+    return (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type) &&
+            std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_CTX);
 }
 
 

@@ -108,7 +108,9 @@ string_invariant type_domain_t::to_set() {
 
 void type_domain_t::operator()(const Undefined& u, location_t loc, int print) {}
 
-void type_domain_t::operator()(const Un& u, location_t loc, int print) {}
+void type_domain_t::operator()(const Un& u, location_t loc, int print) {
+    /* WARNING: The operation is not implemented yet.*/
+}
 
 void type_domain_t::operator()(const LoadMapFd& u, location_t loc, int print) {
     m_region(u, loc);
@@ -130,6 +132,7 @@ void type_domain_t::operator()(const Call& u, location_t loc, int print) {
                         m_errors.push_back("storing at an unknown offset in stack");
                         continue;
                     }
+                    // TODO: forget the stack at [offset, offset+width]
                 }
             }
         }
@@ -152,7 +155,7 @@ void type_domain_t::operator()(const Assume& u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const ValidDivisor& s, location_t loc, int print) {
-    /* WARNING: The operation is not implemented yet.*/
+    m_region(s, loc);
 }
 
 void type_domain_t::operator()(const ValidAccess& s, location_t loc, int print) {
@@ -188,10 +191,10 @@ void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
         // an extra check just to make sure registers are not labelled both ptrs and numbers
         auto ptr_or_mapfd1 = maybe_ptr_or_mapfd1.value();
         auto ptr_or_mapfd2 = maybe_ptr_or_mapfd1.value();
-        if (is_mapfd_type(ptr_or_mapfd1) && is_mapfd_type(ptr_or_mapfd2)) {
-            return;
-        }
-        else if (!is_mapfd_type(ptr_or_mapfd1) && !is_mapfd_type(ptr_or_mapfd2)) {
+        auto is_mapfd1 = is_mapfd_type(ptr_or_mapfd1);
+        auto is_mapfd2 = is_mapfd_type(ptr_or_mapfd2);
+        if (is_mapfd1 && is_mapfd2) return;
+        else if (!is_mapfd1 && !is_mapfd2) {
             auto ptr1 = get_ptr(ptr_or_mapfd1);
             auto ptr2 = get_ptr(ptr_or_mapfd2);
             if (get_region(ptr1) == get_region(ptr2)) {
@@ -216,7 +219,7 @@ void type_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
 }
 
 void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
-    m_region(u, loc);
+    /* WARNING: The operation is not implemented yet.*/
 }
 
 void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
@@ -254,11 +257,8 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
                 }
             }
             else if (std::holds_alternative<ptr_no_off_t>(ptr_or_mapfd_basereg)) {
-                auto ptr_no_off = std::get<ptr_no_off_t>(ptr_or_mapfd_basereg);
-                if (ptr_no_off.get_region() == region_t::T_PACKET) {
-                    // We do not check packet ptr accesses yet
-                    return;
-                }
+                // We do not check packet ptr accesses yet
+                return;
             }
         }
     }
@@ -267,20 +267,7 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
 }
 
 void type_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print) {
-
-    auto maybe_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(u.reg.v);
-    if (maybe_ptr_or_mapfd) {
-        if (std::holds_alternative<ptr_with_off_t>(maybe_ptr_or_mapfd.value())) {
-            auto ptr_type_with_off = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
-            if (ptr_type_with_off.get_offset() == interval_t{crab::number_t{0}}) return;
-        }
-        else if (std::holds_alternative<ptr_no_off_t>(maybe_ptr_or_mapfd.value())) {
-            // We do not yet support packet ptr offsets
-            return;
-        }
-    }
-    //std::cout << "type error: Zero Offset assertion fail\n";
-    m_errors.push_back("Zero Offset assertion fail");
+    m_region(u, loc);
 }
 
 type_domain_t type_domain_t::setup_entry() {
@@ -300,8 +287,14 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
         src_ptr_or_mapfd = m_region.find_ptr_or_mapfd_type(r.v);
     }
     else {
-        auto imm = std::get<Imm>(bin.v);
-        src_interval = interval_t{crab::number_t{static_cast<int>(imm.v)}};
+        int64_t imm;
+        if (bin.is64) {
+            imm = static_cast<int64_t>(std::get<Imm>(bin.v).v);
+        }
+        else {
+            imm = static_cast<int>(std::get<Imm>(bin.v).v);
+        }
+        src_interval = interval_t{crab::number_t{imm}};
     }
 
     using Op = Bin::Op;
@@ -338,7 +331,6 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
         std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
         //std::cout << desc;
         m_errors.push_back(desc);
-        return;
     }
 }
 

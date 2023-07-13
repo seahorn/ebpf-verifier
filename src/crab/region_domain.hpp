@@ -163,7 +163,7 @@ class region_domain_t final {
     interval_t do_bin(const Bin&, const std::optional<interval_t>&,
             const std::optional<crab::ptr_or_mapfd_t>&,
             const std::optional<crab::ptr_or_mapfd_t>&, location_t);
-    void update_ptr_or_mapfd(crab::ptr_or_mapfd_t&&, const interval_t&&, Bin::Op,
+    void update_ptr_or_mapfd(crab::ptr_or_mapfd_t&&, const interval_t&&,
             const crab::reg_with_loc_t&, uint8_t);
 
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_type(register_t) const;
@@ -174,6 +174,7 @@ class region_domain_t final {
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
     [[nodiscard]] std::vector<uint64_t> get_stack_keys() const;
     bool is_stack_pointer(register_t) const;
+    bool is_ctx_pointer(register_t) const;
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     [[nodiscard]] std::vector<std::string>& get_errors() { return m_errors; }
