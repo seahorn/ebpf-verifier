@@ -3,10 +3,13 @@
 
 #pragma once
 
-#include "linear_constraint.hpp"
+#include <boost/optional/optional_io.hpp>
+#include <functional>
+#include <optional>
+#include <vector>
+
 #include "string_constraints.hpp"
 #include "asm_syntax.hpp"
-#include "asm_ostream.hpp"
 
 constexpr int NUM_REGISTERS = 11;
 
@@ -39,12 +42,14 @@ class ptr_no_off_t {
     void set_region(region_t);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p);
+    bool operator==(const ptr_no_off_t&) const;
+    bool operator!=(const ptr_no_off_t&) const;
 };
 
 class ptr_with_off_t {
     region_t m_r;
     interval_t m_offset;
-    interval_t m_region_size;
+    interval_t m_region_size = interval_t::top();
 
   public:
     ptr_with_off_t() = default;
@@ -52,8 +57,9 @@ class ptr_with_off_t {
     ptr_with_off_t(ptr_with_off_t &&) = default;
     ptr_with_off_t &operator=(const ptr_with_off_t &) = default;
     ptr_with_off_t &operator=(ptr_with_off_t &&) = default;
-    ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz=interval_t::top())
+    ptr_with_off_t(region_t _r, interval_t _off, interval_t _region_sz)
         : m_r(_r), m_offset(_off), m_region_size(_region_sz) {}
+    ptr_with_off_t(region_t _r, interval_t _off) : m_r(_r), m_offset(_off) {}
     ptr_with_off_t operator|(const ptr_with_off_t&) const;
     interval_t get_region_size() const;
     void set_region_size(interval_t);
@@ -63,6 +69,8 @@ class ptr_with_off_t {
     void set_region(region_t);
     void write(std::ostream&) const;
     friend std::ostream& operator<<(std::ostream& o, const ptr_with_off_t& p);
+    bool operator==(const ptr_with_off_t&) const;
+    bool operator!=(const ptr_with_off_t&) const;
 };
 
 using map_key_size_t = unsigned int;
@@ -83,6 +91,8 @@ class mapfd_t {
             map_value_size_t value_size)
         : m_mapfd(mapfd), m_value_type(val_type), m_key_size(key_size), m_value_size(value_size) {}
     friend std::ostream& operator<<(std::ostream&, const mapfd_t&);
+    bool operator==(const mapfd_t&) const;
+    bool operator!=(const mapfd_t&) const;
     void write(std::ostream&) const;
 
     bool has_type_map_programs() const;
@@ -115,12 +125,46 @@ using ptr_or_mapfd_types_t = std::map<uint64_t, ptr_or_mapfd_cells_t>;
 using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
 using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
 
+bool same_region(const ptr_t& ptr1, const ptr_t& ptr2);
+
 } // namespace crab
 
-void print_ptr_or_mapfd_type(const crab::ptr_or_mapfd_t&);
-void print_ptr_type(const crab::ptr_t& ptr);
-void print_register(Reg r, std::optional<crab::ptr_or_mapfd_t>& p);
-void print_annotated(std::ostream& o, const Call& call, std::optional<crab::ptr_or_mapfd_t>& p);
-void print_annotated(std::ostream& o, const Bin& b, std::optional<crab::ptr_or_mapfd_t>& p);
-void print_annotated(std::ostream& o, const LoadMapFd& u, std::optional<crab::ptr_or_mapfd_t>& p);
-void print_annotated(std::ostream& o, const Mem& b, std::optional<crab::ptr_or_mapfd_t>& p);
+
+namespace std {
+    template <>
+    struct hash<crab::reg_with_loc_t> {
+        size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
+    };
+
+    template <>
+    struct equal_to<crab::ptr_t> {
+        constexpr bool operator()(const crab::ptr_t& lhs, const crab::ptr_t& rhs) const {
+            if (lhs.index() != rhs.index()) return false;
+            return std::visit( overloaded
+               {
+                   []( const crab::ptr_with_off_t& x, const crab::ptr_with_off_t& y ){ return x == y;},
+                   []( const crab::ptr_no_off_t& x, const crab::ptr_no_off_t& y ){ return x == y;},
+                   []( auto& , auto& ) { return true;}
+                }, lhs, rhs
+            );
+        }
+    };
+
+    template <>
+    struct equal_to<crab::ptr_or_mapfd_t> {
+        constexpr bool operator()(const crab::ptr_or_mapfd_t& lhs, const crab::ptr_or_mapfd_t& rhs) const {
+            if (lhs.index() != rhs.index()) return false;
+            return std::visit( overloaded
+               {
+                   []( const crab::ptr_with_off_t& x, const crab::ptr_with_off_t& y ){ return x == y;},
+                   []( const crab::ptr_no_off_t& x, const crab::ptr_no_off_t& y ){ return x == y;},
+                   []( const crab::mapfd_t& x, const crab::mapfd_t& y ){ return x == y;},
+                   []( auto& , auto& ) { return true;}
+                }, lhs, rhs
+            );
+        }
+    };
+
+    crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t);
+}
+

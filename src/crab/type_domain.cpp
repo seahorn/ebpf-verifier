@@ -1,19 +1,7 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 
-#include "crab/type_domain.hpp"
-
-namespace std {
-    static crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t) {
-    return std::visit( overloaded
-               {
-                   []( const crab::ptr_with_off_t& x ){ return crab::ptr_t{x};},
-                   []( const crab::ptr_no_off_t& x ){ return crab::ptr_t{x};},
-                   []( auto& ) { return crab::ptr_t{};}
-                }, t
-            );
-    }
-}
+#include "type_domain.hpp"
 
 namespace crab {
 
@@ -419,7 +407,6 @@ std::ostream& operator<<(std::ostream& o, const type_domain_t& typ) {
 }
 
 } // namespace crab
-
 
 void print_annotated(std::ostream& o, const crab::type_domain_t& typ,
         const basic_block_t& bb, int print) {

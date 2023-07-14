@@ -3,15 +3,10 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <map>
-
 #include "crab/abstract_domain.hpp"
 #include "crab/common.hpp"
+#include "crab/type_ostream.hpp"
 #include "crab/cfg.hpp"
-#include "linear_constraint.hpp"
-#include "string_constraints.hpp"
-#include <boost/optional/optional_io.hpp>
 
 #include "platform.hpp"
 

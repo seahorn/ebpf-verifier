@@ -7,16 +7,6 @@
 #include "crab/region_domain.hpp"
 #include "crab/common.hpp"
 
-using crab::ptr_t;
-using crab::variable_t;
-using crab::ptr_with_off_t;
-using crab::ptr_no_off_t;
-using crab::region_domain_t;
-using crab::mapfd_t;
-using crab::ptr_or_mapfd_t;
-using crab::region_t;
-using crab::interval_t;
-
 namespace crab {
 
 class type_domain_t final {

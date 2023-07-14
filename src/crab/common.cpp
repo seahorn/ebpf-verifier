@@ -1,17 +1,10 @@
 // Copyright (c) Prevail Verifier contributors.
 // SPDX-License-Identifier: MIT
 
-#pragma once
-
 #include "crab/common.hpp"
 
 namespace std {
-    template <>
-    struct hash<crab::reg_with_loc_t> {
-        size_t operator()(const crab::reg_with_loc_t& reg) const { return reg.hash(); }
-    };
-
-    static crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t) {
+    crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t) {
     return std::visit( overloaded
                {
                    []( const crab::ptr_with_off_t& x ){ return crab::ptr_t{x};},
@@ -20,9 +13,31 @@ namespace std {
                 }, t
             );
     }
-}
+} // namespace std
 
 namespace crab {
+
+bool ptr_with_off_t::operator==(const ptr_with_off_t& other) const {
+    return (m_r == other.m_r && m_offset == other.m_offset
+            && m_region_size == other.m_region_size);
+}
+
+bool ptr_with_off_t::operator!=(const ptr_with_off_t& other) const {
+    return !(*this == other);
+}
+
+bool ptr_no_off_t::operator==(const ptr_no_off_t& other) const {
+    return (m_r == other.m_r);
+}
+
+bool ptr_no_off_t::operator!=(const ptr_no_off_t& other) const {
+    return !(*this == other);
+}
+
+bool mapfd_t::operator==(const mapfd_t& other) const {
+    return (m_mapfd == other.m_mapfd && m_key_size == other.m_key_size
+            && m_value_size == other.m_value_size);
+}
 
 bool same_region(const ptr_t& ptr1, const ptr_t& ptr2) {
     return ((std::holds_alternative<ptr_with_off_t>(ptr1)
@@ -34,15 +49,6 @@ bool same_region(const ptr_t& ptr1, const ptr_t& ptr2) {
 inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
     o << static_cast<std::underlying_type<region_t>::type>(t);
     return o;
-}
-
-bool operator==(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return (p1.get_region() == p2.get_region() && p1.get_offset() == p2.get_offset()
-            && p1.get_region_size() == p2.get_region_size());
-}
-
-bool operator!=(const ptr_with_off_t& p1, const ptr_with_off_t& p2) {
-    return !(p1 == p2);
 }
 
 interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }
@@ -57,19 +63,7 @@ ptr_with_off_t ptr_with_off_t::operator|(const ptr_with_off_t& other) const {
     return ptr_with_off_t(m_r, m_offset | other.m_offset, m_region_size | other.m_region_size);
 }
 
-bool operator==(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return (p1.get_region() == p2.get_region());
-}
-
-bool operator!=(const ptr_no_off_t& p1, const ptr_no_off_t& p2) {
-    return !(p1 == p2);
-}
-
 void ptr_no_off_t::set_region(region_t r) { m_r = r; }
-
-bool operator==(const mapfd_t& m1, const mapfd_t& m2) {
-    return (m1.get_value_type() == m2.get_value_type());
-}
 
 std::ostream& operator<<(std::ostream& o, const mapfd_t& m) {
     m.write(o);
@@ -148,61 +142,3 @@ std::ostream& operator<<(std::ostream& o, const ptr_no_off_t& p) {
 }
 
 } // namespace crab
-
-void print_ptr_type(const crab::ptr_t& ptr) {
-    if (std::holds_alternative<crab::ptr_with_off_t>(ptr)) {
-        crab::ptr_with_off_t ptr_with_off = std::get<crab::ptr_with_off_t>(ptr);
-        std::cout << ptr_with_off;
-    }
-    else {
-        crab::ptr_no_off_t ptr_no_off = std::get<crab::ptr_no_off_t>(ptr);
-        std::cout << ptr_no_off;
-    }
-}
-
-void print_ptr_or_mapfd_type(const crab::ptr_or_mapfd_t& ptr_or_mapfd) {
-    if (std::holds_alternative<crab::mapfd_t>(ptr_or_mapfd)) {
-        std::cout << std::get<crab::mapfd_t>(ptr_or_mapfd);
-    }
-    else {
-        auto ptr = get_ptr(ptr_or_mapfd);
-        print_ptr_type(ptr);
-    }
-}
-
-void print_register(Reg r, std::optional<crab::ptr_or_mapfd_t>& p) {
-    std::cout << r << " : ";
-    if (p) {
-        print_ptr_or_mapfd_type(p.value());
-    }
-}
-
-inline std::string size_(int w) { return std::string("u") + std::to_string(w * 8); }
-
-void print_annotated(std::ostream& o, const Call& call, std::optional<crab::ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(Reg{(uint8_t)R0_RETURN_VALUE}, p);
-    o << " = " << call.name << ":" << call.func << "(...)\n";
-}
-
-void print_annotated(std::ostream& o, const Bin& b, std::optional<crab::ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(b.dst, p);
-    o << " " << b.op << "= " << b.v << "\n";
-}
-
-void print_annotated(std::ostream& o, const LoadMapFd& u, std::optional<crab::ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(u.dst, p);
-    o << " = map_fd " << u.mapfd << "\n";
-}
-
-void print_annotated(std::ostream& o, const Mem& b, std::optional<crab::ptr_or_mapfd_t>& p) {
-    o << "  ";
-    print_register(std::get<Reg>(b.value), p);
-    o << " = ";
-    std::string sign = b.access.offset < 0 ? " - " : " + ";
-    int offset = std::abs(b.access.offset);
-    o << "*(" << size_(b.access.width) << " *)";
-    o << "(" << b.access.basereg << sign << offset << ")\n";
-}

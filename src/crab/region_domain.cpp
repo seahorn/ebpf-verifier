@@ -2,7 +2,6 @@
 // SPDX-License-Identifier: MIT
 
 #include "crab/region_domain.hpp"
-#include "crab/common.cpp"
 
 namespace crab {
 
