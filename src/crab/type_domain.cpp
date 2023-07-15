@@ -285,7 +285,8 @@ void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
     if (std::holds_alternative<Reg>(b.value)) {
-        auto basereg = std::get<Reg>(b.value);
+        auto targetreg = std::get<Reg>(b.value);
+        auto basereg = b.access.basereg;
         auto ptr_or_mapfd_opt = m_region.find_ptr_or_mapfd_type(basereg.v);
         bool unknown_ptr = !ptr_or_mapfd_opt.has_value();
         if (unknown_ptr) {
@@ -295,16 +296,12 @@ void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
         }
 
         if (b.is_load) {
-            do_load(b, basereg, unknown_ptr, loc, print);
+            do_load(b, targetreg, unknown_ptr, loc, print);
         } else if (!unknown_ptr) {
-            do_mem_store(b, basereg, loc, print);
+            do_mem_store(b, targetreg, loc, print);
         }
-    } else {
-        std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
-        std::string desc = std::string("\tEither loading to a number (not allowed) or storing a number (not allowed yet) - ") + s + "\n";
-        //std::cout << desc;
-        m_errors.push_back(desc);
     }
+    else {}
 }
 
 // the method does not work well as it requires info about the label of basic block we are in
