@@ -3,6 +3,7 @@
 
 #include "crab/common.hpp"
 
+/*
 namespace std {
     crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t) {
     return std::visit( overloaded
@@ -14,6 +15,7 @@ namespace std {
             );
     }
 } // namespace std
+*/
 
 namespace crab {
 
@@ -37,18 +39,6 @@ bool ptr_no_off_t::operator!=(const ptr_no_off_t& other) const {
 bool mapfd_t::operator==(const mapfd_t& other) const {
     return (m_mapfd == other.m_mapfd && m_key_size == other.m_key_size
             && m_value_size == other.m_value_size);
-}
-
-bool same_region(const ptr_t& ptr1, const ptr_t& ptr2) {
-    return ((std::holds_alternative<ptr_with_off_t>(ptr1)
-                && std::holds_alternative<ptr_with_off_t>(ptr2))
-            || (std::holds_alternative<ptr_no_off_t>(ptr1)
-                && std::holds_alternative<ptr_no_off_t>(ptr2)));
-}
-
-inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
-    o << static_cast<std::underlying_type<region_t>::type>(t);
-    return o;
 }
 
 interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }

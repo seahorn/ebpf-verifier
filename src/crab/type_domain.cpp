@@ -158,37 +158,14 @@ void type_domain_t::operator()(const Assert& u, location_t loc, int print) {
     std::visit([this, loc, print](const auto& v) { std::apply(*this, std::make_tuple(v, loc, print)); }, u.cst);
 }
 
-static bool is_mapfd_type(const ptr_or_mapfd_t& ptr_or_mapfd) {
-    return (std::holds_alternative<mapfd_t>(ptr_or_mapfd));
-}
-
-static region_t get_region(const ptr_t& ptr) {
-    if (std::holds_alternative<ptr_with_off_t>(ptr)) {
-        return std::get<ptr_with_off_t>(ptr).get_region();
-    }
-    else {
-        return std::get<ptr_no_off_t>(ptr).get_region();
-    }
-}
-
 void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
 
     auto maybe_ptr_or_mapfd1 = m_region.find_ptr_or_mapfd_type(u.r1.v);
     auto maybe_ptr_or_mapfd2 = m_region.find_ptr_or_mapfd_type(u.r2.v);
     if (maybe_ptr_or_mapfd1 && maybe_ptr_or_mapfd2) {
         // an extra check just to make sure registers are not labelled both ptrs and numbers
-        auto ptr_or_mapfd1 = maybe_ptr_or_mapfd1.value();
-        auto ptr_or_mapfd2 = maybe_ptr_or_mapfd1.value();
-        auto is_mapfd1 = is_mapfd_type(ptr_or_mapfd1);
-        auto is_mapfd2 = is_mapfd_type(ptr_or_mapfd2);
-        if (is_mapfd1 && is_mapfd2) return;
-        else if (!is_mapfd1 && !is_mapfd2) {
-            auto ptr1 = get_ptr(ptr_or_mapfd1);
-            auto ptr2 = get_ptr(ptr_or_mapfd2);
-            if (get_region(ptr1) == get_region(ptr2)) {
-                return;
-            }
-        }
+        if (is_mapfd_type(maybe_ptr_or_mapfd1) && is_mapfd_type(maybe_ptr_or_mapfd2)) return;
+        if (same_region(*maybe_ptr_or_mapfd1, *maybe_ptr_or_mapfd2)) return;
     }
     else if (!maybe_ptr_or_mapfd1 && !maybe_ptr_or_mapfd2) {
         // all other cases when we do not have a ptr or mapfd, the type is a number
@@ -216,16 +193,15 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
     auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
     auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
     if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
-        auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
-        auto mapfd = maybe_mapfd.value();
-        if (is_mapfd_type(mapfd)) {
-            auto mapfd_type = std::get<mapfd_t>(mapfd);
+        if (is_mapfd_type(maybe_mapfd)) {
+            auto mapfd_type = std::get<mapfd_t>(*maybe_mapfd);
             if (u.key) {
                 width = (int)mapfd_type.get_key_size();
             }
             else {
                 width = (int)mapfd_type.get_value_size();
             }
+            auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
                 if (ptr_with_off.get_region() == region_t::T_STACK) {
@@ -298,21 +274,30 @@ void type_domain_t::operator()(const Bin& bin, location_t loc, int print) {
     m_region.do_bin(bin, src_interval, src_ptr_or_mapfd, dst_ptr_or_mapfd, loc);
 }
 
-void type_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    m_region.do_load(b, target_reg, loc);
+void type_domain_t::do_load(const Mem& b, const Reg& target_reg, bool unknown_ptr,
+        location_t loc, int print) {
+    m_region.do_load(b, target_reg, unknown_ptr, loc);
 }
 
 void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-
     m_region.do_mem_store(b, target_reg, loc);
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
     if (std::holds_alternative<Reg>(b.value)) {
+        auto basereg = std::get<Reg>(b.value);
+        auto ptr_or_mapfd_opt = m_region.find_ptr_or_mapfd_type(basereg.v);
+        bool unknown_ptr = !ptr_or_mapfd_opt.has_value();
+        if (unknown_ptr) {
+            std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
+            m_errors.push_back(
+                    std::string("load/store using an unknown pointer, or number - r") + s);
+        }
+
         if (b.is_load) {
-            do_load(b, std::get<Reg>(b.value), loc, print);
-        } else {
-            do_mem_store(b, std::get<Reg>(b.value), loc, print);
+            do_load(b, basereg, unknown_ptr, loc, print);
+        } else if (!unknown_ptr) {
+            do_mem_store(b, basereg, loc, print);
         }
     } else {
         std::string s = std::to_string(static_cast<unsigned int>(std::get<Imm>(b.value).v));
@@ -347,7 +332,7 @@ void type_domain_t::print_ctx() const {
         auto ptr = m_region.find_in_ctx(k);
         if (ptr) {
             std::cout << "    " << k << ": ";
-            print_ptr_type(ptr.value());
+            print_ptr_type(std::cout, ptr_or_mapfd_t{ptr.value()});
             std::cout << ",\n";
         }
     }
@@ -364,7 +349,7 @@ void type_domain_t::print_stack() const {
             int width = ptr_or_mapfd_cells.second;
             auto ptr_or_mapfd = ptr_or_mapfd_cells.first;
             std::cout << "    [" << k << "-" << k+width-1 << "] : ";
-            print_ptr_or_mapfd_type(ptr_or_mapfd);
+            print_ptr_or_mapfd_type(std::cout, ptr_or_mapfd);
             std::cout << ",\n";
         }
     }

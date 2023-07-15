@@ -25,6 +25,9 @@ class ctx_t {
     std::optional<ptr_no_off_t> find(uint64_t key) const;
 };
 
+using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
+using ptr_or_mapfd_types_t = std::map<uint64_t, ptr_or_mapfd_cells_t>;
+
 class stack_t {
     ptr_or_mapfd_types_t m_ptrs;
     bool m_is_bottom;
@@ -50,6 +53,9 @@ class stack_t {
     std::vector<uint64_t> find_overlapping_cells(uint64_t, int) const;
     size_t size() const;
 };
+
+using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
+using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
 
 class register_types_t {
 
@@ -153,7 +159,7 @@ class region_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
-    void do_load(const Mem&, const Reg&, location_t);
+    void do_load(const Mem&, const Reg&, bool, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
     interval_t do_bin(const Bin&, const std::optional<interval_t>&,
             const std::optional<crab::ptr_or_mapfd_t>&,
@@ -168,8 +174,6 @@ class region_domain_t final {
     std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(uint64_t key) const;
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
     [[nodiscard]] std::vector<uint64_t> get_stack_keys() const;
-    bool is_stack_pointer(register_t) const;
-    bool is_ctx_pointer(register_t) const;
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     [[nodiscard]] std::vector<std::string>& get_errors() { return m_errors; }

@@ -83,7 +83,7 @@ class type_domain_t final {
 
   private:
 
-    void do_load(const Mem&, const Reg&, location_t, int print = 0);
+    void do_load(const Mem&, const Reg&, bool, location_t, int print = 0);
     void do_mem_store(const Mem&, const Reg&, location_t, int print = 0);
     void report_type_error(std::string, location_t);
     void print_registers() const;

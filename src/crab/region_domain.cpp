@@ -53,26 +53,21 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
 
     for (size_t i = 0; i < m_cur_def.size(); i++) {
         if (m_cur_def[i] == nullptr || other.m_cur_def[i] == nullptr) continue;
-        auto it1 = find(*(m_cur_def[i]));
-        auto it2 = other.find(*(other.m_cur_def[i]));
-        if (it1 && it2) {
-            ptr_or_mapfd_t ptr_or_mapfd1 = it1.value(), ptr_or_mapfd2 = it2.value();
+        auto maybe_ptr1 = find(*(m_cur_def[i]));
+        auto maybe_ptr2 = other.find(*(other.m_cur_def[i]));
+        if (maybe_ptr1 && maybe_ptr2) {
+            ptr_or_mapfd_t ptr_or_mapfd1 = maybe_ptr1.value(), ptr_or_mapfd2 = maybe_ptr2.value();
             auto reg = reg_with_loc_t((register_t)i, loc);
             if (ptr_or_mapfd1 == ptr_or_mapfd2) {
                 out_vars[i] = m_cur_def[i];
             }
-            else if (!std::holds_alternative<mapfd_t>(ptr_or_mapfd1)
-                    && !std::holds_alternative<mapfd_t>(ptr_or_mapfd2)) {
-                auto ptr1 = get_ptr(ptr_or_mapfd1);
-                auto ptr2 = get_ptr(ptr_or_mapfd2);
-                if (std::holds_alternative<ptr_with_off_t>(ptr1)
-                        && std::holds_alternative<ptr_with_off_t>(ptr2)) {
-                    ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr1);
-                    ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr2);
-                    if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
-                        out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
-                        (*m_region_env)[reg] = std::move(ptr_with_off1 | ptr_with_off2);
-                    }
+            else if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd1)
+                        && std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd2)) {
+                ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr_or_mapfd1);
+                ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr_or_mapfd2);
+                if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
+                    out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
+                    (*m_region_env)[reg] = std::move(ptr_with_off1 | ptr_with_off2);
                 }
             }
         }
@@ -101,7 +96,7 @@ bool register_types_t::is_bottom() const { return m_is_bottom; }
 bool register_types_t::is_top() const {
     if (m_is_bottom) { return false; }
     if (m_region_env == nullptr) return true;
-    for (auto it : m_cur_def) {
+    for (auto &it : m_cur_def) {
         if (it != nullptr) return false;
     }
     return true;
@@ -117,7 +112,7 @@ void register_types_t::print_all_register_types() const {
     std::cout << "\tregion types: {\n";
     for (auto const& kv : *m_region_env) {
         std::cout << "\t\t" << kv.first << " : ";
-        print_ptr_or_mapfd_type(kv.second);
+        print_ptr_or_mapfd_type(std::cout, kv.second);
         std::cout << "\n";
     }
     std::cout << "\t}\n";
@@ -412,9 +407,9 @@ void region_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int 
 }
 
 void region_domain_t::operator()(const ZeroCtxOffset& u, location_t loc, int print) {
-    if (is_ctx_pointer(u.reg.v)) {
-        auto maybe_ptr_or_mapfd = m_registers.find(u.reg.v);
-        auto ctx_ptr = std::get<ptr_with_off_t>(maybe_ptr_or_mapfd.value());
+    auto maybe_ptr_or_mapfd = m_registers.find(u.reg.v);
+    if (is_ctx_ptr(maybe_ptr_or_mapfd)) {
+        auto ctx_ptr = std::get<ptr_with_off_t>(*maybe_ptr_or_mapfd);
         if (ctx_ptr.get_offset() == interval_t{crab::number_t{0}}) return;
     }
     //std::cout << "type error: Zero Offset assertion fail\n";
@@ -440,10 +435,9 @@ void region_domain_t::operator()(const ValidSize& u, location_t loc, int print) 
 void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
     auto reg = u.dst.v;
     auto reg_with_loc = reg_with_loc_t(reg, loc);
-    const EbpfMapDescriptor& desc
-        = global_program_info.get().platform->get_map_descriptor(u.mapfd);
-    const EbpfMapValueType& map_value_type = global_program_info.get().platform->
-        get_map_type(desc.type).value_type;
+    auto platform = global_program_info->platform;
+    const EbpfMapDescriptor& desc = platform->get_map_descriptor(u.mapfd);
+    const EbpfMapValueType& map_value_type = platform->get_map_type(desc.type).value_type;
     map_key_size_t map_key_size = desc.key_size;
     map_value_size_t map_value_size = desc.value_size;
     auto type = mapfd_t(u.mapfd, map_value_type, map_key_size, map_value_size);
@@ -469,11 +463,12 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
             return;
         }
         auto mapfd = std::get<mapfd_t>(ptr_or_mapfd.value());
-        auto map_desc = global_program_info.get().platform->get_map_descriptor(mapfd.get_mapfd());
+        auto platform = global_program_info->platform;
+        auto map_desc = platform->get_map_descriptor(mapfd.get_mapfd());
         if (mapfd.get_value_type() == EbpfMapValueType::MAP) {
-            const EbpfMapDescriptor& inner_map_desc = global_program_info.get().platform->
+            const EbpfMapDescriptor& inner_map_desc = platform->
                 get_map_descriptor(map_desc.inner_map_fd);
-            const EbpfMapValueType& inner_map_value_type = global_program_info.get().platform->
+            const EbpfMapValueType& inner_map_value_type = platform->
                 get_map_type(inner_map_desc.type).value_type;
             map_key_size_t inner_map_key_size = inner_map_desc.key_size;
             map_value_size_t inner_map_value_size = inner_map_desc.value_size;
@@ -515,7 +510,7 @@ void region_domain_t::operator()(const ValidAccess &s, location_t loc, int print
 
     auto maybe_ptr_or_mapfd_type = m_registers.find(s.reg.v);
     if (maybe_ptr_or_mapfd_type) {
-        auto reg_ptr_or_mapfd_type = maybe_ptr_or_mapfd_type.value();
+        auto reg_ptr_or_mapfd_type = *maybe_ptr_or_mapfd_type;
         if (std::holds_alternative<ptr_with_off_t>(reg_ptr_or_mapfd_type)) {
             auto reg_with_off_ptr_type = std::get<ptr_with_off_t>(reg_ptr_or_mapfd_type);
             auto offset = reg_with_off_ptr_type.get_offset();
@@ -556,7 +551,7 @@ void region_domain_t::operator()(const ValidAccess &s, location_t loc, int print
 
 void region_domain_t::operator()(const ValidStore& u, location_t loc, int print) {
 
-    bool is_stack_p = is_stack_pointer(u.mem.v);
+    bool is_stack_p = is_stack_ptr(m_registers.find(u.val.v));
     auto maybe_ptr_type2 = m_registers.find(u.val.v);
 
     if (is_stack_p || !maybe_ptr_type2) {
@@ -676,6 +671,7 @@ interval_t region_domain_t::do_bin(const Bin& bin,
     if (src_interval_opt) src_interval = std::move(src_interval_opt.value());
 
     auto reg = reg_with_loc_t(bin.dst.v, loc);
+    interval_t to_return = interval_t::bottom();
 
     switch (bin.op)
     {
@@ -695,7 +691,7 @@ interval_t region_domain_t::do_bin(const Bin& bin,
         case Op::ADD: {
             // adding pointer to another
             if (src_ptr_or_mapfd_opt && dst_ptr_or_mapfd_opt) {
-                if (is_stack_pointer(bin.dst.v))
+                if (is_stack_ptr(dst_ptr_or_mapfd))
                     m_stack.set_to_top();
                 else {
                     // TODO: handle other cases properly
@@ -728,22 +724,15 @@ interval_t region_domain_t::do_bin(const Bin& bin,
                     //std::cout << "type error: mapfd registers subtraction not defined\n";
                     m_errors.push_back("mapfd registers subtraction not defined");
                 }
-                else if (std::holds_alternative<ptr_with_off_t>(dst_ptr_or_mapfd) &&
-                        std::holds_alternative<ptr_with_off_t>(src_ptr_or_mapfd)) {
-                    auto dst_ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(dst_ptr_or_mapfd);
-                    auto src_ptr_or_mapfd_with_off = std::get<ptr_with_off_t>(src_ptr_or_mapfd);
-                    if (dst_ptr_or_mapfd_with_off.get_region()
-                            == src_ptr_or_mapfd_with_off.get_region()) {
-                        m_registers -= bin.dst.v;
-                        return (dst_ptr_or_mapfd_with_off.get_offset() -
-                            src_ptr_or_mapfd_with_off.get_offset());
-                    }
-                    else {
-                        //std::cout << "type error: subtraction between pointers of different region\n";
-                        m_errors.push_back("subtraction between pointers of different region");
+                else if (same_region(dst_ptr_or_mapfd, src_ptr_or_mapfd)) {
+                    if (std::holds_alternative<ptr_with_off_t>(dst_ptr_or_mapfd) &&
+                            std::holds_alternative<ptr_with_off_t>(src_ptr_or_mapfd)) {
+                        auto dst_ptr_with_off = std::get<ptr_with_off_t>(dst_ptr_or_mapfd);
+                        auto src_ptr_with_off = std::get<ptr_with_off_t>(src_ptr_or_mapfd);
+                        to_return = dst_ptr_with_off.get_offset() - src_ptr_with_off.get_offset();
                     }
                 }
-                else if (!same_region(get_ptr(dst_ptr_or_mapfd), get_ptr(src_ptr_or_mapfd))) {
+                else {
                     //std::cout << "type error: subtraction between pointers of different region\n";
                     m_errors.push_back("subtraction between pointers of different region");
                 }
@@ -758,109 +747,94 @@ interval_t region_domain_t::do_bin(const Bin& bin,
         }
         default: break;
     }
-    m_registers -= bin.dst.v;
-    return interval_t::bottom();
+    return to_return;
 }
 
-void region_domain_t::do_load(const Mem& b, const Reg& target_reg, location_t loc) {
+void region_domain_t::do_load(const Mem& b, const Reg& target_reg, bool unknown_ptr,
+        location_t loc) {
+
+    if (unknown_ptr) {
+        m_registers -= target_reg.v;
+        return;
+    }
 
     int width = b.access.width;
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
 
     auto ptr_or_mapfd_opt = m_registers.find(basereg.v);
-    if (!ptr_or_mapfd_opt) {
-        std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
-        std::string desc = std::string("\tloading from an unknown pointer, or from number - r") + s + "\n";
-        //std::cout << desc;
-        m_registers -= target_reg.v;
-        return;
-    }
-    auto type_basereg = ptr_or_mapfd_opt.value();
-
-    if (!std::holds_alternative<ptr_with_off_t>(type_basereg)
-            || std::get<ptr_with_off_t>(type_basereg).get_region() == crab::region_t::T_SHARED) {
-        // loading from either packet, shared region or mapfd does not happen in region domain
+    bool is_stack_p = is_stack_ptr(ptr_or_mapfd_opt);
+    bool is_ctx_p = is_ctx_ptr(ptr_or_mapfd_opt);
+    if (!is_ctx_p && !is_stack_p) {
+        // loading from either packet or shared region or mapfd does not happen in region domain
         m_registers -= target_reg.v;
         return;
     }
 
-    auto type_with_off = std::get<ptr_with_off_t>(type_basereg);
+    auto type_with_off = std::get<ptr_with_off_t>(*ptr_or_mapfd_opt);
     auto p_offset = type_with_off.get_offset();
     auto offset_singleton = p_offset.singleton();
 
-    switch (type_with_off.get_region()) {
-        case crab::region_t::T_STACK: {
-            if (!offset_singleton) {
-                for (auto const& k : m_stack.get_keys()) {
-                    auto start = p_offset.lb();
-                    auto end = p_offset.ub()+number_t{offset+width-1};
-                    interval_t range{start, end};
-                    if (range[number_t{(int)k}]) {
-                        //std::cout << "stack load at unknown offset, and offset range contains pointers\n";
-                        m_errors.push_back("stack load at unknown offset, and offset range contains pointers");
-                        break;
-                    }
+    if (is_stack_p) {
+        if (!offset_singleton) {
+            for (auto const& k : m_stack.get_keys()) {
+                auto start = p_offset.lb();
+                auto end = p_offset.ub()+number_t{offset+width-1};
+                interval_t range{start, end};
+                if (range[number_t{(int)k}]) {
+                    //std::cout << "stack load at unknown offset, and offset range contains pointers\n";
+                    m_errors.push_back("stack load at unknown offset, and offset range contains pointers");
+                    break;
                 }
-                m_registers -= target_reg.v;
             }
-            else {
-                if (width != 1 && width != 2 && width != 4 && width != 8) {
-                    m_registers -= target_reg.v;
-                    return;
-                }
-                auto ptr_offset = offset_singleton.value();
-                auto load_at = (uint64_t)(ptr_offset + offset);
-
-                auto ptr_or_mapfd_opt = m_stack.find(load_at);
-
-                if (!ptr_or_mapfd_opt) {
-                    // no field at loaded offset in stack
-                    m_registers -= target_reg.v;
-                    return;
-                }
-                auto type_loaded = ptr_or_mapfd_opt.value();
-
-                auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_registers.insert(target_reg.v, reg, type_loaded.first);
-            }
-            break;
+            m_registers -= target_reg.v;
         }
-        case crab::region_t::T_CTX: {
-
-            if (!offset_singleton) {
-                for (auto const& k : m_ctx->get_keys()) {
-                    auto start = p_offset.lb();
-                    auto end = p_offset.ub()+crab::bound_t{offset+width-1};
-                    interval_t range{start, end};
-                    if (range[number_t{(int)k}]) {
-                        //std::cout << "ctx load at unknown offset, and offset range contains pointers\n";
-                        m_errors.push_back("ctx load at unknown offset, and offset range contains pointers");
-                        break;
-                    }
-                }
+        else {
+            if (width != 1 && width != 2 && width != 4 && width != 8) {
                 m_registers -= target_reg.v;
+                return;
             }
-            else {
-                auto ptr_offset = offset_singleton.value();
-                auto load_at = (uint64_t)(ptr_offset + offset);
-                auto it = m_ctx->find(load_at);
+            auto ptr_offset = offset_singleton.value();
+            auto load_at = (uint64_t)(ptr_offset + offset);
 
-                if (!it) {
-                    // no field at loaded offset in ctx
-                    m_registers -= target_reg.v;
-                    return;
-                }
-                ptr_no_off_t type_loaded = it.value();
-
-                auto reg = reg_with_loc_t(target_reg.v, loc);
-                m_registers.insert(target_reg.v, reg, type_loaded);
+            auto loaded = m_stack.find(load_at);
+            if (!loaded) {
+                // no field at loaded offset in stack
+                m_registers -= target_reg.v;
+                return;
             }
-            break;
+
+            auto reg = reg_with_loc_t(target_reg.v, loc);
+            m_registers.insert(target_reg.v, reg, (*loaded).first);
         }
+    }
+    else {
+        if (!offset_singleton) {
+            for (auto const& k : m_ctx->get_keys()) {
+                auto start = p_offset.lb();
+                auto end = p_offset.ub()+crab::bound_t{offset+width-1};
+                interval_t range{start, end};
+                if (range[number_t{(int)k}]) {
+                    //std::cout << "ctx load at unknown offset, and offset range contains pointers\n";
+                    m_errors.push_back("ctx load at unknown offset, and offset range contains pointers");
+                    break;
+                }
+            }
+            m_registers -= target_reg.v;
+        }
+        else {
+            auto ptr_offset = offset_singleton.value();
+            auto load_at = (uint64_t)(ptr_offset + offset);
 
-        default: {
-            assert(false);
+            auto loaded = m_ctx->find(load_at);
+            if (!loaded) {
+                // no field at loaded offset in ctx
+                m_registers -= target_reg.v;
+                return;
+            }
+
+            auto reg = reg_with_loc_t(target_reg.v, loc);
+            m_registers.insert(target_reg.v, reg, *loaded);
         }
     }
 }
@@ -875,94 +849,45 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
-    // TODO: move generic checks to type domain
     auto maybe_basereg_type = m_registers.find(basereg.v);
-    if (!maybe_basereg_type) {
-        std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
-        std::string desc = std::string("\tstoring at an unknown pointer, or from number - r") + s + "\n";
-        //std::cout << desc;
-        m_errors.push_back(desc);
-        return;
-    }
     auto basereg_type = maybe_basereg_type.value();
     auto targetreg_type = m_registers.find(target_reg.v);
 
-    if (std::holds_alternative<ptr_with_off_t>(basereg_type)) {
-        // base register is either CTX_P, STACK_P or SHARED_P
-        auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
+    bool is_ctx_p = is_ctx_ptr(maybe_basereg_type);
+    bool is_shared_p = is_shared_ptr(maybe_basereg_type);
+    bool is_packet_p = is_packet_ptr(maybe_basereg_type);
+    bool is_mapfd = is_mapfd_type(maybe_basereg_type);
 
-        if (basereg_type_with_off.get_region() == crab::region_t::T_STACK) {
-            auto offset_singleton = basereg_type_with_off.get_offset().singleton();
-            if (!offset_singleton) {
-                //std::cout << "type error: storing to a pointer with unknown offset\n";
-                m_errors.push_back("storing to a pointer with unknown offset");
-                return;
-            }
-            auto store_at = (uint64_t)offset+(uint64_t)offset_singleton.value();
-            // type of basereg is STACK_P
-            auto overlapping_cells = m_stack.find_overlapping_cells(store_at, width);
-            m_stack -= overlapping_cells;
-
-            // if targetreg_type is empty, we are storing a number
-            if (!targetreg_type) return;
-
-            auto type_to_store = targetreg_type.value();
-            m_stack.store(store_at, type_to_store, width);
-        }
-        else if (basereg_type_with_off.get_region() == crab::region_t::T_CTX) {
-            // type of basereg is CTX_P
-            if (targetreg_type) {
-                std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
-                std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into ctx\n";
-                //std::cout << desc;
-                m_errors.push_back(desc);
-                return;
-            }
+    if (is_mapfd) {
+        m_errors.push_back("storing into a mapfd register is not defined");
+        return;
+    }
+    if (is_shared_p || is_packet_p || is_ctx_p) {
+        if (targetreg_type) {
+            m_errors.push_back("storing a pointer into a shared, packet or ctx pointer");
+            return;
         }
         else {
-            // type of basereg is SHARED_P
-            if (targetreg_type) {
-                //std::cout << "type error: we cannot store a pointer into shared\n";
-                m_errors.push_back("we cannot store a pointer into shared");
-            }
-        }
-    }
-    else if (std::holds_alternative<ptr_no_off_t>(basereg_type)) {
-        // base register type is a PACKET_P
-        if (targetreg_type) {
-            std::string s = std::to_string(static_cast<unsigned int>(target_reg.v));
-            std::string desc = std::string("\twe cannot store a pointer, r") + s + ", into packet\n";
-            //std::cout << desc;
-            m_errors.push_back(desc);
+            // storing a number into a region does not affect the region
             return;
         }
     }
-    else {
-        //std::cout << "type error: we cannot store a pointer into a mapfd\n";
-        m_errors.push_back("we cannot store a pointer into a mapfd");
+
+    // if the code reaches here, we are storing into a stack pointer
+    auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
+    auto offset_singleton = basereg_type_with_off.get_offset().singleton();
+    if (!offset_singleton) {
+        //std::cout << "type error: storing to a pointer with unknown offset\n";
+        m_errors.push_back("storing to a pointer with unknown offset");
         return;
     }
-}
+    auto store_at = (uint64_t)offset+(uint64_t)offset_singleton.value();
+    auto overlapping_cells = m_stack.find_overlapping_cells(store_at, width);
+    m_stack -= overlapping_cells;
 
-bool region_domain_t::is_ctx_pointer(register_t reg) const {
-    auto type = m_registers.find(reg);
-    if (!type) {    // not a pointer
-        return false;
-    }
-    auto ptr_or_mapfd_type = type.value();
-    return (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type) &&
-            std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_CTX);
-}
-
-
-bool region_domain_t::is_stack_pointer(register_t reg) const {
-    auto type = m_registers.find(reg);
-    if (!type) {    // not a pointer
-        return false;
-    }
-    auto ptr_or_mapfd_type = type.value();
-    return (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_type) &&
-            std::get<ptr_with_off_t>(ptr_or_mapfd_type).get_region() == crab::region_t::T_STACK);
+    // if targetreg_type is empty, we are storing a number
+    if (!targetreg_type) return;
+    m_stack.store(store_at, *targetreg_type, width);
 }
 
 void region_domain_t::adjust_bb_for_types(location_t loc) {

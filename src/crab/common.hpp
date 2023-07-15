@@ -119,13 +119,44 @@ class reg_with_loc_t {
 };
 
 using ptr_or_mapfd_t = std::variant<ptr_with_off_t, ptr_no_off_t, mapfd_t>;
-using ptr_or_mapfd_cells_t = std::pair<ptr_or_mapfd_t, int>;
-using ptr_or_mapfd_types_t = std::map<uint64_t, ptr_or_mapfd_cells_t>;
 
-using live_registers_t = std::array<std::shared_ptr<reg_with_loc_t>, 11>;
-using global_region_env_t = std::unordered_map<reg_with_loc_t, ptr_or_mapfd_t>;
+inline bool is_mapfd_type(const std::optional<ptr_or_mapfd_t>& ptr_or_mapfd) {
+    return (ptr_or_mapfd && std::holds_alternative<mapfd_t>(*ptr_or_mapfd));
+}
 
-bool same_region(const ptr_t& ptr1, const ptr_t& ptr2);
+inline bool same_region(const ptr_or_mapfd_t& ptr1, const ptr_or_mapfd_t& ptr2) {
+    if (std::holds_alternative<ptr_no_off_t>(ptr1) && std::holds_alternative<ptr_no_off_t>(ptr2))
+        return true;
+    return (std::holds_alternative<ptr_with_off_t>(ptr1)
+            && std::holds_alternative<ptr_with_off_t>(ptr2)
+            && std::get<ptr_with_off_t>(ptr1).get_region()
+                == std::get<ptr_with_off_t>(ptr2).get_region());
+}
+
+inline bool is_stack_ptr(const std::optional<ptr_or_mapfd_t>& ptr) {
+    return (ptr && std::holds_alternative<ptr_with_off_t>(*ptr)
+            && std::get<ptr_with_off_t>(*ptr).get_region() == region_t::T_STACK);
+}
+
+inline bool is_ctx_ptr(const std::optional<ptr_or_mapfd_t>& ptr) {
+    return (ptr && std::holds_alternative<ptr_with_off_t>(*ptr)
+            && std::get<ptr_with_off_t>(*ptr).get_region() == region_t::T_CTX);
+}
+
+inline bool is_packet_ptr(const std::optional<ptr_or_mapfd_t>& ptr) {
+    return (ptr && std::holds_alternative<ptr_no_off_t>(*ptr));
+}
+
+inline bool is_shared_ptr(const std::optional<ptr_or_mapfd_t>& ptr) {
+    return (ptr && std::holds_alternative<ptr_with_off_t>(*ptr)
+            && std::get<ptr_with_off_t>(*ptr).get_region() == region_t::T_SHARED);
+}
+
+inline std::ostream& operator<<(std::ostream& o, const region_t& t) {
+    o << static_cast<std::underlying_type<region_t>::type>(t);
+    return o;
+}
+
 
 } // namespace crab
 
@@ -165,6 +196,6 @@ namespace std {
         }
     };
 
-    crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t);
+    //crab::ptr_t get_ptr(const crab::ptr_or_mapfd_t& t);
 }
 
