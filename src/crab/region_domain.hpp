@@ -83,6 +83,7 @@ class register_types_t {
     std::optional<ptr_or_mapfd_t> find(reg_with_loc_t reg) const;
     std::optional<ptr_or_mapfd_t> find(register_t key) const;
     [[nodiscard]] live_registers_t &get_vars() { return m_cur_def; }
+    void forget_packet_ptrs();
     void adjust_bb_for_registers(location_t loc);
     void print_all_register_types() const;
 };

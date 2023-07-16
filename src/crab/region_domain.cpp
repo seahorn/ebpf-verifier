@@ -37,6 +37,15 @@ std::optional<ptr_no_off_t> ctx_t::find(uint64_t key) const {
     return it->second;
 }
 
+void register_types_t::forget_packet_ptrs() {
+    for (auto r = register_t{0}; r <= register_t{10}; ++r) {
+        auto reg = find(r);
+        if (is_packet_ptr(reg)) {
+            operator-=(r);
+        }
+    }
+}
+
 register_types_t register_types_t::operator|(const register_types_t& other) const {
     if (is_bottom() || other.is_top()) {
         return other;
@@ -571,7 +580,7 @@ void region_domain_t::operator()(const Call& u, location_t loc, int print) {
     }
 out:
     if (u.reallocate_packet) {
-        // forget packet pointers
+        m_registers.forget_packet_ptrs();
     }
 }
 
