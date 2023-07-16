@@ -159,6 +159,11 @@ class region_domain_t final {
     string_invariant to_set();
     void set_require_check(check_require_func_t f) {}
 
+    interval_t get_map_value_size(const Reg&) const;
+    bool get_map_fd_range(const Reg&, int32_t*, int32_t*) const;
+    std::optional<uint32_t> get_map_type(const Reg&) const;
+    std::optional<uint32_t> get_map_inner_map_fd(const Reg&) const;
+    void do_load_mapfd(const register_t&, int, location_t);
     void do_load(const Mem&, const Reg&, bool, location_t);
     void do_mem_store(const Mem&, const Reg&, location_t);
     interval_t do_bin(const Bin&, const std::optional<interval_t>&,

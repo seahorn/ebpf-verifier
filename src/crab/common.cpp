@@ -37,8 +37,12 @@ bool ptr_no_off_t::operator!=(const ptr_no_off_t& other) const {
 }
 
 bool mapfd_t::operator==(const mapfd_t& other) const {
-    return (m_mapfd == other.m_mapfd && m_key_size == other.m_key_size
-            && m_value_size == other.m_value_size);
+    return (m_mapfd == other.m_mapfd);
+}
+
+mapfd_t mapfd_t::operator|(const mapfd_t& other) const {
+    auto value_type = m_value_type == other.m_value_type ? m_value_type : EbpfMapValueType::ANY;
+    return mapfd_t(m_mapfd | other.m_mapfd, value_type);
 }
 
 interval_t ptr_with_off_t::get_region_size() const { return m_region_size; }

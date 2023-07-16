@@ -61,13 +61,23 @@ register_types_t register_types_t::operator|(const register_types_t& other) cons
             if (ptr_or_mapfd1 == ptr_or_mapfd2) {
                 out_vars[i] = m_cur_def[i];
             }
-            else if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd1)
-                        && std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd2)) {
-                ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr_or_mapfd1);
-                ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr_or_mapfd2);
-                if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
-                    out_vars[i] = std::make_shared<reg_with_loc_t>(reg);
-                    (*m_region_env)[reg] = std::move(ptr_with_off1 | ptr_with_off2);
+            else { 
+                auto shared_reg = std::make_shared<reg_with_loc_t>(reg);
+                if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd1)
+                            && std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd2)) {
+                    ptr_with_off_t ptr_with_off1 = std::get<ptr_with_off_t>(ptr_or_mapfd1);
+                    ptr_with_off_t ptr_with_off2 = std::get<ptr_with_off_t>(ptr_or_mapfd2);
+                    if (ptr_with_off1.get_region() == ptr_with_off2.get_region()) {
+                        out_vars[i] = shared_reg;
+                        (*m_region_env)[reg] = std::move(ptr_with_off1 | ptr_with_off2);
+                    }
+                }
+                else if (std::holds_alternative<mapfd_t>(ptr_or_mapfd1)
+                        && std::holds_alternative<mapfd_t>(ptr_or_mapfd2)) {
+                    mapfd_t mapfd1 = std::get<mapfd_t>(ptr_or_mapfd1);
+                    mapfd_t mapfd2 = std::get<mapfd_t>(ptr_or_mapfd2);
+                    out_vars[i] = shared_reg;
+                    (*m_region_env)[reg] = std::move(mapfd1 | mapfd2);
                 }
             }
         }
@@ -160,7 +170,7 @@ stack_t stack_t::operator|(const stack_t& other) const {
         auto maybe_ptr_or_mapfd_cells = other.find(kv.first);
         if (maybe_ptr_or_mapfd_cells) {
             auto ptr_or_mapfd_cells1 = kv.second;
-            auto ptr_or_mapfd_cells2 = maybe_ptr_or_mapfd_cells.value();
+            auto ptr_or_mapfd_cells2 = *maybe_ptr_or_mapfd_cells;
             auto ptr_or_mapfd1 = ptr_or_mapfd_cells1.first;
             auto ptr_or_mapfd2 = ptr_or_mapfd_cells2.first;
             int width1 = ptr_or_mapfd_cells1.second;
@@ -177,6 +187,12 @@ stack_t stack_t::operator|(const stack_t& other) const {
                     out_ptrs[kv.first]
                         = std::make_pair(ptr_with_off1 | ptr_with_off2, width_joined);
                 }
+            }
+            else if (std::holds_alternative<mapfd_t>(ptr_or_mapfd1) &&
+                    std::holds_alternative<mapfd_t>(ptr_or_mapfd2)) {
+                auto mapfd1 = std::get<mapfd_t>(ptr_or_mapfd1);
+                auto mapfd2 = std::get<mapfd_t>(ptr_or_mapfd2);
+                out_ptrs[kv.first] = std::make_pair(mapfd1 | mapfd2, width_joined);
             }
         }
     }
@@ -432,19 +448,95 @@ void region_domain_t::operator()(const ValidSize& u, location_t loc, int print) 
     /* WARNING: The operation is not implemented yet.*/
 }
 
-void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
-    auto reg = u.dst.v;
-    auto reg_with_loc = reg_with_loc_t(reg, loc);
-    auto platform = global_program_info->platform;
-    const EbpfMapDescriptor& desc = platform->get_map_descriptor(u.mapfd);
-    const EbpfMapValueType& map_value_type = platform->get_map_type(desc.type).value_type;
-    map_key_size_t map_key_size = desc.key_size;
-    map_value_size_t map_value_size = desc.value_size;
-    auto type = mapfd_t(u.mapfd, map_value_type, map_key_size, map_value_size);
-    m_registers.insert(reg, reg_with_loc, type);
+// Get the start and end of the range of possible map fd values.
+// In the future, it would be cleaner to use a set rather than an interval
+// for map fds.
+bool region_domain_t::get_map_fd_range(const Reg& map_fd_reg, int32_t* start_fd, int32_t* end_fd) const {
+    auto maybe_type = m_registers.find(map_fd_reg.v);
+    if (!is_mapfd_type(maybe_type)) return false;
+    auto mapfd_type = std::get<mapfd_t>(*maybe_type);
+    const interval_t& mapfd_interval = mapfd_type.get_mapfd();
+    auto lb = mapfd_interval.lb().number();
+    auto ub = mapfd_interval.ub().number();
+    if (!lb || !lb->fits_sint32() || !ub || !ub->fits_sint32())
+        return false;
+    *start_fd = (int32_t)lb.value();
+    *end_fd = (int32_t)ub.value();
+
+    // Cap the maximum range we'll check.
+    const int max_range = 32;
+    return (*mapfd_interval.finite_size() < max_range);
 }
 
-void region_domain_t::operator()(const Call &u, location_t loc, int print) {
+// All maps in the range must have the same type for us to use it.
+std::optional<uint32_t> region_domain_t::get_map_type(const Reg& map_fd_reg) const {
+    int32_t start_fd, end_fd;
+    if (!get_map_fd_range(map_fd_reg, &start_fd, &end_fd))
+        return std::optional<uint32_t>();
+
+    std::optional<uint32_t> type;
+    for (int32_t map_fd = start_fd; map_fd <= end_fd; map_fd++) {
+        EbpfMapDescriptor* map = &global_program_info->platform->get_map_descriptor(map_fd);
+        if (map == nullptr)
+            return std::optional<uint32_t>();
+        if (!type.has_value())
+            type = map->type;
+        else if (map->type != *type)
+            return std::optional<uint32_t>();
+    }
+    return type;
+}
+
+// All maps in the range must have the same inner map fd for us to use it.
+std::optional<uint32_t> region_domain_t::get_map_inner_map_fd(const Reg& map_fd_reg) const {
+    int32_t start_fd, end_fd;
+    if (!get_map_fd_range(map_fd_reg, &start_fd, &end_fd))
+        return std::optional<uint32_t>();
+
+    std::optional<uint32_t> inner_map_fd;
+    for (int map_fd = start_fd; map_fd <= end_fd; map_fd++) {
+        EbpfMapDescriptor* map = &global_program_info->platform->get_map_descriptor(map_fd);
+        if (map == nullptr)
+            return std::optional<uint32_t>();
+        if (!inner_map_fd.has_value())
+            inner_map_fd = map->inner_map_fd;
+        else if (map->type != *inner_map_fd)
+            return std::optional<uint32_t>();
+    }
+    return inner_map_fd;
+}
+
+// We can deal with a range of value sizes.
+interval_t region_domain_t::get_map_value_size(const Reg& map_fd_reg) const {
+    int start_fd, end_fd;
+    if (!get_map_fd_range(map_fd_reg, &start_fd, &end_fd))
+        return interval_t::top();
+
+    interval_t result = crab::interval_t::bottom();
+    for (int map_fd = start_fd; map_fd <= end_fd; map_fd++) {
+        if (EbpfMapDescriptor* map = &global_program_info->platform->get_map_descriptor(map_fd))
+            result = result | crab::interval_t(number_t(map->value_size));
+        else
+            return interval_t::top();
+    }
+    return result;
+}
+
+void region_domain_t::do_load_mapfd(const register_t& dst_reg, int mapfd, location_t loc) {
+    auto reg_with_loc = reg_with_loc_t(dst_reg, loc);
+    const auto& platform = global_program_info->platform;
+    const EbpfMapDescriptor& desc = platform->get_map_descriptor(mapfd);
+    const EbpfMapValueType& map_value_type = platform->get_map_type(desc.type).value_type;
+    auto mapfd_interval = interval_t{number_t{mapfd}};
+    auto type = mapfd_t(mapfd_interval, map_value_type);
+    m_registers.insert(dst_reg, reg_with_loc, type);
+}
+
+void region_domain_t::operator()(const LoadMapFd &u, location_t loc, int print) {
+    do_load_mapfd((register_t)u.dst.v, u.mapfd, loc);
+}
+
+void region_domain_t::operator()(const Call& u, location_t loc, int print) {
     std::optional<Reg> maybe_fd_reg{};
     for (ArgSingle param : u.singles) {
         if (param.kind == ArgSingle::Kind::MAP_FD) maybe_fd_reg = param.reg;
@@ -453,37 +545,33 @@ void region_domain_t::operator()(const Call &u, location_t loc, int print) {
     register_t r0_reg{R0_RETURN_VALUE};
     auto r0 = reg_with_loc_t(r0_reg, loc);
     if (u.is_map_lookup) {
-        if (!maybe_fd_reg) {
-            m_registers -= r0_reg;
-            return;
-        }
-        auto ptr_or_mapfd = m_registers.find(maybe_fd_reg->v);
-        if (!ptr_or_mapfd || !std::holds_alternative<mapfd_t>(ptr_or_mapfd.value())) {
-            m_registers -= r0_reg;
-            return;
-        }
-        auto mapfd = std::get<mapfd_t>(ptr_or_mapfd.value());
-        auto platform = global_program_info->platform;
-        auto map_desc = platform->get_map_descriptor(mapfd.get_mapfd());
-        if (mapfd.get_value_type() == EbpfMapValueType::MAP) {
-            const EbpfMapDescriptor& inner_map_desc = platform->
-                get_map_descriptor(map_desc.inner_map_fd);
-            const EbpfMapValueType& inner_map_value_type = platform->
-                get_map_type(inner_map_desc.type).value_type;
-            map_key_size_t inner_map_key_size = inner_map_desc.key_size;
-            map_value_size_t inner_map_value_size = inner_map_desc.value_size;
-            auto type = mapfd_t(map_desc.inner_map_fd, inner_map_value_type,
-                    inner_map_key_size, inner_map_value_size);
-            m_registers.insert(r0_reg, r0, type);
+        if (maybe_fd_reg) {
+            if (auto map_type = get_map_type(*maybe_fd_reg)) {
+                if (global_program_info->platform->get_map_type(*map_type).value_type
+                        == EbpfMapValueType::MAP) {
+                    if (auto inner_map_fd = get_map_inner_map_fd(*maybe_fd_reg)) {
+                        do_load_mapfd(r0_reg, (int)*inner_map_fd, loc);
+                        goto out;
+                    }
+                } else {
+                    auto type = ptr_with_off_t(crab::region_t::T_SHARED, interval_t{number_t{0}},
+                            get_map_value_size(*maybe_fd_reg));
+                    m_registers.insert(r0_reg, r0, type);
+                }
+            }
         }
         else {
-            auto type = ptr_with_off_t(crab::region_t::T_SHARED, interval_t{number_t{0}},
-                    interval_t{mapfd.get_value_size()});
+            auto type = ptr_with_off_t(
+                 crab::region_t::T_SHARED, interval_t{number_t{0}}, crab::interval_t::top());
             m_registers.insert(r0_reg, r0, type);
         }
     }
     else {
         m_registers -= r0_reg;
+    }
+out:
+    if (u.reallocate_packet) {
+        // forget packet pointers
     }
 }
 
@@ -627,7 +715,7 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
                 || s.types == TypeGroup::mem_or_num)
             return;
     }
-    //std::cout << "type error: type constraint assert fail: " << s << "\n";
+    //std::cout << "type error: type constraint assert fail\n";
     m_errors.push_back("type constraint assert fail");
 }
 

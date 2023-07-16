@@ -189,18 +189,10 @@ void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
 
 void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
 
-    int width;
     auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
     auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
     if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
         if (is_mapfd_type(maybe_mapfd)) {
-            auto mapfd_type = std::get<mapfd_t>(*maybe_mapfd);
-            if (u.key) {
-                width = (int)mapfd_type.get_key_size();
-            }
-            else {
-                width = (int)mapfd_type.get_value_size();
-            }
             auto ptr_or_mapfd_basereg = maybe_ptr_or_mapfd_basereg.value();
             if (std::holds_alternative<ptr_with_off_t>(ptr_or_mapfd_basereg)) {
                 auto ptr_with_off = std::get<ptr_with_off_t>(ptr_or_mapfd_basereg);
@@ -224,6 +216,7 @@ void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int pr
                 // We do not check packet ptr accesses yet
                 return;
             }
+            m_errors.push_back("Only stack or packet can be used as a parameter");
         }
     }
     //std::cout << "type error: valid map key value assertion failed\n";
