@@ -308,7 +308,7 @@ void type_domain_t::print_registers() const {
         auto maybe_ptr_or_mapfd_type = m_region.find_ptr_or_mapfd_type(reg);
         if (maybe_ptr_or_mapfd_type) {
             std::cout << "    ";
-            print_register(Reg{(uint8_t)reg}, maybe_ptr_or_mapfd_type);
+            print_register(std::cout, Reg{(uint8_t)reg}, maybe_ptr_or_mapfd_type);
             std::cout << "\n";
         }
     }

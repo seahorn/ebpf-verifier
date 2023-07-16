@@ -10,7 +10,7 @@
 
 void print_ptr_or_mapfd_type(std::ostream&, const crab::ptr_or_mapfd_t&);
 void print_ptr_type(std::ostream&, const crab::ptr_or_mapfd_t& ptr);
-void print_register(Reg r, std::optional<crab::ptr_or_mapfd_t>& p);
+void print_register(std::ostream& o, const Reg& r, std::optional<crab::ptr_or_mapfd_t>& p);
 void print_annotated(std::ostream& o, const Call& call, std::optional<crab::ptr_or_mapfd_t>& p);
 void print_annotated(std::ostream& o, const Bin& b, std::optional<crab::ptr_or_mapfd_t>& p);
 void print_annotated(std::ostream& o, const LoadMapFd& u, std::optional<crab::ptr_or_mapfd_t>& p);
