@@ -165,10 +165,12 @@ void type_domain_t::operator()(const Comparable& u, location_t loc, int print) {
     if (maybe_ptr_or_mapfd1 && maybe_ptr_or_mapfd2) {
         // an extra check just to make sure registers are not labelled both ptrs and numbers
         if (is_mapfd_type(maybe_ptr_or_mapfd1) && is_mapfd_type(maybe_ptr_or_mapfd2)) return;
-        if (same_region(*maybe_ptr_or_mapfd1, *maybe_ptr_or_mapfd2)) return;
+        if (!is_shared_ptr(maybe_ptr_or_mapfd1)
+                && same_region(*maybe_ptr_or_mapfd1, *maybe_ptr_or_mapfd2)) return;
     }
-    else if (!maybe_ptr_or_mapfd1 && !maybe_ptr_or_mapfd2) {
-        // all other cases when we do not have a ptr or mapfd, the type is a number
+    else if (!maybe_ptr_or_mapfd2) {
+        // two numbers can be compared
+        // if r1 is a pointer, r2 must be a number
         return;
     }
     //std::cout << "type error: Non-comparable types\n";
@@ -353,7 +355,7 @@ void type_domain_t::adjust_bb_for_types(location_t loc) {
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
 
     if (print != 0) {
-        print_annotated(std::cout, *this, bb, print);
+        //print_annotated(std::cout, *this, bb, print);
         return;
     }
 
