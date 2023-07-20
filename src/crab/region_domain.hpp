@@ -166,7 +166,7 @@ class region_domain_t final {
     std::optional<uint32_t> get_map_inner_map_fd(const Reg&) const;
     void do_load_mapfd(const register_t&, int, location_t);
     void do_load(const Mem&, const Reg&, bool, location_t);
-    void do_mem_store(const Mem&, const Reg&, location_t);
+    void do_mem_store(const Mem&, location_t);
     interval_t do_bin(const Bin&, const std::optional<interval_t>&,
             const std::optional<crab::ptr_or_mapfd_t>&,
             const std::optional<crab::ptr_or_mapfd_t>&, location_t);

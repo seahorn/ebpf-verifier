@@ -945,15 +945,19 @@ void region_domain_t::operator()(const Mem& m, location_t loc, int print) {
     // nothing to do here
 }
 
-void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc) {
+void region_domain_t::do_mem_store(const Mem& b, location_t loc) {
 
+    std::optional<ptr_or_mapfd_t> targetreg_type = {};
+    bool target_is_reg = std::holds_alternative<Reg>(b.value);
+    if (target_is_reg) {
+        auto target_reg = std::get<Reg>(b.value);
+        targetreg_type = m_registers.find(target_reg.v);
+    }
     int offset = b.access.offset;
     Reg basereg = b.access.basereg;
     int width = b.access.width;
 
     auto maybe_basereg_type = m_registers.find(basereg.v);
-    auto basereg_type = maybe_basereg_type.value();
-    auto targetreg_type = m_registers.find(target_reg.v);
 
     bool is_ctx_p = is_ctx_ptr(maybe_basereg_type);
     bool is_shared_p = is_shared_ptr(maybe_basereg_type);
@@ -976,7 +980,7 @@ void region_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location
     }
 
     // if the code reaches here, we are storing into a stack pointer
-    auto basereg_type_with_off = std::get<ptr_with_off_t>(basereg_type);
+    auto basereg_type_with_off = std::get<ptr_with_off_t>(*maybe_basereg_type);
     auto offset_singleton = basereg_type_with_off.get_offset().to_interval().singleton();
     if (!offset_singleton) {
         //std::cout << "type error: storing to a pointer with unknown offset\n";

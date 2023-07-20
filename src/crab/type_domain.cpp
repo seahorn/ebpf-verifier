@@ -274,29 +274,26 @@ void type_domain_t::do_load(const Mem& b, const Reg& target_reg, bool unknown_pt
     m_region.do_load(b, target_reg, unknown_ptr, loc);
 }
 
-void type_domain_t::do_mem_store(const Mem& b, const Reg& target_reg, location_t loc, int print) {
-    m_region.do_mem_store(b, target_reg, loc);
+void type_domain_t::do_mem_store(const Mem& b, location_t loc, int print) {
+    m_region.do_mem_store(b, loc);
 }
 
 void type_domain_t::operator()(const Mem& b, location_t loc, int print) {
-    if (std::holds_alternative<Reg>(b.value)) {
-        auto targetreg = std::get<Reg>(b.value);
-        auto basereg = b.access.basereg;
-        auto ptr_or_mapfd_opt = m_region.find_ptr_or_mapfd_type(basereg.v);
-        bool unknown_ptr = !ptr_or_mapfd_opt.has_value();
-        if (unknown_ptr) {
-            std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
-            m_errors.push_back(
-                    std::string("load/store using an unknown pointer, or number - r") + s);
-        }
-
-        if (b.is_load) {
-            do_load(b, targetreg, unknown_ptr, loc, print);
-        } else if (!unknown_ptr) {
-            do_mem_store(b, targetreg, loc, print);
-        }
+    auto basereg = b.access.basereg;
+    auto ptr_or_mapfd_opt = m_region.find_ptr_or_mapfd_type(basereg.v);
+    bool unknown_ptr = !ptr_or_mapfd_opt.has_value();
+    if (unknown_ptr) {
+        std::string s = std::to_string(static_cast<unsigned int>(basereg.v));
+        m_errors.push_back(
+                std::string("load/store using an unknown pointer, or number - r") + s);
     }
-    else {}
+    if (!unknown_ptr && !b.is_load) {
+        do_mem_store(b, loc, print);
+    }
+    else if (std::holds_alternative<Reg>(b.value)) {
+        auto targetreg = std::get<Reg>(b.value);
+        if (b.is_load) do_load(b, targetreg, unknown_ptr, loc, print);
+    }
 }
 
 // the method does not work well as it requires info about the label of basic block we are in
@@ -355,7 +352,7 @@ void type_domain_t::adjust_bb_for_types(location_t loc) {
 void type_domain_t::operator()(const basic_block_t& bb, bool check_termination, int print) {
 
     if (print != 0) {
-        //print_annotated(std::cout, *this, bb, print);
+        print_annotated(std::cout, *this, bb, print);
         return;
     }
 
