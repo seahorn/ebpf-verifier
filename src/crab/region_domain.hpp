@@ -180,6 +180,7 @@ class region_domain_t final {
     std::optional<crab::ptr_or_mapfd_cells_t> find_in_stack(uint64_t key) const;
     std::optional<crab::ptr_or_mapfd_t> find_ptr_or_mapfd_at_loc(const crab::reg_with_loc_t&) const;
     [[nodiscard]] std::vector<uint64_t> get_stack_keys() const;
+    void set_registers_to_top();
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     [[nodiscard]] std::vector<std::string>& get_errors() { return m_errors; }

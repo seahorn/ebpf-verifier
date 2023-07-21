@@ -138,8 +138,27 @@ void type_domain_t::operator()(const Packet& u, location_t loc, int print) {
     m_region(u, loc);
 }
 
-void type_domain_t::operator()(const Assume& u, location_t loc, int print) {
-    /* WARNING: The operation is not implemented yet.*/
+void type_domain_t::operator()(const Assume& s, location_t loc, int print) {
+    Condition cond = s.cond;
+    auto right = cond.right;
+    const auto& maybe_left_type = m_region.find_ptr_or_mapfd_type(cond.left.v);
+    if (std::holds_alternative<Reg>(right)) {
+        const auto& right_reg = std::get<Reg>(right);
+        const auto& maybe_right_type = m_region.find_ptr_or_mapfd_type(right_reg.v);
+        if (maybe_left_type && maybe_right_type) {
+            // both pointers
+        }
+        else if (!maybe_left_type && !maybe_right_type) {
+            // both numbers
+        }
+        else {
+            // We should only reach here if `--assume-assert` is off
+            assert(!thread_local_options.assume_assertions || is_bottom());
+            // be sound in any case, it happens to flush out bugs:
+            m_region.set_registers_to_top();
+        }
+    }
+    else {}
 }
 
 void type_domain_t::operator()(const ValidDivisor& s, location_t loc, int print) {

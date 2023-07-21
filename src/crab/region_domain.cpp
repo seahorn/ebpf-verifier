@@ -321,6 +321,10 @@ std::optional<ptr_or_mapfd_t> region_domain_t::find_ptr_or_mapfd_at_loc(const re
     return m_registers.find(reg);
 }
 
+void region_domain_t::set_registers_to_top() {
+    m_registers.set_to_top();
+}
+
 size_t region_domain_t::ctx_size() const {
     return m_ctx->get_size();
 }
