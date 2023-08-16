@@ -127,16 +127,6 @@ void register_types_t::insert(register_t reg, const reg_with_loc_t& reg_with_loc
     m_cur_def[reg] = std::make_shared<reg_with_loc_t>(reg_with_loc);
 }
 
-void register_types_t::print_all_register_types() const {
-    std::cout << "\tregion types: {\n";
-    for (auto const& kv : *m_region_env) {
-        std::cout << "\t\t" << kv.first << " : ";
-        print_ptr_or_mapfd_type(std::cout, kv.second);
-        std::cout << "\n";
-    }
-    std::cout << "\t}\n";
-}
-
 std::optional<ptr_or_mapfd_t> register_types_t::find(reg_with_loc_t reg) const {
     auto it = m_region_env->find(reg);
     if (it == m_region_env->end()) return {};
@@ -727,8 +717,7 @@ void region_domain_t::operator()(const TypeConstraint& s, location_t loc, int pr
     else {
         // if we don't know the type, we assume it is a number
         if (s.types == TypeGroup::number || s.types == TypeGroup::ptr_or_num
-                || s.types == TypeGroup::non_map_fd || s.types == TypeGroup::ptr_or_num
-                || s.types == TypeGroup::mem_or_num)
+                || s.types == TypeGroup::non_map_fd || s.types == TypeGroup::mem_or_num)
             return;
     }
     //std::cout << "type error: type constraint assert fail\n";
@@ -816,6 +805,16 @@ interval_t region_domain_t::do_bin(const Bin& bin,
             else if (src_ptr_or_mapfd_opt && !dst_ptr_or_mapfd_opt) {
                 update_ptr_or_mapfd(std::move(src_ptr_or_mapfd), interval_t::top(),
                         reg, bin.dst.v);
+            }
+            else if (dst_ptr_or_mapfd_opt && !src_ptr_or_mapfd_opt) {
+                if (std::holds_alternative<ptr_with_off_t>(dst_ptr_or_mapfd)) {
+                    auto updated_type = std::get<ptr_with_off_t>(dst_ptr_or_mapfd);
+                    updated_type.set_offset(mock_interval_t::top());
+                    m_registers.insert(bin.dst.v, reg, updated_type);
+                }
+                else if (std::holds_alternative<ptr_no_off_t>(dst_ptr_or_mapfd)) {
+                    m_registers.insert(bin.dst.v, reg, dst_ptr_or_mapfd);
+                }
             }
             break;
         }
@@ -1002,10 +1001,6 @@ void region_domain_t::do_mem_store(const Mem& b, location_t loc) {
 
 void region_domain_t::adjust_bb_for_types(location_t loc) {
     m_registers.adjust_bb_for_registers(loc);
-}
-
-void region_domain_t::print_all_register_types() const {
-    m_registers.print_all_register_types();
 }
 
 } // namespace crab

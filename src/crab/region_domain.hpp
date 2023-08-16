@@ -85,7 +85,6 @@ class register_types_t {
     [[nodiscard]] live_registers_t &get_vars() { return m_cur_def; }
     void forget_packet_ptrs();
     void adjust_bb_for_registers(location_t loc);
-    void print_all_register_types() const;
 };
 
 class region_domain_t final {
@@ -184,6 +183,7 @@ class region_domain_t final {
     void adjust_bb_for_types(location_t);
     void print_all_register_types() const;
     [[nodiscard]] std::vector<std::string>& get_errors() { return m_errors; }
+    void reset_errors() { m_errors.clear(); }
 }; // end region_domain_t
 
 } // namespace crab
