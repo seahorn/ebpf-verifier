@@ -509,6 +509,22 @@ std::optional<uint32_t> region_domain_t::get_map_inner_map_fd(const Reg& map_fd_
     return inner_map_fd;
 }
 
+// We can deal with a range of key sizes.
+interval_t region_domain_t::get_map_key_size(const Reg& map_fd_reg) const {
+    int start_fd, end_fd;
+    if (!get_map_fd_range(map_fd_reg, &start_fd, &end_fd))
+        return interval_t::top();
+
+    interval_t result = interval_t::bottom();
+    for (int map_fd = start_fd; map_fd <= end_fd; map_fd++) {
+        if (EbpfMapDescriptor* map = &global_program_info->platform->get_map_descriptor(map_fd))
+            result = result | interval_t(number_t(map->key_size));
+        else
+            return interval_t::top();
+    }
+    return result;
+}
+
 // We can deal with a range of value sizes.
 interval_t region_domain_t::get_map_value_size(const Reg& map_fd_reg) const {
     int start_fd, end_fd;

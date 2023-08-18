@@ -161,6 +161,7 @@ class region_domain_t final {
 
     interval_t get_map_value_size(const Reg&) const;
     bool get_map_fd_range(const Reg&, int32_t*, int32_t*) const;
+    interval_t get_map_key_size(const Reg&) const;
     std::optional<uint32_t> get_map_type(const Reg&) const;
     std::optional<uint32_t> get_map_inner_map_fd(const Reg&) const;
     void do_load_mapfd(const register_t&, int, location_t);

@@ -210,6 +210,25 @@ void type_domain_t::operator()(const ValidSize& u, location_t loc, int print) {
 
 void type_domain_t::operator()(const ValidMapKeyValue& u, location_t loc, int print) {
 
+    // TODO: move map-related function to common
+    //auto fd_type = m_region.get_map_type(u.map_fd_reg);
+
+    int width;
+    if (u.key) {
+        auto key_size = m_region.get_map_key_size(u.map_fd_reg).singleton();
+        if (!key_size.has_value()) {
+            m_errors.push_back("Map key size is not singleton");
+            return;
+        }
+        width = (int)key_size.value();
+    } else {
+        auto value_size = m_region.get_map_value_size(u.map_fd_reg).singleton();
+        if (!value_size.has_value()) {
+            m_errors.push_back("Map value size is not singleton");
+            return;
+        }
+        width = (int)value_size.value();
+    }
     auto maybe_ptr_or_mapfd_basereg = m_region.find_ptr_or_mapfd_type(u.access_reg.v);
     auto maybe_mapfd = m_region.find_ptr_or_mapfd_type(u.map_fd_reg.v);
     if (maybe_ptr_or_mapfd_basereg && maybe_mapfd) {
